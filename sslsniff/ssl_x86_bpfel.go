@@ -13,13 +13,13 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-type readCallInfo struct {
+type sslCallInfo struct {
 	_       structs.HostLayout
 	BufAddr uint64
 	Len     uint64
 }
 
-type readEvent struct {
+type sslEvent struct {
 	_           structs.HostLayout
 	TimestampNs uint64
 	ReqLen      uint64
@@ -33,28 +33,28 @@ type readEvent struct {
 	_           [3]byte
 }
 
-// loadRead returns the embedded CollectionSpec for read.
-func loadRead() (*ebpf.CollectionSpec, error) {
-	reader := bytes.NewReader(_ReadBytes)
+// loadSsl returns the embedded CollectionSpec for ssl.
+func loadSsl() (*ebpf.CollectionSpec, error) {
+	reader := bytes.NewReader(_SslBytes)
 	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
 	if err != nil {
-		return nil, fmt.Errorf("can't load read: %w", err)
+		return nil, fmt.Errorf("can't load ssl: %w", err)
 	}
 
 	return spec, err
 }
 
-// loadReadObjects loads read and converts it into a struct.
+// loadSslObjects loads ssl and converts it into a struct.
 //
 // The following types are suitable as obj argument:
 //
-//	*readObjects
-//	*readPrograms
-//	*readMaps
+//	*sslObjects
+//	*sslPrograms
+//	*sslMaps
 //
 // See ebpf.CollectionSpec.LoadAndAssign documentation for details.
-func loadReadObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
-	spec, err := loadRead()
+func loadSslObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
+	spec, err := loadSsl()
 	if err != nil {
 		return err
 	}
@@ -62,19 +62,19 @@ func loadReadObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
 	return spec.LoadAndAssign(obj, opts)
 }
 
-// readSpecs contains maps and programs before they are loaded into the kernel.
+// sslSpecs contains maps and programs before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type readSpecs struct {
-	readProgramSpecs
-	readMapSpecs
-	readVariableSpecs
+type sslSpecs struct {
+	sslProgramSpecs
+	sslMapSpecs
+	sslVariableSpecs
 }
 
-// readProgramSpecs contains programs before they are loaded into the kernel.
+// sslProgramSpecs contains programs before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type readProgramSpecs struct {
+type sslProgramSpecs struct {
 	ProbeSslReadEntry   *ebpf.ProgramSpec `ebpf:"probe_ssl_read_entry"`
 	ProbeSslReadExExit  *ebpf.ProgramSpec `ebpf:"probe_ssl_read_ex_exit"`
 	ProbeSslReadExit    *ebpf.ProgramSpec `ebpf:"probe_ssl_read_exit"`
@@ -82,64 +82,64 @@ type readProgramSpecs struct {
 	ProbeSslWriteExit   *ebpf.ProgramSpec `ebpf:"probe_ssl_write_exit"`
 }
 
-// readMapSpecs contains maps before they are loaded into the kernel.
+// sslMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type readMapSpecs struct {
+type sslMapSpecs struct {
 	FakeEventMap *ebpf.MapSpec `ebpf:"_fake_event_map"`
 	Events       *ebpf.MapSpec `ebpf:"events"`
 	StartMap     *ebpf.MapSpec `ebpf:"start_map"`
 }
 
-// readVariableSpecs contains global variables before they are loaded into the kernel.
+// sslVariableSpecs contains global variables before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type readVariableSpecs struct {
+type sslVariableSpecs struct {
 }
 
-// readObjects contains all objects after they have been loaded into the kernel.
+// sslObjects contains all objects after they have been loaded into the kernel.
 //
-// It can be passed to loadReadObjects or ebpf.CollectionSpec.LoadAndAssign.
-type readObjects struct {
-	readPrograms
-	readMaps
-	readVariables
+// It can be passed to loadSslObjects or ebpf.CollectionSpec.LoadAndAssign.
+type sslObjects struct {
+	sslPrograms
+	sslMaps
+	sslVariables
 }
 
-func (o *readObjects) Close() error {
-	return _ReadClose(
-		&o.readPrograms,
-		&o.readMaps,
+func (o *sslObjects) Close() error {
+	return _SslClose(
+		&o.sslPrograms,
+		&o.sslMaps,
 	)
 }
 
-// readMaps contains all maps after they have been loaded into the kernel.
+// sslMaps contains all maps after they have been loaded into the kernel.
 //
-// It can be passed to loadReadObjects or ebpf.CollectionSpec.LoadAndAssign.
-type readMaps struct {
+// It can be passed to loadSslObjects or ebpf.CollectionSpec.LoadAndAssign.
+type sslMaps struct {
 	FakeEventMap *ebpf.Map `ebpf:"_fake_event_map"`
 	Events       *ebpf.Map `ebpf:"events"`
 	StartMap     *ebpf.Map `ebpf:"start_map"`
 }
 
-func (m *readMaps) Close() error {
-	return _ReadClose(
+func (m *sslMaps) Close() error {
+	return _SslClose(
 		m.FakeEventMap,
 		m.Events,
 		m.StartMap,
 	)
 }
 
-// readVariables contains all global variables after they have been loaded into the kernel.
+// sslVariables contains all global variables after they have been loaded into the kernel.
 //
-// It can be passed to loadReadObjects or ebpf.CollectionSpec.LoadAndAssign.
-type readVariables struct {
+// It can be passed to loadSslObjects or ebpf.CollectionSpec.LoadAndAssign.
+type sslVariables struct {
 }
 
-// readPrograms contains all programs after they have been loaded into the kernel.
+// sslPrograms contains all programs after they have been loaded into the kernel.
 //
-// It can be passed to loadReadObjects or ebpf.CollectionSpec.LoadAndAssign.
-type readPrograms struct {
+// It can be passed to loadSslObjects or ebpf.CollectionSpec.LoadAndAssign.
+type sslPrograms struct {
 	ProbeSslReadEntry   *ebpf.Program `ebpf:"probe_ssl_read_entry"`
 	ProbeSslReadExExit  *ebpf.Program `ebpf:"probe_ssl_read_ex_exit"`
 	ProbeSslReadExit    *ebpf.Program `ebpf:"probe_ssl_read_exit"`
@@ -147,8 +147,8 @@ type readPrograms struct {
 	ProbeSslWriteExit   *ebpf.Program `ebpf:"probe_ssl_write_exit"`
 }
 
-func (p *readPrograms) Close() error {
-	return _ReadClose(
+func (p *sslPrograms) Close() error {
+	return _SslClose(
 		p.ProbeSslReadEntry,
 		p.ProbeSslReadExExit,
 		p.ProbeSslReadExit,
@@ -157,7 +157,7 @@ func (p *readPrograms) Close() error {
 	)
 }
 
-func _ReadClose(closers ...io.Closer) error {
+func _SslClose(closers ...io.Closer) error {
 	for _, closer := range closers {
 		if err := closer.Close(); err != nil {
 			return err
@@ -168,5 +168,5 @@ func _ReadClose(closers ...io.Closer) error {
 
 // Do not access this directly.
 //
-//go:embed read_x86_bpfel.o
-var _ReadBytes []byte
+//go:embed ssl_x86_bpfel.o
+var _SslBytes []byte

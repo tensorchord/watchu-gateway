@@ -21,7 +21,7 @@ struct event {
     u64 uid_gid;
     u64 ssl_ptr;
     u32 data_len;
-    u8 rw;  // rwx: 2 write, 4 read
+    u8 rw; // rwx: 2 write, 4 read
     char comm[TASK_COMM_LEN];
     u8 data[MAX_BODY_SIZE];
 };

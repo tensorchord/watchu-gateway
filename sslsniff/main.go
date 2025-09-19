@@ -21,10 +21,10 @@ import (
 	"github.com/phuslu/log"
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 read read.bpf.c -- -I../headers
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 ssl ssl.bpf.c -- -I../headers
 
 const (
-	specPath      = "sslsniff/read_x86_bpfel.o"
+	specPath      = "sslsniff/ssl_x86_bpfel.o"
 	libSSLPathEnv = "LIBSSL_PATH"
 )
 
@@ -113,7 +113,7 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to remove memlock limit")
 	}
 
-	objs := readObjects{}
+	objs := sslObjects{}
 	spec, err := ebpf.LoadCollectionSpec(specPath)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to load ebpf spec")
@@ -129,37 +129,37 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to open libssl")
 	}
 
-	read, err := so.Uprobe("SSL_read", objs.readPrograms.ProbeSslReadEntry, nil)
+	read, err := so.Uprobe("SSL_read", objs.sslPrograms.ProbeSslReadEntry, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to attach uprobe SSL_read")
 	}
 	defer read.Close()
 
-	readRet, err := so.Uretprobe("SSL_read", objs.readPrograms.ProbeSslReadExit, nil)
+	readRet, err := so.Uretprobe("SSL_read", objs.sslPrograms.ProbeSslReadExit, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to attach uretprobe SSL_read")
 	}
 	defer readRet.Close()
 
-	readExRet, err := so.Uretprobe("SSL_read_ex", objs.readPrograms.ProbeSslReadExExit, nil)
+	readExRet, err := so.Uretprobe("SSL_read_ex", objs.sslPrograms.ProbeSslReadExExit, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to attach uretprobe SSL_read_ex")
 	}
 	defer readExRet.Close()
 
-	writeRet, err := so.Uretprobe("SSL_write", objs.readPrograms.ProbeSslWriteExit, nil)
+	writeRet, err := so.Uretprobe("SSL_write", objs.sslPrograms.ProbeSslWriteExit, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to attach uprobe SSL_write")
 	}
 	defer writeRet.Close()
 
-	writeExRet, err := so.Uretprobe("SSL_write_ex", objs.readPrograms.ProbeSslWriteExExit, nil)
+	writeExRet, err := so.Uretprobe("SSL_write_ex", objs.sslPrograms.ProbeSslWriteExExit, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to attach uretprobe SSL_write_ex")
 	}
 	defer writeExRet.Close()
 
-	rb, err := ringbuf.NewReader(objs.readMaps.Events)
+	rb, err := ringbuf.NewReader(objs.sslMaps.Events)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to open ringbuf reader")
 	}
@@ -174,7 +174,7 @@ func main() {
 
 	log.Info().Msg("listening for SSL read/write events...")
 
-	var event readEvent
+	var event sslEvent
 	for {
 		record, err := rb.Read()
 		if err != nil {

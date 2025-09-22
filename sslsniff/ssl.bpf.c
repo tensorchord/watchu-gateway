@@ -149,12 +149,8 @@ cleanup:
     return 0;
 }
 
-SEC("uprobe/ssl_write_exit")
-int probe_ssl_write_exit(struct pt_regs *ctx) {
-    int ret = PT_REGS_RC(ctx);
-    if (ret <= 0)
-        return 0;
-
+SEC("uprobe/ssl_write_entry")
+int probe_ssl_write_entry(struct pt_regs *ctx) {
     struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
     if (!evt)
         return 0;
@@ -163,7 +159,7 @@ int probe_ssl_write_exit(struct pt_regs *ctx) {
     void *buf = (void *)PT_REGS_PARM2(ctx);
     void *ssl = (void *)PT_REGS_PARM1(ctx);
 
-    u32 length = (u32)ret;
+    u32 length = (u32)len;
     if (length > MAX_BODY_SIZE)
         length = MAX_BODY_SIZE;
 
@@ -180,12 +176,8 @@ int probe_ssl_write_exit(struct pt_regs *ctx) {
     return 0;
 }
 
-SEC("uprobe/ssl_write_ex_exit")
-int probe_ssl_write_ex_exit(struct pt_regs *ctx) {
-    int ret = PT_REGS_RC(ctx);
-    if (ret == 0) // failure
-        return 0;
-
+SEC("uprobe/ssl_write_ex_entry")
+int probe_ssl_write_ex_entry(struct pt_regs *ctx) {
     struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
     if (!evt)
         return 0;

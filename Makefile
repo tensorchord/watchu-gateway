@@ -1,3 +1,5 @@
+.DEFAULT_GOAL := build
+
 update_header:
 	@bash headers/update.sh
 

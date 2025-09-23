@@ -146,6 +146,11 @@ func (s *SSLStore) Parse(ctx context.Context) {
 				if len(resp) <= 0 {
 					continue
 				}
+				if isBinary(resp) {
+					parser = h2
+				} else {
+					parser = h1
+				}
 				response, consumed, err := parser.ParseResponse(resp)
 				if err != nil {
 					log.Error().Err(err).Msg("failed to parse HTTP request")

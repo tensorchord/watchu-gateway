@@ -72,13 +72,12 @@ int probe_ssl_read_exit(struct pt_regs *ctx) {
     void *ssl = (void *)PT_REGS_PARM1(ctx);
     int ret   = PT_REGS_RC(ctx);
 
-    u32 length = 0;
-    if (ret > 0) {
-        length = (u32)ret;
-        if (ret > MAX_BODY_SIZE)
-            length = (u32)MAX_BODY_SIZE;
-    } else
+    if (ret <= 0)
         goto cleanup;
+
+    u32 length = (u32)ret; // safe: ret > 0 ensured
+    if (length > MAX_BODY_SIZE)
+        length = MAX_BODY_SIZE;
 
     struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
     if (!evt)
@@ -124,6 +123,9 @@ int probe_ssl_read_ex_exit(struct pt_regs *ctx) {
     if (length > MAX_BODY_SIZE)
         length = MAX_BODY_SIZE;
 
+    if (length == 0)
+        goto cleanup;
+
     struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
     if (!evt)
         goto cleanup;
@@ -156,6 +158,11 @@ int probe_ssl_write_entry(struct pt_regs *ctx) {
         return 0;
 
     int len   = (int)PT_REGS_PARM3(ctx);
+    if (len <= 0) { 
+        bpf_ringbuf_discard(evt, 0);
+        return 0;
+    }
+
     void *buf = (void *)PT_REGS_PARM2(ctx);
     void *ssl = (void *)PT_REGS_PARM1(ctx);
 
@@ -183,6 +190,11 @@ int probe_ssl_write_ex_entry(struct pt_regs *ctx) {
         return 0;
 
     int len        = (int)PT_REGS_PARM3(ctx);
+    if (len <= 0) {
+        bpf_ringbuf_discard(evt, 0);
+        return 0;
+    }
+
     void *buf      = (void *)PT_REGS_PARM2(ctx);
     void *ssl      = (void *)PT_REGS_PARM1(ctx);
     size_t written = (size_t)PT_REGS_PARM4(ctx);

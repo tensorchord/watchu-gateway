@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -436,7 +437,38 @@ func charsToString(arr []int8) string {
 	return string(bytes.TrimRight(b, "\x00"))
 }
 
+func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links *[]link.Link) {
+	if l, err := ex.Uprobe("SSL_read", objs.sslPrograms.ProbeSslReadEntry, nil); err != nil {
+		log.Warn().Str("target", target).Err(err).Msg("failed to attach uprobe SSL_read")
+	} else {
+		*links = append(*links, l)
+	}
+	if l, err := ex.Uretprobe("SSL_read", objs.sslPrograms.ProbeSslReadExit, nil); err != nil {
+		log.Warn().Str("target", target).Err(err).Msg("failed to attach uretprobe SSL_read")
+	} else {
+		*links = append(*links, l)
+	}
+	if l, err := ex.Uretprobe("SSL_read_ex", objs.sslPrograms.ProbeSslReadExExit, nil); err != nil {
+		log.Warn().Str("target", target).Err(err).Msg("failed to attach uretprobe SSL_read_ex")
+	} else {
+		*links = append(*links, l)
+	}
+	if l, err := ex.Uprobe("SSL_write", objs.sslPrograms.ProbeSslWriteEntry, nil); err != nil {
+		log.Warn().Str("target", target).Err(err).Msg("failed to attach uprobe SSL_write")
+	} else {
+		*links = append(*links, l)
+	}
+	if l, err := ex.Uretprobe("SSL_write_ex", objs.sslPrograms.ProbeSslWriteExEntry, nil); err != nil {
+		log.Warn().Str("target", target).Err(err).Msg("failed to attach uretprobe SSL_write_ex")
+	} else {
+		*links = append(*links, l)
+	}
+}
+
 func main() {
+	binaryPath := flag.String("binary-path", "", "extra user binary path to attach SSL uprobes (optional)")
+	flag.Parse()
+
 	if log.IsTerminal(os.Stderr.Fd()) {
 		log.DefaultLogger = log.Logger{
 			TimeFormat: "15:04:05",
@@ -473,40 +505,36 @@ func main() {
 	}
 	defer objs.Close()
 
+	links := []link.Link{}
+	defer func() {
+		for _, l := range links {
+			_ = l.Close()
+		}
+	}()
+
 	so, err := link.OpenExecutable(libPath)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to open libssl")
 	}
+	attachSSLProbes(so, &objs, libPath, &links)
 
-	read, err := so.Uprobe("SSL_read", objs.sslPrograms.ProbeSslReadEntry, nil)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to attach uprobe SSL_read")
+	if *binaryPath != "" {
+		if st, err := os.Stat(*binaryPath); err != nil || st.IsDir() {
+			if err != nil {
+				log.Warn().Str("binary", *binaryPath).Err(err).Msg("binary not found, skip attaching")
+			} else {
+				log.Warn().Str("binary", *binaryPath).Msg("path is a directory, skip attaching")
+			}
+		} else {
+			binExec, err := link.OpenExecutable(*binaryPath)
+			if err != nil {
+				log.Warn().Str("binary", *binaryPath).Err(err).Msg("failed to open binary, skip")
+			} else {
+				log.Info().Str("binary", *binaryPath).Msg("attaching additional SSL uprobes")
+				attachSSLProbes(binExec, &objs, *binaryPath, &links)
+			}
+		}
 	}
-	defer read.Close()
-
-	readRet, err := so.Uretprobe("SSL_read", objs.sslPrograms.ProbeSslReadExit, nil)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to attach uretprobe SSL_read")
-	}
-	defer readRet.Close()
-
-	readExRet, err := so.Uretprobe("SSL_read_ex", objs.sslPrograms.ProbeSslReadExExit, nil)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to attach uretprobe SSL_read_ex")
-	}
-	defer readExRet.Close()
-
-	writeRet, err := so.Uprobe("SSL_write", objs.sslPrograms.ProbeSslWriteEntry, nil)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to attach uprobe SSL_write")
-	}
-	defer writeRet.Close()
-
-	writeExRet, err := so.Uretprobe("SSL_write_ex", objs.sslPrograms.ProbeSslWriteExEntry, nil)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to attach uretprobe SSL_write_ex")
-	}
-	defer writeExRet.Close()
 
 	rb, err := ringbuf.NewReader(objs.sslMaps.Events)
 	if err != nil {

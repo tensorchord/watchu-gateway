@@ -487,6 +487,19 @@ func main() {
 	}
 	log.Info().Str("path", libPath).Msg("using libssl")
 
+	attachPaths := []string{libPath}
+	if *binaryPath != "" {
+		if st, err := os.Stat(*binaryPath); err != nil || st.IsDir() {
+			if err != nil {
+				log.Warn().Str("binary", *binaryPath).Err(err).Msg("binary not found, skip attaching")
+			} else {
+				log.Warn().Str("binary", *binaryPath).Msg("path is a directory, skip attaching")
+			}
+		} else {
+			attachPaths = append(attachPaths, *binaryPath)
+		}
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -512,27 +525,13 @@ func main() {
 		}
 	}()
 
-	so, err := link.OpenExecutable(libPath)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to open libssl")
-	}
-	attachSSLProbes(so, &objs, libPath, &links)
-
-	if *binaryPath != "" {
-		if st, err := os.Stat(*binaryPath); err != nil || st.IsDir() {
-			if err != nil {
-				log.Warn().Str("binary", *binaryPath).Err(err).Msg("binary not found, skip attaching")
-			} else {
-				log.Warn().Str("binary", *binaryPath).Msg("path is a directory, skip attaching")
-			}
+	for _, p := range attachPaths {
+		exec, err := link.OpenExecutable(p)
+		if err != nil {
+			log.Fatal().Str("path", p).Err(err).Msg("failed to open file")
 		} else {
-			binExec, err := link.OpenExecutable(*binaryPath)
-			if err != nil {
-				log.Warn().Str("binary", *binaryPath).Err(err).Msg("failed to open binary, skip")
-			} else {
-				log.Info().Str("binary", *binaryPath).Msg("attaching additional SSL uprobes")
-				attachSSLProbes(binExec, &objs, *binaryPath, &links)
-			}
+			log.Info().Str("path", p).Msg("attaching additional SSL uprobes")
+			attachSSLProbes(exec, &objs, p, &links)
 		}
 	}
 

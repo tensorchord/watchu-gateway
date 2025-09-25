@@ -36,7 +36,8 @@ jobs:
 
     - name: LLVM
       run: |
-        sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
+        curl --proto '=https' --tlsv1.2 -sSf https://apt.llvm.org/llvm.sh | sudo bash -s -- 20
+        sudo ln -s /usr/bin/llvm-strip-20 /usr/bin/llvm-strip
 
     - name: Build
       run: make build

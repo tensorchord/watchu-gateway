@@ -36,10 +36,9 @@ type SSLRecord struct {
 	Stream []uint8
 }
 
-func (r *SSLRecord) Append(data []uint8, info *EventInfo) SSLRecord {
+func (r *SSLRecord) Append(data []uint8, info *EventInfo) {
 	r.Stream = append(r.Stream, data...)
 	r.Info = append(r.Info, info)
-	return *r
 }
 
 type SSLStore struct {

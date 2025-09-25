@@ -133,7 +133,7 @@ func NewSSLProbe(additionalFile *string) *SSLProbe {
 	}
 	attachPaths := []string{libPath}
 
-	if len(*additionalFile) > 0 {
+	if additionalFile != nil && len(*additionalFile) > 0 {
 		if ok, err := isFilePath(*additionalFile); err != nil || !ok {
 			log.Fatal().Str("path", *additionalFile).Err(err).Msg("invalid additional binary path")
 		} else {
@@ -170,7 +170,7 @@ func NewSSLProbe(additionalFile *string) *SSLProbe {
 
 	return &SSLProbe{
 		objs:  &objs,
-		links: []link.Link{},
+		links: links,
 		rb:    rb,
 	}
 }

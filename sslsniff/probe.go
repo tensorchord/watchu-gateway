@@ -127,11 +127,13 @@ func NewSSLProbe(additionalFile *string) *SSLProbe {
 		log.Fatal().Err(err).Msg("failed to remove memlock limit")
 	}
 
+	attachPaths := []string{}
 	libPath, err := findLibSSLPath()
-	if err != nil && additionalFile == nil {
-		log.Fatal().Err(err).Msg("cannot find the libssl path")
+	if err != nil {
+		log.Warn().Err(err).Msg("cannot find the libssl path")
+	} else {
+		attachPaths = append(attachPaths, libPath)
 	}
-	attachPaths := []string{libPath}
 
 	if additionalFile != nil && len(*additionalFile) > 0 {
 		if ok, err := isFilePath(*additionalFile); err != nil || !ok {
@@ -139,6 +141,9 @@ func NewSSLProbe(additionalFile *string) *SSLProbe {
 		} else {
 			attachPaths = append(attachPaths, *additionalFile)
 		}
+	}
+	if len(attachPaths) == 0 {
+		log.Fatal().Msg("no valid libssl or additional binary path to attach")
 	}
 	log.Info().Any("path", attachPaths).Msg("using libssl")
 

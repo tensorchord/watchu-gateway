@@ -75,7 +75,7 @@ int probe_ssl_read_exit(struct pt_regs *ctx) {
     if (ret <= 0)
         goto cleanup;
 
-    u32 length = (u32)ret; // safe: ret > 0 ensured
+    u32 length = (u32)ret; // Cast is safe: ret > 0 guaranteed by guard above
     if (length > MAX_BODY_SIZE)
         length = MAX_BODY_SIZE;
 

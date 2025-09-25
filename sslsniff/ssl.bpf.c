@@ -184,15 +184,14 @@ int probe_ssl_write_entry(struct pt_regs *ctx) {
 
 SEC("uprobe/ssl_write_ex_entry")
 int probe_ssl_write_ex_entry(struct pt_regs *ctx) {
+    int len = (int)PT_REGS_PARM3(ctx);
+    if (len <= 0) {
+        return 0;
+    }
+
     struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
     if (!evt)
         return 0;
-
-    int len        = (int)PT_REGS_PARM3(ctx);
-    if (len <= 0) {
-        bpf_ringbuf_discard(evt, 0);
-        return 0;
-    }
 
     void *buf      = (void *)PT_REGS_PARM2(ctx);
     void *ssl      = (void *)PT_REGS_PARM1(ctx);

@@ -458,8 +458,8 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links
 	} else {
 		*links = append(*links, l)
 	}
-	if l, err := ex.Uretprobe("SSL_write_ex", objs.sslPrograms.ProbeSslWriteExEntry, nil); err != nil {
-		log.Warn().Str("target", target).Err(err).Msg("failed to attach uretprobe SSL_write_ex")
+	if l, err := ex.Uprobe("SSL_write_ex", objs.sslPrograms.ProbeSslWriteExEntry, nil); err != nil {
+		log.Warn().Str("target", target).Err(err).Msg("failed to attach uprobe SSL_write_ex")
 	} else {
 		*links = append(*links, l)
 	}

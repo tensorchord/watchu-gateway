@@ -184,8 +184,8 @@ int probe_ssl_write_entry(struct pt_regs *ctx) {
 
 SEC("uprobe/ssl_write_ex_entry")
 int probe_ssl_write_ex_entry(struct pt_regs *ctx) {
-    int len = (int)PT_REGS_PARM3(ctx);
-    if (len <= 0) {
+    size_t len = (size_t)PT_REGS_PARM3(ctx);
+    if (len == 0) {
         return 0;
     }
 

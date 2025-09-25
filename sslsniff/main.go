@@ -438,30 +438,24 @@ func charsToString(arr []int8) string {
 }
 
 func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links *[]link.Link) {
-	if l, err := ex.Uprobe("SSL_read", objs.sslPrograms.ProbeSslReadEntry, nil); err != nil {
-		log.Warn().Str("target", target).Err(err).Msg("failed to attach uprobe SSL_read")
-	} else {
-		*links = append(*links, l)
+	probes := []struct {
+		symbol string
+		prog   *ebpf.Program
+		inject func(string, *ebpf.Program, *link.UprobeOptions) (link.Link, error)
+	}{
+		{"SSL_read", objs.sslPrograms.ProbeSslReadEntry, ex.Uprobe},
+		{"SSL_read", objs.sslPrograms.ProbeSslReadExit, ex.Uretprobe},
+		{"SSL_read_ex", objs.sslPrograms.ProbeSslReadExExit, ex.Uretprobe},
+		{"SSL_write", objs.sslPrograms.ProbeSslWriteEntry, ex.Uprobe},
+		{"SSL_write_ex", objs.sslPrograms.ProbeSslWriteExEntry, ex.Uprobe},
 	}
-	if l, err := ex.Uretprobe("SSL_read", objs.sslPrograms.ProbeSslReadExit, nil); err != nil {
-		log.Warn().Str("target", target).Err(err).Msg("failed to attach uretprobe SSL_read")
-	} else {
-		*links = append(*links, l)
-	}
-	if l, err := ex.Uretprobe("SSL_read_ex", objs.sslPrograms.ProbeSslReadExExit, nil); err != nil {
-		log.Warn().Str("target", target).Err(err).Msg("failed to attach uretprobe SSL_read_ex")
-	} else {
-		*links = append(*links, l)
-	}
-	if l, err := ex.Uprobe("SSL_write", objs.sslPrograms.ProbeSslWriteEntry, nil); err != nil {
-		log.Warn().Str("target", target).Err(err).Msg("failed to attach uprobe SSL_write")
-	} else {
-		*links = append(*links, l)
-	}
-	if l, err := ex.Uprobe("SSL_write_ex", objs.sslPrograms.ProbeSslWriteExEntry, nil); err != nil {
-		log.Warn().Str("target", target).Err(err).Msg("failed to attach uprobe SSL_write_ex")
-	} else {
-		*links = append(*links, l)
+
+	for _, probe := range probes {
+		if link, err := probe.inject(probe.symbol, probe.prog, nil); err != nil {
+			log.Fatal().Str("target", target).Err(err).Msgf("failed to attach probe %s", probe.symbol)
+		} else {
+			*links = append(*links, link)
+		}
 	}
 }
 
@@ -485,13 +479,12 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("cannot find the libssl path")
 	}
-	log.Info().Str("path", libPath).Msg("using libssl")
 
 	attachPaths := []string{libPath}
 	if *binaryPath != "" {
 		if st, err := os.Stat(*binaryPath); err != nil || st.IsDir() {
 			if err != nil {
-				log.Warn().Str("binary", *binaryPath).Err(err).Msg("binary not found, skip attaching")
+				log.Fatal().Str("binary", *binaryPath).Err(err).Msg("binary not found, skip attaching")
 			} else {
 				log.Warn().Str("binary", *binaryPath).Msg("path is a directory, skip attaching")
 			}
@@ -499,6 +492,7 @@ func main() {
 			attachPaths = append(attachPaths, *binaryPath)
 		}
 	}
+	log.Info().Any("path", attachPaths).Msg("using libssl")
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -530,8 +524,8 @@ func main() {
 		if err != nil {
 			log.Fatal().Str("path", p).Err(err).Msg("failed to open file")
 		} else {
-			log.Info().Str("path", p).Msg("attaching additional SSL uprobes")
 			attachSSLProbes(exec, &objs, p, &links)
+			log.Info().Str("path", p).Msg("attaching SSL uprobes")
 		}
 	}
 

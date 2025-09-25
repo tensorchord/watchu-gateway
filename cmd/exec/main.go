@@ -11,6 +11,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+
+	"github.com/tensorchord/watchu"
 )
 
 const (
@@ -18,23 +20,18 @@ const (
 )
 
 func main() {
-	if log.IsTerminal(os.Stderr.Fd()) {
-		log.DefaultLogger = log.Logger{
-			TimeFormat: "15:04:05",
-			Caller:     1,
-			Writer: &log.ConsoleWriter{
-				ColorOutput:    true,
-				QuoteString:    true,
-				EndWithMessage: true,
-			},
-		}
-	}
+	watchu.SetUpLogger()
 
 	conn, err := grpc.NewClient(TETRAGON_SOCKET, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatal().Str("path", TETRAGON_SOCKET).Err(err).Msg("failed to dial")
 	}
-	defer conn.Close()
+	defer func() {
+		err := conn.Close()
+		if err != nil {
+			log.Error().Err(err).Msg("failed to close the socket connection")
+		}
+	}()
 	client := tetragon.NewFineGuidanceSensorsClient(conn)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -64,17 +61,17 @@ func main() {
 
 			kprobe := event.GetProcessKprobe()
 			if kprobe != nil {
-				log.Info().Uint32("pid", kprobe.Process.Pid.Value).Str("cmd", kprobe.Process.Binary).Str("policy", kprobe.PolicyName).Msg("kprobe")
+				log.Info().Uint32("pid", kprobe.Process.Pid.Value).Str("ppid", kprobe.Process.ParentExecId).Str("comm", kprobe.Process.Binary).Str("policy", kprobe.PolicyName).Str("event", "kprobe").Msg("")
 			}
 
 			trace := event.GetProcessTracepoint()
 			if trace != nil {
-				log.Info().Uint32("pid", trace.Process.Pid.Value).Str("cmd", trace.Process.Binary).Str("policy", trace.PolicyName).Msg("tracepoint")
+				log.Info().Uint32("pid", trace.Process.Pid.Value).Str("ppid", trace.Process.ParentExecId).Str("comm", trace.Process.Binary).Str("policy", trace.PolicyName).Str("event", "tracepoint").Msg("")
 			}
 
 			exec := event.GetProcessExec()
 			if exec != nil {
-				log.Info().Uint32("pid", exec.Process.Pid.Value).Str("cmd", exec.Process.Binary).Str("args", exec.Process.Arguments).Msg("exec")
+				log.Info().Uint32("pid", exec.Process.Pid.Value).Str("ppid", exec.Process.ParentExecId).Str("comm", exec.Process.Binary).Str("args", exec.Process.Arguments).Str("event", "exec").Msg("")
 			}
 		}
 	}

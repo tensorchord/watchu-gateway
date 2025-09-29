@@ -24,20 +24,6 @@ import (
 const (
 	specPath      = "sslsniff/ssl_x86_bpfel.o"
 	libSSLPathEnv = "LIBSSL_PATH"
-
-	// SSL read/write
-	SSL_RW_READ  = 4
-	SSL_RW_WRITE = 2
-
-	// HTTP
-	HTTP1_DELIMITER_LEN    = 4
-	HTTP2_FRAME_HEADER_LEN = 9
-)
-
-var (
-	// HTTP
-	HTTP1DELIMITER = []byte("\r\n\r\n")
-	HTTP2PREFACE   = []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
 )
 
 var libSSLCandidates = []string{
@@ -202,21 +188,27 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 		}
 
 		store.Add(&event)
-		log.Info().
-			Uint64("timestamp", event.TimestampNs).
-			Uint64("req_len", event.ReqLen).
-			Uint64("pid_tgid", event.PidTgid).
-			Uint64("uid_gid", event.UidGid).
-			Uint64("*SSL", event.SslPtr).
-			Uint32("data_len", event.DataLen).
-			Uint8("rw", event.Rw).
-			Str("comm", charsToString(event.Comm[:])).
-			Msg("event")
-
-		if isBinary(event.Data[:event.DataLen]) {
-			log.Debug().Str("data", string(hex.EncodeToString(event.Data[:event.DataLen]))).Msg("HTTP/2")
-		} else {
-			log.Debug().Str("data", string(event.Data[:event.DataLen])).Msg("HTTP/1")
+		if log.Debug().Enabled() {
+			var data, protocol string
+			if isBinary(event.Data[:event.DataLen]) {
+				data = string(hex.EncodeToString(event.Data[:event.DataLen]))
+				protocol = "HTTP/2"
+			} else {
+				data = string(event.Data[:event.DataLen])
+				protocol = "HTTP/1"
+			}
+			log.Debug().
+				Uint64("timestamp", event.TimestampNs).
+				Uint64("req_len", event.ReqLen).
+				Uint64("pid_tgid", event.PidTgid).
+				Uint64("uid_gid", event.UidGid).
+				Uint64("*SSL", event.SslPtr).
+				Uint32("data_len", event.DataLen).
+				Uint8("rw", event.Rw).
+				Str("comm", charsToString(event.Comm[:])).
+				Str("data", data).
+				Str("protocol", protocol).
+				Msg("event")
 		}
 	}
 }

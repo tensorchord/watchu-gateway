@@ -30,7 +30,7 @@ const (
 	HTTP2_FRAME_HEADER_LEN = 9
 	CRLF_LEN               = 2
 	SSEHeaderPrefix        = "text/event-stream"
-	SSEEndChunkLength      = 5 // "0\r\n\r\n"
+	SSEEndChunkLength      = uint64(len("0")) + 2*CRLF_LEN // "0\r\n\r\n"
 )
 
 var (
@@ -312,7 +312,7 @@ func parseSSE(data []uint8) (string, uint64, error) {
 		if err != nil {
 			return "", 0, fmt.Errorf("failed to parse SSE length: %w", err)
 		}
-		consumed := length + uint64(idx) + CRLF_LEN + CRLF_LEN
+		consumed := uint64(idx) + CRLF_LEN + length + CRLF_LEN
 		if consumed > uint64(len(data)) {
 			// wait for more data
 			return "", 0, nil

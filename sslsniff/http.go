@@ -35,9 +35,10 @@ const (
 
 var (
 	// HTTP
-	CRLF           = []byte("\r\n")
-	HTTP1DELIMITER = []byte("\r\n\r\n")
-	HTTP2PREFACE   = []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+	CRLF             = []byte("\r\n")
+	HTTP1DELIMITER   = []byte("\r\n\r\n")
+	HTTP2PREFACE     = []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+	HTTP2PREFACE_LEN = len(HTTP2PREFACE)
 )
 
 type SSLKey struct {
@@ -393,11 +394,8 @@ func NewHTTP2Parser() *HTTP2Parser {
 
 func (h2 *HTTP2Parser) parse(data []uint8) (headers []hpack.HeaderField, body bytes.Buffer, lastPos int, err error) {
 	if bytes.HasPrefix(data, HTTP2PREFACE) {
-		lastPos += len(HTTP2PREFACE)
-		data = data[len(HTTP2PREFACE):]
-	}
-	if len(data) < HTTP2_FRAME_HEADER_LEN {
-		return
+		lastPos += HTTP2PREFACE_LEN
+		data = data[HTTP2PREFACE_LEN:]
 	}
 
 	reader := bytes.NewReader(data)
@@ -410,9 +408,9 @@ func (h2 *HTTP2Parser) parse(data []uint8) (headers []hpack.HeaderField, body by
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				// wait for more data
-				err = nil
 				return
 			}
+			err = fmt.Errorf("failed to read HTTP/2 frame: %w", err)
 			return
 		}
 		if frame.Header().StreamID == 0 {
@@ -425,6 +423,7 @@ func (h2 *HTTP2Parser) parse(data []uint8) (headers []hpack.HeaderField, body by
 		case *http2.HeadersFrame:
 			hdrs, err = h2.dec.DecodeFull(f.HeaderBlockFragment())
 			if err != nil {
+				err = fmt.Errorf("failed to decode HTTP/2 headers: %w", err)
 				return
 			}
 			headers = append(headers, hdrs...)
@@ -434,6 +433,7 @@ func (h2 *HTTP2Parser) parse(data []uint8) (headers []hpack.HeaderField, body by
 		case *http2.ContinuationFrame:
 			hdrs, err = h2.dec.DecodeFull(f.HeaderBlockFragment())
 			if err != nil {
+				err = fmt.Errorf("failed to decode HTTP/2 continuated headers: %w", err)
 				return
 			}
 			headers = append(headers, hdrs...)
@@ -445,6 +445,8 @@ func (h2 *HTTP2Parser) parse(data []uint8) (headers []hpack.HeaderField, body by
 			if f.StreamEnded() {
 				end = true
 			}
+		case *http2.RSTStreamFrame, *http2.GoAwayFrame:
+			end = true
 		default:
 			// ignore other connection-level frames
 			log.Debug().Str("frame", fmt.Sprintf("%T", f)).Msg("ignoring non-header/data frame")
@@ -457,7 +459,11 @@ func (h2 *HTTP2Parser) parse(data []uint8) (headers []hpack.HeaderField, body by
 func (h2 *HTTP2Parser) ParseRequest(data []uint8) (*http.Request, int, error) {
 	headers, body, lastPos, err := h2.parse(data)
 	if err != nil {
-		return nil, lastPos, err
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			// ignore the EOF
+		} else {
+			return nil, lastPos, err
+		}
 	}
 
 	// convert headers to http.Request
@@ -496,8 +502,16 @@ func (h2 *HTTP2Parser) ParseRequest(data []uint8) (*http.Request, int, error) {
 
 func (h2 *HTTP2Parser) ParseResponse(record *SSLRecord) (*http.Response, int, error) {
 	headers, body, lastPos, err := h2.parse(record.Stream)
+	endOfSSE := false
 	if err != nil {
-		return nil, lastPos, err
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			// end of stream
+			record.EndOfStream = true
+		} else {
+			return nil, lastPos, err
+		}
+	} else {
+		endOfSSE = true
 	}
 
 	// convert headers to http.Response
@@ -514,10 +528,6 @@ func (h2 *HTTP2Parser) ParseResponse(record *SSLRecord) (*http.Response, int, er
 			hdrs.Add(hf.Name, hf.Value)
 		}
 	}
-	if code == 0 {
-		return nil, lastPos, fmt.Errorf("missing status code")
-	}
-	record.EndOfStream = true
 	resp := &http.Response{
 		Status:     fmt.Sprintf("%d %s", code, http.StatusText(code)),
 		StatusCode: code,
@@ -526,6 +536,19 @@ func (h2 *HTTP2Parser) ParseResponse(record *SSLRecord) (*http.Response, int, er
 		ProtoMajor: 2,
 		ProtoMinor: 0,
 		Body:       io.NopCloser(&body),
+	}
+	// SSE
+	if strings.HasPrefix(hdrs.Get("Content-Type"), SSEHeaderPrefix) {
+		record.EndOfStream = false
+		record.LastResp = resp
+	} else if record.LastResp != nil {
+		// copy the headers from the last response
+		for k, vs := range record.LastResp.Header {
+			for _, v := range vs {
+				resp.Header.Add(k, v)
+			}
+		}
+		record.EndOfStream = endOfSSE
 	}
 	return resp, lastPos, nil
 }

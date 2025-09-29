@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	// SSL read/write
-	SSL_RW_READ  = 4
-	SSL_RW_WRITE = 2
+	// SSL
+	SSL_MAX_DATA_SIZE = 64 * 1024 // 64 KiB
+	SSL_RW_READ       = 4
+	SSL_RW_WRITE      = 2
 
 	// HTTP
 	HTTP1_DELIMITER_LEN    = 4
@@ -140,11 +141,16 @@ func (s *SSLStore) parseRequest() {
 		}
 		var timestamp uint64
 		var comm string
+		truncated := false
 		if consumed == len(req.Stream) {
 			timestamp = req.Info[len(req.Info)-1].TimestampNs
 			comm = charsToString(req.Info[len(req.Info)-1].Comm[:])
 			delete(s.Request, key)
 		} else {
+			if consumed > SSL_MAX_DATA_SIZE {
+				truncated = true
+				consumed = SSL_MAX_DATA_SIZE
+			}
 			req.Stream = req.Stream[consumed:]
 			index := 0
 			length := consumed
@@ -173,7 +179,7 @@ func (s *SSLStore) parseRequest() {
 		if err != nil {
 			log.Error().Err(err).Msg("failed to read request body")
 		}
-		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", request.Header).Int64("content_length", request.ContentLength).Str("url", request.RequestURI).Str("method", request.Method).Str("protocol", request.Proto).Str("body", body).Msg("")
+		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", request.Header).Int64("content_length", request.ContentLength).Str("url", request.RequestURI).Str("method", request.Method).Str("protocol", request.Proto).Str("body", body).Bool("truncated", truncated).Msg("")
 	}
 }
 
@@ -200,11 +206,16 @@ func (s *SSLStore) parseResponse() {
 		}
 		var timestamp uint64
 		var comm string
+		truncated := false
 		if consumed == len(resp.Stream) && resp.EndOfStream {
 			timestamp = resp.Info[len(resp.Info)-1].TimestampNs
 			comm = charsToString(resp.Info[len(resp.Info)-1].Comm[:])
 			delete(s.Response, key)
 		} else {
+			if consumed > SSL_MAX_DATA_SIZE {
+				truncated = true
+				consumed = SSL_MAX_DATA_SIZE
+			}
 			resp.Stream = resp.Stream[consumed:]
 			index := 0
 			last := 0
@@ -234,7 +245,7 @@ func (s *SSLStore) parseResponse() {
 		if err != nil {
 			log.Error().Err(err).Msg("failed to read request body")
 		}
-		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Str("body", body).Msg("")
+		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Str("body", body).Bool("truncated", truncated).Msg("")
 	}
 }
 

@@ -29,7 +29,7 @@ type sslEvent struct {
 	DataLen     uint32
 	Rw          uint8
 	Comm        [16]int8
-	Data        [16384]uint8
+	Data        [65536]uint8
 	_           [3]byte
 }
 

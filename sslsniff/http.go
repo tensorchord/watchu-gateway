@@ -433,7 +433,7 @@ func (h2 *HTTP2Parser) parse(data []uint8) (headers []hpack.HeaderField, body by
 		case *http2.ContinuationFrame:
 			hdrs, err = h2.dec.DecodeFull(f.HeaderBlockFragment())
 			if err != nil {
-				err = fmt.Errorf("failed to decode HTTP/2 continuated headers: %w", err)
+				err = fmt.Errorf("failed to decode HTTP/2 continuation headers: %w", err)
 				return
 			}
 			headers = append(headers, hdrs...)

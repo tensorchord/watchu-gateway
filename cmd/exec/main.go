@@ -61,17 +61,17 @@ func main() {
 
 			kprobe := event.GetProcessKprobe()
 			if kprobe != nil {
-				log.Info().Uint32("pid", kprobe.Process.Pid.Value).Str("ppid", kprobe.Process.ParentExecId).Str("comm", kprobe.Process.Binary).Str("policy", kprobe.PolicyName).Str("event", "kprobe").Msg("")
+				log.Info().Str("exec_id", kprobe.Process.ExecId).Str("p_exec_id", kprobe.Process.ParentExecId).Str("comm", kprobe.Process.Binary).Str("policy", kprobe.PolicyName).Str("event", "kprobe").Msg("")
 			}
 
 			trace := event.GetProcessTracepoint()
 			if trace != nil {
-				log.Info().Uint32("pid", trace.Process.Pid.Value).Str("ppid", trace.Process.ParentExecId).Str("comm", trace.Process.Binary).Str("policy", trace.PolicyName).Str("event", "tracepoint").Msg("")
+				log.Info().Str("exec_id", trace.Process.ExecId).Str("p_exec_id", trace.Process.ParentExecId).Str("comm", trace.Process.Binary).Str("policy", trace.PolicyName).Str("event", "tracepoint").Msg("")
 			}
 
 			exec := event.GetProcessExec()
 			if exec != nil {
-				log.Info().Uint32("pid", exec.Process.Pid.Value).Str("ppid", exec.Process.ParentExecId).Str("comm", exec.Process.Binary).Str("args", exec.Process.Arguments).Str("event", "exec").Msg("")
+				log.Info().Str("exec_id", exec.Process.ExecId).Str("p_exec_id", exec.Process.ParentExecId).Str("comm", exec.Process.Binary).Str("args", exec.Process.Arguments).Str("event", "exec").Msg("")
 			}
 		}
 	}

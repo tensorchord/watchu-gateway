@@ -7,7 +7,7 @@
 #include "bpf_helpers.h"
 #include "bpf_tracing.h"
 
-#define MAX_BODY_SIZE (16 * 1024) // 16 KiB
+#define MAX_BODY_SIZE (64 * 1024) // 64 KiB
 #define RING_BUFFER_SIZE (2 * 1024 * 1024) // 2 MiB
 #define MAX_ENTRIES 10240
 #define TASK_COMM_LEN 16

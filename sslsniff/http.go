@@ -261,7 +261,7 @@ func (s *SSLStore) parseResponse() {
 				}
 				body, err := readCloserToString(response.Body)
 				if err != nil {
-					log.Error().Err(err).Msg("failed to read request body")
+					log.Error().Err(err).Msg("failed to read response body")
 				}
 				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Str("body", body).Bool("truncated", truncated).Msg("")
 				record.EndOfStream = false

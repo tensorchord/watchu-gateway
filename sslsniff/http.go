@@ -176,11 +176,19 @@ func (s *SSLStore) parseRequest() {
 				record.Info = record.Info[index:]
 			}
 			if record.EndOfStream {
+				if request == nil {
+					log.Warn().Int("consumed", consumed).Err(err).Msg("unexpected nil request")
+					break
+				}
 				body, err := readCloserToString(request.Body)
 				if err != nil {
 					log.Error().Err(err).Msg("failed to read request body")
 				}
-				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", request.Header).Int64("content_length", request.ContentLength).Str("url", request.URL.String()).Str("method", request.Method).Str("protocol", request.Proto).Str("body", body).Bool("truncated", truncated).Msg("")
+				url := request.RequestURI
+				if request.URL != nil {
+					url = request.URL.String()
+				}
+				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", request.Header).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Str("body", body).Bool("truncated", truncated).Msg("")
 				record.EndOfStream = false
 				record.LastResp = nil
 				break
@@ -248,7 +256,7 @@ func (s *SSLStore) parseResponse() {
 			}
 			if record.EndOfStream {
 				if response == nil {
-					log.Debug().Int("consume", consumed).Err(err).Msg("response is nil == == ==")
+					log.Warn().Int("consumed", consumed).Err(err).Msg("unexpected nil response")
 					break
 				}
 				body, err := readCloserToString(response.Body)
@@ -362,9 +370,6 @@ func isChunkedEncoding(resp *http.Response) bool {
 }
 
 func (h1 *HTTP1Parser) ParseResponse(record *SSLRecord) (*http.Response, int, error) {
-	reader := bytes.NewReader(record.Stream)
-	br := bufio.NewReader(reader)
-
 	// streaming response, handle the chunked transfer encoding
 	if record.LastResp != nil && isChunkedEncoding(record.LastResp) {
 		stream, consumed, err := parseStream(record.Stream)
@@ -382,6 +387,8 @@ func (h1 *HTTP1Parser) ParseResponse(record *SSLRecord) (*http.Response, int, er
 		return record.LastResp, int(consumed), nil
 	}
 
+	reader := bytes.NewReader(record.Stream)
+	br := bufio.NewReader(reader)
 	resp, err := http.ReadResponse(br, nil)
 	if err != nil {
 		// should wait for more data if it's unexpected EOF
@@ -404,7 +411,7 @@ func (h1 *HTTP1Parser) ParseResponse(record *SSLRecord) (*http.Response, int, er
 	record.LastResp = resp
 
 	contentLength := resp.ContentLength
-	// Receving stream, leave the body for the next round
+	// Receiving stream, leave the body for the next round
 	if isChunkedEncoding(resp) {
 		record.EndOfStream = false
 		contentLength = 0

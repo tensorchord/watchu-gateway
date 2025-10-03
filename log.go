@@ -19,7 +19,7 @@ func SetUpLogger() {
 		}
 	} else {
 		log.DefaultLogger = log.Logger{
-			Level: log.InfoLevel,
+			Level: log.DebugLevel,
 			Writer: &log.AsyncWriter{
 				ChannelSize:   4096,
 				DiscardOnFull: false,

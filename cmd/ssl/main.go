@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"os"
 	"os/signal"
 	"syscall"
 
@@ -16,7 +15,7 @@ func main() {
 	binaryPath := flag.String("binary-path", "", "extra user binary path to attach SSL uprobes (optional)")
 	flag.Parse()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	sslProbe := sslsniff.NewSSLProbe(binaryPath)

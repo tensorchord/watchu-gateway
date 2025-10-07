@@ -5,12 +5,6 @@ Hey, Agent! The bees are watching you!
 ## Usage
 
 - SSL read/write
-
-```bash
-make build
-sudo ./bin/sslsniff
-```
-
 - Process
 
 ```bash

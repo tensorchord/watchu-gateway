@@ -31,6 +31,13 @@ struct call_info {
     u64 len;
 };
 
+struct call_info_ex {
+    u64 buf_addr;
+    u64 len;
+    u64 ssl_ptr;
+    u64 consumed_len_ptr;
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, RING_BUFFER_SIZE);
@@ -42,6 +49,13 @@ struct {
     __type(key, u64);
     __type(value, struct call_info);
 } start_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, u64);
+    __type(value, struct call_info_ex);
+} start_ex_map SEC(".maps");
 
 // used to make the bpf2go generate event struct
 struct {
@@ -58,6 +72,18 @@ int probe_ssl_read_entry(struct pt_regs *ctx) {
     info.buf_addr         = (u64)PT_REGS_PARM2(ctx);
     info.len              = (int)PT_REGS_PARM3(ctx);
     bpf_map_update_elem(&start_map, &key, &info, BPF_ANY);
+    return 0;
+};
+
+SEC("uprobe/ssl_read_ex_entry")
+int probe_ssl_read_ex_entry(struct pt_regs *ctx) {
+    struct call_info_ex info = {};
+    u64 key                  = bpf_get_current_pid_tgid();
+    info.ssl_ptr             = (u64)PT_REGS_PARM1(ctx);
+    info.buf_addr            = (u64)PT_REGS_PARM2(ctx);
+    info.len                 = (int)PT_REGS_PARM3(ctx);
+    info.consumed_len_ptr    = (u64)PT_REGS_PARM4(ctx);
+    bpf_map_update_elem(&start_ex_map, &key, &info, BPF_ANY);
     return 0;
 };
 
@@ -106,18 +132,19 @@ cleanup:
 
 SEC("uretprobe/SSL_read_ex_exit")
 int probe_ssl_read_ex_exit(struct pt_regs *ctx) {
-    u64 key                = bpf_get_current_pid_tgid();
-    struct call_info *info = bpf_map_lookup_elem(&start_map, &key);
+    u64 key                   = bpf_get_current_pid_tgid();
+    struct call_info_ex *info = bpf_map_lookup_elem(&start_ex_map, &key);
     if (info == NULL)
-        return 0;
+        goto cleanup;
 
-    u64 now          = bpf_ktime_get_ns();
-    void *ssl        = (void *)PT_REGS_PARM1(ctx);
-    size_t readbytes = (size_t)PT_REGS_PARM4(ctx);
-    int ret          = PT_REGS_RC(ctx);
+    u64 now = bpf_ktime_get_ns();
+    int ret = PT_REGS_RC(ctx);
 
     if (ret != 1)
         goto cleanup;
+
+    size_t readbytes = 0;
+    bpf_probe_read_user(&readbytes, sizeof(readbytes), (void *)info->consumed_len_ptr);
 
     u32 length = (u32)readbytes;
     if (length > MAX_BODY_SIZE)
@@ -131,7 +158,7 @@ int probe_ssl_read_ex_exit(struct pt_regs *ctx) {
         goto cleanup;
 
     evt->pid_tgid     = key;
-    evt->ssl_ptr      = (u64)ssl;
+    evt->ssl_ptr      = info->ssl_ptr;
     evt->uid_gid      = bpf_get_current_uid_gid();
     evt->timestamp_ns = now;
     evt->req_len      = info->len;
@@ -182,34 +209,42 @@ int probe_ssl_write_entry(struct pt_regs *ctx) {
     return 0;
 }
 
-SEC("uprobe/ssl_write_ex_entry")
-int probe_ssl_write_ex_entry(struct pt_regs *ctx) {
-    size_t len = (size_t)PT_REGS_PARM3(ctx);
-    if (len == 0) {
-        return 0;
-    }
+SEC("uretprobe/ssl_write_ex_exit")
+int probe_ssl_write_ex_exit(struct pt_regs *ctx) {
+    u64 key                   = bpf_get_current_pid_tgid();
+    struct call_info_ex *info = bpf_map_lookup_elem(&start_ex_map, &key);
+    if (info == NULL)
+        goto cleanup;
+
+    int ret = PT_REGS_RC(ctx);
+    if (ret != 1)
+        goto cleanup;
 
     struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
     if (!evt)
-        return 0;
+        goto cleanup;
 
-    void *buf      = (void *)PT_REGS_PARM2(ctx);
-    void *ssl      = (void *)PT_REGS_PARM1(ctx);
-    size_t written = (size_t)PT_REGS_PARM4(ctx);
+    size_t written = 0;
+    bpf_probe_read_user(&written, sizeof(written), (void *)info->consumed_len_ptr);
 
     u32 length = (u32)written;
     if (length > MAX_BODY_SIZE)
         length = MAX_BODY_SIZE;
 
+    void *buf = (void *)info->buf_addr;
+
     evt->pid_tgid     = bpf_get_current_pid_tgid();
     evt->uid_gid      = bpf_get_current_uid_gid();
-    evt->ssl_ptr      = (u64)ssl;
+    evt->ssl_ptr      = info->ssl_ptr;
     evt->timestamp_ns = bpf_ktime_get_ns();
-    evt->req_len      = (u64)len;
+    evt->req_len      = info->len;
     evt->data_len     = length;
     evt->rw           = 2;
     bpf_get_current_comm(&evt->comm, sizeof(evt->comm));
     bpf_probe_read_user(evt->data, length, buf);
     bpf_ringbuf_submit(evt, 0);
+
+cleanup:
+    bpf_map_delete_elem(&start_map, &key);
     return 0;
 }

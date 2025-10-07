@@ -19,6 +19,14 @@ type sslCallInfo struct {
 	Len     uint64
 }
 
+type sslCallInfoEx struct {
+	_              structs.HostLayout
+	BufAddr        uint64
+	Len            uint64
+	SslPtr         uint64
+	ConsumedLenPtr uint64
+}
+
 type sslEvent struct {
 	_           structs.HostLayout
 	TimestampNs uint64
@@ -75,11 +83,12 @@ type sslSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type sslProgramSpecs struct {
-	ProbeSslReadEntry    *ebpf.ProgramSpec `ebpf:"probe_ssl_read_entry"`
-	ProbeSslReadExExit   *ebpf.ProgramSpec `ebpf:"probe_ssl_read_ex_exit"`
-	ProbeSslReadExit     *ebpf.ProgramSpec `ebpf:"probe_ssl_read_exit"`
-	ProbeSslWriteEntry   *ebpf.ProgramSpec `ebpf:"probe_ssl_write_entry"`
-	ProbeSslWriteExEntry *ebpf.ProgramSpec `ebpf:"probe_ssl_write_ex_entry"`
+	ProbeSslReadEntry   *ebpf.ProgramSpec `ebpf:"probe_ssl_read_entry"`
+	ProbeSslReadExEntry *ebpf.ProgramSpec `ebpf:"probe_ssl_read_ex_entry"`
+	ProbeSslReadExExit  *ebpf.ProgramSpec `ebpf:"probe_ssl_read_ex_exit"`
+	ProbeSslReadExit    *ebpf.ProgramSpec `ebpf:"probe_ssl_read_exit"`
+	ProbeSslWriteEntry  *ebpf.ProgramSpec `ebpf:"probe_ssl_write_entry"`
+	ProbeSslWriteExExit *ebpf.ProgramSpec `ebpf:"probe_ssl_write_ex_exit"`
 }
 
 // sslMapSpecs contains maps before they are loaded into the kernel.
@@ -88,6 +97,7 @@ type sslProgramSpecs struct {
 type sslMapSpecs struct {
 	FakeEventMap *ebpf.MapSpec `ebpf:"_fake_event_map"`
 	Events       *ebpf.MapSpec `ebpf:"events"`
+	StartExMap   *ebpf.MapSpec `ebpf:"start_ex_map"`
 	StartMap     *ebpf.MapSpec `ebpf:"start_map"`
 }
 
@@ -119,6 +129,7 @@ func (o *sslObjects) Close() error {
 type sslMaps struct {
 	FakeEventMap *ebpf.Map `ebpf:"_fake_event_map"`
 	Events       *ebpf.Map `ebpf:"events"`
+	StartExMap   *ebpf.Map `ebpf:"start_ex_map"`
 	StartMap     *ebpf.Map `ebpf:"start_map"`
 }
 
@@ -126,6 +137,7 @@ func (m *sslMaps) Close() error {
 	return _SslClose(
 		m.FakeEventMap,
 		m.Events,
+		m.StartExMap,
 		m.StartMap,
 	)
 }
@@ -140,20 +152,22 @@ type sslVariables struct {
 //
 // It can be passed to loadSslObjects or ebpf.CollectionSpec.LoadAndAssign.
 type sslPrograms struct {
-	ProbeSslReadEntry    *ebpf.Program `ebpf:"probe_ssl_read_entry"`
-	ProbeSslReadExExit   *ebpf.Program `ebpf:"probe_ssl_read_ex_exit"`
-	ProbeSslReadExit     *ebpf.Program `ebpf:"probe_ssl_read_exit"`
-	ProbeSslWriteEntry   *ebpf.Program `ebpf:"probe_ssl_write_entry"`
-	ProbeSslWriteExEntry *ebpf.Program `ebpf:"probe_ssl_write_ex_entry"`
+	ProbeSslReadEntry   *ebpf.Program `ebpf:"probe_ssl_read_entry"`
+	ProbeSslReadExEntry *ebpf.Program `ebpf:"probe_ssl_read_ex_entry"`
+	ProbeSslReadExExit  *ebpf.Program `ebpf:"probe_ssl_read_ex_exit"`
+	ProbeSslReadExit    *ebpf.Program `ebpf:"probe_ssl_read_exit"`
+	ProbeSslWriteEntry  *ebpf.Program `ebpf:"probe_ssl_write_entry"`
+	ProbeSslWriteExExit *ebpf.Program `ebpf:"probe_ssl_write_ex_exit"`
 }
 
 func (p *sslPrograms) Close() error {
 	return _SslClose(
 		p.ProbeSslReadEntry,
+		p.ProbeSslReadExEntry,
 		p.ProbeSslReadExExit,
 		p.ProbeSslReadExit,
 		p.ProbeSslWriteEntry,
-		p.ProbeSslWriteExEntry,
+		p.ProbeSslWriteExExit,
 	)
 }
 

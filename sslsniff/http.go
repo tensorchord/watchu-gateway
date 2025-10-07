@@ -339,13 +339,15 @@ func (h1 *HTTP1Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 		return req, len(record.Stream), fmt.Errorf("cannot find the end of HTTP header")
 	}
 	// check if the body is fully received
-	if req.ContentLength >= 0 && idx+HTTP1_DELIMITER_LEN+int(req.ContentLength) > len(record.Stream) {
+	length_to_consume := idx+HTTP1_DELIMITER_LEN+int(req.ContentLength)
+	if req.ContentLength >= 0 && length_to_consume > len(record.Stream) {
 		// wait for more data, do not return the half-received request body
+		log.Debug().Int("content_length", int(req.ContentLength)).Int("received", len(record.Stream)-idx-HTTP1_DELIMITER_LEN).Msg("incomplete HTTP request body, wait for more data")
 		record.EndOfStream = false
 		return nil, 0, nil
 	}
 	record.EndOfStream = true
-	return req, idx + HTTP1_DELIMITER_LEN + int(req.ContentLength), nil
+	return req, length_to_consume, nil
 }
 
 func parseStream(data []uint8) ([]uint8, uint64, error) {

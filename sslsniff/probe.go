@@ -88,9 +88,11 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links
 	}{
 		{"SSL_read", objs.ProbeSslReadEntry, ex.Uprobe},
 		{"SSL_read", objs.ProbeSslReadExit, ex.Uretprobe},
+		{"SSL_read_ex", objs.ProbeSslReadExEntry, ex.Uprobe},
 		{"SSL_read_ex", objs.ProbeSslReadExExit, ex.Uretprobe},
 		{"SSL_write", objs.ProbeSslWriteEntry, ex.Uprobe},
-		{"SSL_write_ex", objs.ProbeSslWriteExEntry, ex.Uprobe},
+		{"SSL_write_ex", objs.ProbeSslReadExEntry, ex.Uprobe},
+		{"SSL_write_ex", objs.ProbeSslWriteExExit, ex.Uretprobe},
 	}
 
 	for _, probe := range probes {

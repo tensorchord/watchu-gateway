@@ -339,7 +339,7 @@ func (h1 *HTTP1Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 		return req, len(record.Stream), fmt.Errorf("cannot find the end of HTTP header")
 	}
 	// check if the body is fully received
-	length_to_consume := idx+HTTP1_DELIMITER_LEN+int(req.ContentLength)
+	length_to_consume := idx + HTTP1_DELIMITER_LEN + int(req.ContentLength)
 	if req.ContentLength >= 0 && length_to_consume > len(record.Stream) {
 		// wait for more data, do not return the half-received request body
 		log.Debug().Int("content_length", int(req.ContentLength)).Int("received", len(record.Stream)-idx-HTTP1_DELIMITER_LEN).Msg("incomplete HTTP request body, wait for more data")
@@ -445,6 +445,9 @@ func (h2 *HTTP2Parser) parse(record *SSLRecord) (headers []hpack.HeaderField, bo
 	reader := bytes.NewReader(data)
 	framer := http2.NewFramer(nil, reader)
 	var frame http2.Frame
+	var hbStreamID uint32
+	var hbBuf []byte
+	var hbOpen bool
 
 	for !record.EndOfStream {
 		frame, err = framer.ReadFrame()
@@ -462,40 +465,60 @@ func (h2 *HTTP2Parser) parse(record *SSLRecord) (headers []hpack.HeaderField, bo
 			lastPos += int(frame.Header().Length) + HTTP2_FRAME_HEADER_LEN
 			continue
 		}
-		var hdrs []hpack.HeaderField
 		switch f := frame.(type) {
 		case *http2.HeadersFrame:
-			hdrs, err = h2.dec.DecodeFull(f.HeaderBlockFragment())
-			if err != nil {
-				err = fmt.Errorf("failed to decode HTTP/2 headers: %w", err)
+			if hbOpen && hbStreamID != f.Header().StreamID {
+				err = fmt.Errorf("protocol error: new HEADERS on %d while block open on %d", f.Header().StreamID, hbStreamID)
 				return
 			}
-			headers = append(headers, hdrs...)
+			if !hbOpen {
+				hbOpen = true
+				hbStreamID = f.Header().StreamID
+				hbBuf = hbBuf[:0]
+			}
+			hbBuf = append(hbBuf, f.HeaderBlockFragment()...)
+			if f.HeadersEnded() {
+				var hdrs []hpack.HeaderField
+				hdrs, err = h2.dec.DecodeFull(hbBuf)
+				if err != nil {
+					err = fmt.Errorf("failed to decode HTTP/2 headers: %w", err)
+					return
+				}
+				headers = append(headers, hdrs...)
+				hbOpen = false
+			}
 			if f.StreamEnded() {
 				record.EndOfStream = true
 			}
 		case *http2.ContinuationFrame:
-			hdrs, err = h2.dec.DecodeFull(f.HeaderBlockFragment())
-			if err != nil {
-				err = fmt.Errorf("failed to decode HTTP/2 continuation headers: %w", err)
+			if hbOpen && hbStreamID != f.Header().StreamID {
+				err = fmt.Errorf("protocol error: new HEADERS on %d while block open on %d", f.Header().StreamID, hbStreamID)
 				return
 			}
-			headers = append(headers, hdrs...)
+			hbBuf = append(hbBuf, f.HeaderBlockFragment()...)
 			if f.HeadersEnded() {
-				record.EndOfStream = true
+				var hdrs []hpack.HeaderField
+				hdrs, err = h2.dec.DecodeFull(hbBuf)
+				if err != nil {
+					err = fmt.Errorf("failed to decode HTTP/2 headers: %w", err)
+					return
+				}
+				headers = append(headers, hdrs...)
+				hbOpen = false
 			}
 		case *http2.DataFrame:
 			body.Write(f.Data())
 			if f.StreamEnded() {
 				record.EndOfStream = true
 			}
-		case *http2.RSTStreamFrame, *http2.GoAwayFrame:
+		case *http2.RSTStreamFrame:
 			record.EndOfStream = true
 		default:
 			// ignore other connection-level frames
 			log.Debug().Str("frame", fmt.Sprintf("%T", f)).Msg("ignoring non-header/data frame")
 		}
 		lastPos += int(frame.Header().Length) + HTTP2_FRAME_HEADER_LEN
+		log.Debug().Int("lastPos", lastPos).Any("type", frame).Msg("parsed another HTTP/2 frame")
 	}
 	return
 }

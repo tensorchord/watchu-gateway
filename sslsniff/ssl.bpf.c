@@ -29,6 +29,7 @@ struct event {
 struct call_info {
     u64 buf_addr;
     u64 len;
+    u64 ssl_ptr;
 };
 
 struct call_info_ex {
@@ -69,6 +70,7 @@ SEC("uprobe/ssl_read_entry")
 int probe_ssl_read_entry(struct pt_regs *ctx) {
     struct call_info info = {};
     u64 key               = bpf_get_current_pid_tgid();
+    info.ssl_ptr          = (u64)PT_REGS_PARM1(ctx);
     info.buf_addr         = (u64)PT_REGS_PARM2(ctx);
     info.len              = (int)PT_REGS_PARM3(ctx);
     bpf_map_update_elem(&start_map, &key, &info, BPF_ANY);
@@ -94,9 +96,8 @@ int probe_ssl_read_exit(struct pt_regs *ctx) {
     if (info == NULL)
         return 0;
 
-    u64 now   = bpf_ktime_get_ns();
-    void *ssl = (void *)PT_REGS_PARM1(ctx);
-    int ret   = PT_REGS_RC(ctx);
+    u64 now = bpf_ktime_get_ns();
+    int ret = PT_REGS_RC(ctx);
 
     if (ret <= 0)
         goto cleanup;
@@ -110,7 +111,7 @@ int probe_ssl_read_exit(struct pt_regs *ctx) {
         goto cleanup;
 
     evt->pid_tgid     = key;
-    evt->ssl_ptr      = (u64)ssl;
+    evt->ssl_ptr      = info->ssl_ptr;
     evt->uid_gid      = bpf_get_current_uid_gid();
     evt->timestamp_ns = now;
     evt->req_len      = info->len;
@@ -178,34 +179,42 @@ cleanup:
     return 0;
 }
 
-SEC("uprobe/ssl_write_entry")
-int probe_ssl_write_entry(struct pt_regs *ctx) {
-    int len = (int)PT_REGS_PARM3(ctx);
-    if (len <= 0) {
-        return 0;
-    }
-
-    struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
-    if (!evt)
+SEC("uretprobe/ssl_write_exit")
+int probe_ssl_write_exit(struct pt_regs *ctx) {
+    u64 key                = bpf_get_current_pid_tgid();
+    struct call_info *info = bpf_map_lookup_elem(&start_map, &key);
+    if (info == NULL)
         return 0;
 
-    void *buf = (void *)PT_REGS_PARM2(ctx);
-    void *ssl = (void *)PT_REGS_PARM1(ctx);
+    u64 now = bpf_ktime_get_ns();
+    int ret = PT_REGS_RC(ctx);
 
-    u32 length = (u32)len;
+    if (ret <= 0)
+        goto cleanup;
+
+    u32 length = (u32)ret;
     if (length > MAX_BODY_SIZE)
         length = MAX_BODY_SIZE;
 
-    evt->pid_tgid     = bpf_get_current_pid_tgid();
+    struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
+    if (!evt)
+        goto cleanup;
+
+    void *buf = (void *)info->buf_addr;
+
+    evt->pid_tgid     = key;
     evt->uid_gid      = bpf_get_current_uid_gid();
-    evt->ssl_ptr      = (u64)ssl;
+    evt->ssl_ptr      = info->ssl_ptr;
     evt->timestamp_ns = bpf_ktime_get_ns();
-    evt->req_len      = (u64)len;
+    evt->req_len      = info->len;
     evt->data_len     = length;
     evt->rw           = 2;
     bpf_get_current_comm(&evt->comm, sizeof(evt->comm));
     bpf_probe_read_user(evt->data, length, buf);
     bpf_ringbuf_submit(evt, 0);
+
+cleanup:
+    bpf_map_delete_elem(&start_map, &key);
     return 0;
 }
 

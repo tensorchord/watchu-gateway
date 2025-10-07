@@ -17,6 +17,7 @@ type sslCallInfo struct {
 	_       structs.HostLayout
 	BufAddr uint64
 	Len     uint64
+	SslPtr  uint64
 }
 
 type sslCallInfoEx struct {
@@ -87,8 +88,8 @@ type sslProgramSpecs struct {
 	ProbeSslReadExEntry *ebpf.ProgramSpec `ebpf:"probe_ssl_read_ex_entry"`
 	ProbeSslReadExExit  *ebpf.ProgramSpec `ebpf:"probe_ssl_read_ex_exit"`
 	ProbeSslReadExit    *ebpf.ProgramSpec `ebpf:"probe_ssl_read_exit"`
-	ProbeSslWriteEntry  *ebpf.ProgramSpec `ebpf:"probe_ssl_write_entry"`
 	ProbeSslWriteExExit *ebpf.ProgramSpec `ebpf:"probe_ssl_write_ex_exit"`
+	ProbeSslWriteExit   *ebpf.ProgramSpec `ebpf:"probe_ssl_write_exit"`
 }
 
 // sslMapSpecs contains maps before they are loaded into the kernel.
@@ -156,8 +157,8 @@ type sslPrograms struct {
 	ProbeSslReadExEntry *ebpf.Program `ebpf:"probe_ssl_read_ex_entry"`
 	ProbeSslReadExExit  *ebpf.Program `ebpf:"probe_ssl_read_ex_exit"`
 	ProbeSslReadExit    *ebpf.Program `ebpf:"probe_ssl_read_exit"`
-	ProbeSslWriteEntry  *ebpf.Program `ebpf:"probe_ssl_write_entry"`
 	ProbeSslWriteExExit *ebpf.Program `ebpf:"probe_ssl_write_ex_exit"`
+	ProbeSslWriteExit   *ebpf.Program `ebpf:"probe_ssl_write_exit"`
 }
 
 func (p *sslPrograms) Close() error {
@@ -166,8 +167,8 @@ func (p *sslPrograms) Close() error {
 		p.ProbeSslReadExEntry,
 		p.ProbeSslReadExExit,
 		p.ProbeSslReadExit,
-		p.ProbeSslWriteEntry,
 		p.ProbeSslWriteExExit,
+		p.ProbeSslWriteExit,
 	)
 }
 

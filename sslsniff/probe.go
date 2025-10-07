@@ -17,6 +17,8 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/phuslu/log"
+
+	"github.com/tensorchord/watchu"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 ssl ssl.bpf.c -- -I../headers
@@ -24,6 +26,7 @@ import (
 const (
 	specPath      = "sslsniff/ssl_x86_bpfel.o"
 	libSSLPathEnv = "LIBSSL_PATH"
+	channelSize   = 1024
 )
 
 var libSSLCandidates = []string{
@@ -106,14 +109,21 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links
 }
 
 type SSLProbe struct {
-	links []link.Link
-	objs  *sslObjects
-	rb    *ringbuf.Reader
+	links    []link.Link
+	objs     *sslObjects
+	rb       *ringbuf.Reader
+	storage  *watchu.Storage
+	reqChan  chan *watchu.TableRequest
+	respChan chan *watchu.TableResponse
 }
 
-func NewSSLProbe(additionalFile *string) *SSLProbe {
+func NewSSLProbe(additionalFile *string, dsn *string) *SSLProbe {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		log.Fatal().Err(err).Msg("failed to remove memlock limit")
+	}
+	storage, err := watchu.NewStorage(*dsn)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to initialize storage")
 	}
 
 	attachPaths := []string{}
@@ -163,17 +173,22 @@ func NewSSLProbe(additionalFile *string) *SSLProbe {
 	}
 
 	return &SSLProbe{
-		objs:  &objs,
-		links: links,
-		rb:    rb,
+		objs:     &objs,
+		links:    links,
+		rb:       rb,
+		storage:  storage,
+		reqChan:  make(chan *watchu.TableRequest, channelSize),
+		respChan: make(chan *watchu.TableResponse, channelSize),
 	}
 }
 
 func (sp *SSLProbe) Start(ctx context.Context) {
 	log.Info().Msg("listening for SSL read/write events...")
 	var event sslEvent
+	go sp.storage.InsertHTTPRequest(ctx, sp.reqChan)
+	go sp.storage.InsertHTTPResponse(ctx, sp.respChan)
 	store := NewSSLStore()
-	go store.Parse(ctx)
+	go store.Parse(ctx, sp.reqChan, sp.respChan)
 	for {
 		record, err := sp.rb.Read()
 		if err != nil {
@@ -220,6 +235,12 @@ func (sp *SSLProbe) Close() {
 	err := sp.objs.Close()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close ssl objects")
+	}
+	close(sp.reqChan)
+	close(sp.respChan)
+	err = sp.storage.Close()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to close storage")
 	}
 	err = sp.rb.Close()
 	if err != nil {

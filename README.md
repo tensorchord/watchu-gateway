@@ -5,12 +5,6 @@ Hey, Agent! The bees are watching you!
 ## Usage
 
 - SSL read/write
-
-```bash
-make build
-sudo ./bin/sslsniff
-```
-
 - Process
 
 ```bash
@@ -23,5 +17,9 @@ docker run -d --name tetragon --rm \
     -v /var/run/tetragon:/var/run/tetragon \
     quay.io/cilium/tetragon:v1.5.0 \
     --server-address unix:///var/run/tetragon/tetragon.sock
+
+# run with SSL & Tetragon
+sudo ./bin/app -tetragon-socket unix:///var/run/tetragon/tetragon.sock
+# or run with only SSL
 sudo ./bin/app
 ```

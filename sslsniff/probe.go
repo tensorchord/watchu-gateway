@@ -26,7 +26,6 @@ import (
 const (
 	specPath      = "sslsniff/ssl_x86_bpfel.o"
 	libSSLPathEnv = "LIBSSL_PATH"
-	channelSize   = 1024
 )
 
 var libSSLCandidates = []string{
@@ -117,13 +116,9 @@ type SSLProbe struct {
 	respChan chan *watchu.TableResponse
 }
 
-func NewSSLProbe(additionalFile *string, dsn *string) *SSLProbe {
+func NewSSLProbe(additionalFile *string, storage *watchu.Storage) *SSLProbe {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		log.Fatal().Err(err).Msg("failed to remove memlock limit")
-	}
-	storage, err := watchu.NewStorage(*dsn)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to initialize storage")
 	}
 
 	attachPaths := []string{}
@@ -177,8 +172,8 @@ func NewSSLProbe(additionalFile *string, dsn *string) *SSLProbe {
 		links:    links,
 		rb:       rb,
 		storage:  storage,
-		reqChan:  make(chan *watchu.TableRequest, channelSize),
-		respChan: make(chan *watchu.TableResponse, channelSize),
+		reqChan:  make(chan *watchu.TableRequest, watchu.TableChannelSize),
+		respChan: make(chan *watchu.TableResponse, watchu.TableChannelSize),
 	}
 }
 
@@ -238,10 +233,6 @@ func (sp *SSLProbe) Close() {
 	}
 	close(sp.reqChan)
 	close(sp.respChan)
-	err = sp.storage.Close()
-	if err != nil {
-		log.Error().Err(err).Msg("failed to close storage")
-	}
 	err = sp.rb.Close()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close ringbuf reader")

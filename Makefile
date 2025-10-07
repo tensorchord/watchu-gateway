@@ -5,8 +5,7 @@ update_header:
 
 build:
 	@go generate ./...
-	@go build -o bin/sslsniff cmd/ssl/main.go
-	@go build -o bin/app cmd/exec/main.go
+	@go build -o bin/app cmd/main.go
 
 format:
 	@go fmt ./...

@@ -13,6 +13,8 @@ import (
 )
 
 const (
+	TableChannelSize = 1024
+
 	initRequestTable = `
 CREATE TABLE IF NOT EXISTS http_request (
 	id UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -46,7 +48,30 @@ CREATE TABLE IF NOT EXISTS http_response (
 	body BLOB,
 	truncated BOOLEAN NOT NULL
 );`
+	initExecTable = `
+CREATE TABLE IF NOT EXISTS exec_events (
+	id UUID PRIMARY KEY DEFAULT uuidv7(),
+	timestamp TIMESTAMPTZ NOT NULL,
+	pid UINTEGER NOT NULL,
+	ppid UINTEGER NOT NULL,
+	exec_id VARCHAR NOT NULL,
+	p_exec_id VARCHAR NOT NULL,
+	cwd VARCHAR NOT NULL,
+	comm VARCHAR NOT NULL,
+	args VARCHAR NOT NULL
+);`
 )
+
+type TableExec struct {
+	Timestamp time.Time
+	Pid       uint32
+	PPid      uint32
+	ExecId    string
+	PExecId   string
+	Cwd       string
+	Comm      string
+	Args      string
+}
 
 type TableRequest struct {
 	ElapsedNs     uint64
@@ -95,14 +120,13 @@ func NewStorage(dsn string) (*Storage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open duckdb: %w", err)
 	}
-	_, err = db.Exec(initRequestTable)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create http_request table: %w", err)
+	for _, initSQL := range []string{initExecTable, initRequestTable, initResponseTable} {
+		_, err = db.Exec(initSQL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize database table: %w with SQL: %s", err, initSQL)
+		}
 	}
-	_, err = db.Exec(initResponseTable)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create http_response table: %w", err)
-	}
+	log.Info().Msg("duckdb is ready")
 	bt, err := BootTime()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get boot time: %w", err)
@@ -110,12 +134,38 @@ func NewStorage(dsn string) (*Storage, error) {
 	return &Storage{db: db, bootTime: *bt}, nil
 }
 
-func (s *Storage) Close() error {
-	return s.db.Close()
+func (s *Storage) Close() {
+	err := s.db.Close()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to close the database")
+	}
 }
 
 func (s *Storage) parseTimestamp(elapsed uint64) time.Time {
 	return s.bootTime.Add(time.Duration(elapsed) * time.Nanosecond)
+}
+
+func (s *Storage) InsertExecEvent(ctx context.Context, channel chan *TableExec) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case exec := <-channel:
+			_, err := s.db.ExecContext(ctx, "INSERT INTO exec_events (timestamp, pid, ppid, exec_id, p_exec_id, cwd, comm, args) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+				exec.Timestamp,
+				exec.Pid,
+				exec.PPid,
+				exec.ExecId,
+				exec.PExecId,
+				exec.Cwd,
+				exec.Comm,
+				exec.Args,
+			)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to insert exec event")
+			}
+		}
+	}
 }
 
 func (s *Storage) InsertHTTPRequest(ctx context.Context, channel chan *TableRequest) {

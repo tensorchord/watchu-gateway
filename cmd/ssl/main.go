@@ -13,12 +13,13 @@ import (
 func main() {
 	watchu.SetUpLogger()
 	binaryPath := flag.String("binary-path", "", "extra user binary path to attach SSL uprobes (optional)")
+	dsn := flag.String("db", "watchu.db", "a duckdb database source name")
 	flag.Parse()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	sslProbe := sslsniff.NewSSLProbe(binaryPath)
+	sslProbe := sslsniff.NewSSLProbe(binaryPath, dsn)
 
 	go func() {
 		<-ctx.Done()

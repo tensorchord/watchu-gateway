@@ -5,6 +5,7 @@ go 1.25.1
 require (
 	github.com/cilium/ebpf v0.19.0
 	github.com/cilium/tetragon/api v1.5.0
+	github.com/marcboeker/go-duckdb/v2 v2.4.1
 	github.com/phuslu/log v1.0.120
 	golang.org/x/net v0.44.0
 	google.golang.org/grpc v1.75.0
@@ -26,7 +27,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/marcboeker/go-duckdb/arrowmapping v0.0.20 // indirect
 	github.com/marcboeker/go-duckdb/mapping v0.0.20 // indirect
-	github.com/marcboeker/go-duckdb/v2 v2.4.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0 // indirect

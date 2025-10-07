@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 	"unicode"
 
 	"github.com/phuslu/log"
+	"github.com/tensorchord/watchu"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 )
@@ -41,6 +43,14 @@ var (
 	HTTP2PREFACE     = []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
 	HTTP2PREFACE_LEN = len(HTTP2PREFACE)
 )
+
+func flattenHeader(h http.Header) map[string]string {
+	flat := make(map[string]string, len(h))
+	for k, v := range h {
+		flat[k] = strings.Join(v, ",")
+	}
+	return flat
+}
 
 type SSLKey struct {
 	PidTgid uint64
@@ -119,7 +129,7 @@ func (s *SSLStore) Add(event *sslEvent) {
 	}
 }
 
-func (s *SSLStore) parseRequest() {
+func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 	s.reqMu.Lock()
 	defer s.reqMu.Unlock()
 
@@ -180,7 +190,7 @@ func (s *SSLStore) parseRequest() {
 					log.Warn().Int("consumed", consumed).Err(err).Msg("unexpected nil request")
 					break
 				}
-				body, err := readCloserToString(request.Body)
+				body, err := readCloserToBytes(request.Body)
 				if err != nil {
 					log.Error().Err(err).Msg("failed to read request body")
 				}
@@ -188,16 +198,29 @@ func (s *SSLStore) parseRequest() {
 				if request.URL != nil {
 					url = request.URL.String()
 				}
-				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", request.Header).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Str("body", body).Bool("truncated", truncated).Msg("")
+				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", request.Header).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
 				record.EndOfStream = false
 				record.LastResp = nil
+				channel <- &watchu.TableRequest{
+					ElapsedNs:     timestamp,
+					PidTid:        key.PidTgid,
+					UidGid:        key.UidGid,
+					Comm:          comm,
+					Method:        request.Method,
+					URL:           url,
+					ContentLength: request.ContentLength,
+					Protocol:      request.Proto,
+					Headers:       flattenHeader(request.Header),
+					Body:          body,
+					Truncated:     truncated,
+				}
 				break
 			}
 		}
 	}
 }
 
-func (s *SSLStore) parseResponse() {
+func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 	s.respMu.Lock()
 	defer s.respMu.Unlock()
 
@@ -259,20 +282,32 @@ func (s *SSLStore) parseResponse() {
 					log.Warn().Int("consumed", consumed).Err(err).Msg("unexpected nil response")
 					break
 				}
-				body, err := readCloserToString(response.Body)
+				body, err := readCloserToBytes(response.Body)
 				if err != nil {
 					log.Error().Err(err).Msg("failed to read response body")
 				}
-				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Str("body", body).Bool("truncated", truncated).Msg("")
+				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
 				record.EndOfStream = false
 				record.LastResp = nil
+				channel <- &watchu.TableResponse{
+					ElapsedNs:     timestamp,
+					PidTid:        key.PidTgid,
+					UidGid:        key.UidGid,
+					Comm:          comm,
+					StatusCode:    response.StatusCode,
+					ContentLength: response.ContentLength,
+					Protocol:      response.Proto,
+					Headers:       flattenHeader(response.Header),
+					Body:          body,
+					Truncated:     truncated,
+				}
 				break
 			}
 		}
 	}
 }
 
-func (s *SSLStore) Parse(ctx context.Context) {
+func (s *SSLStore) Parse(ctx context.Context, reqChan chan *watchu.TableRequest, respChan chan *watchu.TableResponse) {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
@@ -281,8 +316,8 @@ func (s *SSLStore) Parse(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.parseRequest()
-			s.parseResponse()
+			s.parseRequest(reqChan)
+			s.parseResponse(respChan)
 		}
 	}
 }
@@ -296,7 +331,7 @@ func isBinary(data []uint8) bool {
 	return false
 }
 
-func readCloserToString(rc io.ReadCloser) (string, error) {
+func readCloserToBytes(rc io.ReadCloser) ([]byte, error) {
 	defer func() {
 		err := rc.Close()
 		if err != nil {
@@ -305,9 +340,9 @@ func readCloserToString(rc io.ReadCloser) (string, error) {
 	}()
 	buf, err := io.ReadAll(rc)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(buf), nil
+	return buf, nil
 }
 
 type HTTPParser interface {

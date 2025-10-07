@@ -492,7 +492,7 @@ func (h2 *HTTP2Parser) parse(record *SSLRecord) (headers []hpack.HeaderField, bo
 			}
 		case *http2.ContinuationFrame:
 			if hbOpen && hbStreamID != f.Header().StreamID {
-				err = fmt.Errorf("protocol error: new HEADERS on %d while block open on %d", f.Header().StreamID, hbStreamID)
+				err = fmt.Errorf("protocol error: CONTINUATION on %d while block open on %d", f.Header().StreamID, hbStreamID)
 				return
 			}
 			hbBuf = append(hbBuf, f.HeaderBlockFragment()...)

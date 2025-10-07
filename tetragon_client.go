@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/cilium/tetragon/api/v1/tetragon"
 	"github.com/phuslu/log"
@@ -60,6 +61,9 @@ func (tc *TetragonClient) Run(ctx context.Context) {
 					return
 				}
 			}
+			log.Error().Err(err).Msg("failed to get event from Tetragon, retry the next event after 1 seconds")
+			time.Sleep(time.Second)
+			continue
 		}
 		for {
 			event, err := eventStream.Recv()

@@ -38,9 +38,9 @@ func main() {
 
 	if len(*tetragonSocket) > 0 {
 		log.Info().Str("socket", *tetragonSocket).Msg("enable Tetragon integration")
-		tetragonClient, err := watchu.NewTetragonClient(tetragonSocket, storage)
+		tetragonClient, err := watchu.NewTetragonClient(*tetragonSocket, storage)
 		if err != nil {
-			log.Fatal().Err(err).Msg("failed to create Tetragon client, skip it")
+			log.Fatal().Err(err).Msg("failed to create Tetragon client")
 		}
 		defer tetragonClient.Close()
 		go tetragonClient.Run(ctx)

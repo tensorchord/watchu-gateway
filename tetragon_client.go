@@ -20,8 +20,8 @@ type TetragonClient struct {
 	channel chan *TableExec
 }
 
-func NewTetragonClient(socketPath *string, storage *Storage) (*TetragonClient, error) {
-	conn, err := grpc.NewClient(*socketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func NewTetragonClient(socketPath string, storage *Storage) (*TetragonClient, error) {
+	conn, err := grpc.NewClient(socketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial: %w", err)
 	}
@@ -37,6 +37,7 @@ func NewTetragonClient(socketPath *string, storage *Storage) (*TetragonClient, e
 }
 
 func (tc *TetragonClient) Close() {
+	close(tc.channel)
 	err := tc.conn.Close()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close the socket connection")

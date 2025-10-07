@@ -174,7 +174,7 @@ int probe_ssl_read_ex_exit(struct pt_regs *ctx) {
     bpf_ringbuf_submit(evt, 0);
 
 cleanup:
-    bpf_map_delete_elem(&start_map, &key);
+    bpf_map_delete_elem(&start_ex_map, &key);
     return 0;
 }
 
@@ -245,6 +245,6 @@ int probe_ssl_write_ex_exit(struct pt_regs *ctx) {
     bpf_ringbuf_submit(evt, 0);
 
 cleanup:
-    bpf_map_delete_elem(&start_map, &key);
+    bpf_map_delete_elem(&start_ex_map, &key);
     return 0;
 }

@@ -116,6 +116,7 @@ func (s *SSLStore) Add(event *sslEvent) {
 			s.Request[key] = record
 		}
 		record.Append(event.Data[:event.DataLen], info)
+		log.Debug().Uint32("len", event.DataLen).Msg("append to request")
 		s.reqMu.Unlock()
 	case SSL_RW_READ:
 		s.respMu.Lock()

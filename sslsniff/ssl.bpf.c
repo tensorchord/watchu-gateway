@@ -129,7 +129,7 @@ int probe_ssl_read_exit(struct pt_regs *ctx) {
         bpf_probe_read_user(evt->data, length, buf);
     
         bpf_ringbuf_submit(evt, 0);
-        buf += length;
+        buf = (u8 *)buf + length;
         ret -= length;
     }
 
@@ -180,7 +180,7 @@ int probe_ssl_read_ex_exit(struct pt_regs *ctx) {
         bpf_probe_read_user(evt->data, length, buf);
     
         bpf_ringbuf_submit(evt, 0);
-        buf += length;
+        buf = (u8 *)buf + length;
         readbytes -= length;
     }
 
@@ -228,7 +228,7 @@ int probe_ssl_write_exit(struct pt_regs *ctx) {
         bpf_probe_read_user(evt->data, length, buf);
         
         bpf_ringbuf_submit(evt, 0);
-        buf += length;
+        buf = (u8 *)buf + length;
         ret -= length;
     }
 
@@ -278,7 +278,7 @@ int probe_ssl_write_ex_exit(struct pt_regs *ctx) {
         bpf_probe_read_user(evt->data, length, buf);
         
         bpf_ringbuf_submit(evt, 0);
-        buf += length;
+        buf = (u8 *)buf + length;
         written -= length;
     }
 

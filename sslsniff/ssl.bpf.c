@@ -112,9 +112,6 @@ int probe_ssl_read_exit(struct pt_regs *ctx) {
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;
 
-        if (length == 0)
-            break;
-
         struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
         if (!evt) {
             // retry in the next loop, but still limited to MAX_LOOP
@@ -166,9 +163,6 @@ int probe_ssl_read_ex_exit(struct pt_regs *ctx) {
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;
     
-        if (length == 0)
-            break;
-    
         struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
         if (!evt) {
             // retry in the next loop, but still limited to MAX_LOOP
@@ -216,9 +210,6 @@ int probe_ssl_write_exit(struct pt_regs *ctx) {
         u32 length = (u32)ret;
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;
-
-        if (length == 0)
-            break;
     
         struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
         if (!evt) {
@@ -270,9 +261,6 @@ int probe_ssl_write_ex_exit(struct pt_regs *ctx) {
         u32 length = (u32)written;
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;
-
-        if (length == 0)
-            break;
 
         struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
         if (!evt)

@@ -149,81 +149,79 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 		} else {
 			parser = s.http1Parser
 		}
-		for len(record.Stream) > 0 {
-			request, consumed, err := parser.ParseRequest(record)
-			if err != nil {
-				log.Error().Str("body", string(record.Stream[:consumed])).Err(err).Msg("failed to parse HTTP request")
+		if len(record.Stream) <= 0 {
+			continue
+		}
+		request, consumed, err := parser.ParseRequest(record)
+		if err != nil {
+			log.Error().Str("body", string(record.Stream[:consumed])).Err(err).Msg("failed to parse HTTP request")
+		}
+		// wait for more data
+		if consumed == 0 || !record.EndOfStream {
+			continue
+		}
+		var timestamp uint64
+		var comm string
+		truncated := false
+		if consumed == len(record.Stream) {
+			timestamp = record.Info[len(record.Info)-1].TimestampNs
+			comm = charsToString(record.Info[len(record.Info)-1].Comm[:])
+			delete(s.Request, key)
+		} else {
+			if consumed == SSL_MAX_DATA_SIZE {
+				truncated = true
 			}
-			// wait for more data
-			if consumed == 0 {
-				break
-			}
-			var timestamp uint64
-			var comm string
-			truncated := false
-			if consumed == len(record.Stream) && record.EndOfStream {
-				timestamp = record.Info[len(record.Info)-1].TimestampNs
-				comm = charsToString(record.Info[len(record.Info)-1].Comm[:])
-				delete(s.Request, key)
-			} else {
-				if consumed == SSL_MAX_DATA_SIZE {
-					truncated = true
-				}
-				record.Stream = record.Stream[consumed:]
-				index := 0
-				last := 0
-				length := consumed
-				for i, info := range record.Info {
-					index = i
-					if length == 0 {
-						break
-					} else if length >= int(info.DataLen) {
-						length -= int(info.DataLen)
-					} else {
-						break
-					}
-					last = i
-					if i == len(record.Info)-1 && length == 0 {
-						// consumed all data
-						index = len(record.Info)
-					}
-				}
-				timestamp = record.Info[last].TimestampNs
-				comm = charsToString(record.Info[last].Comm[:])
-				// keep the unparsed info
-				record.Info = record.Info[index:]
-			}
-			if record.EndOfStream {
-				if request == nil {
-					log.Warn().Int("consumed", consumed).Err(err).Msg("unexpected nil request")
+			record.Stream = record.Stream[consumed:]
+			index := 0
+			last := 0
+			length := consumed
+			for i, info := range record.Info {
+				index = i
+				if length == 0 {
+					break
+				} else if length >= int(info.DataLen) {
+					length -= int(info.DataLen)
+				} else {
 					break
 				}
-				body, err := readCloserToBytes(request.Body)
-				if err != nil {
-					log.Error().Err(err).Msg("failed to read request body")
+				last = i
+				if i == len(record.Info)-1 && length == 0 {
+					// consumed all data
+					index = len(record.Info)
 				}
-				url := request.RequestURI
-				if request.URL != nil {
-					url = request.URL.String()
-				}
-				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", request.Header).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
-				record.EndOfStream = false
-				record.LastResp = nil
-				channel <- &watchu.TableRequest{
-					ElapsedNs:     timestamp,
-					PidTid:        key.PidTgid,
-					UidGid:        key.UidGid,
-					Comm:          comm,
-					Method:        request.Method,
-					URL:           url,
-					ContentLength: request.ContentLength,
-					Protocol:      request.Proto,
-					Headers:       flattenHeader(request.Header),
-					Body:          body,
-					Truncated:     truncated,
-				}
-				break
 			}
+			timestamp = record.Info[last].TimestampNs
+			comm = charsToString(record.Info[last].Comm[:])
+			// keep the unparsed info
+			record.Info = record.Info[index:]
+		}
+		if request == nil {
+			log.Warn().Int("consumed", consumed).Err(err).Msg("unexpected nil request")
+			break
+		}
+		body, err := readCloserToBytes(request.Body)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to read request body")
+		}
+		url := request.RequestURI
+		if request.URL != nil {
+			url = request.URL.String()
+		}
+		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", request.Header).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
+		record.EndOfStream = false
+		record.LastResp = nil
+		channel <- &watchu.TableRequest{
+			ElapsedNs:     timestamp,
+			PidTid:        key.PidTgid,
+			UidGid:        key.UidGid,
+			Comm:          comm,
+			Method:        request.Method,
+			URL:           url,
+			ContentLength: request.ContentLength,
+			Protocol:      request.Proto,
+			Headers:       flattenHeader(request.Header),
+			Body:          body,
+			Truncated:     truncated,
 		}
 	}
 }

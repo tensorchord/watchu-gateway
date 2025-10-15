@@ -3,7 +3,6 @@ package sslsniff
 import (
 	"bufio"
 	"bytes"
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -45,13 +44,6 @@ var (
 	HTTP2PREFACE     = []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
 	HTTP2PREFACE_LEN = len(HTTP2PREFACE)
 )
-
-func Min[T cmp.Ordered](a, b T) T {
-	if cmp.Less(a, b) {
-		return a
-	}
-	return b
-}
 
 func flattenHeader(h http.Header) map[string]string {
 	flat := make(map[string]string, len(h))
@@ -149,7 +141,7 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 		} else {
 			parser = s.http1Parser
 		}
-		if len(record.Stream) <= 0 {
+		if len(record.Stream) == 0 {
 			continue
 		}
 		request, consumed, err := parser.ParseRequest(record)
@@ -168,7 +160,7 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 			comm = charsToString(record.Info[len(record.Info)-1].Comm[:])
 			delete(s.Request, key)
 		} else {
-			if consumed == SSL_MAX_DATA_SIZE {
+			if consumed >= SSL_MAX_DATA_SIZE {
 				truncated = true
 			}
 			record.Stream = record.Stream[consumed:]
@@ -253,7 +245,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 				comm = charsToString(record.Info[len(record.Info)-1].Comm[:])
 				delete(s.Response, key)
 			} else {
-				// response won't exceed the max size
+				// response won't exceed the max size, see github issue #17
 				record.Stream = record.Stream[consumed:]
 				index := 0
 				last := 0
@@ -382,7 +374,7 @@ func (h1 *HTTP1Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 		if length_to_consume > SSL_MAX_DATA_SIZE && len(record.Stream)+SSL_MAX_EVENT_SIZE > SSL_MAX_DATA_SIZE {
 			log.Debug().Int("content_length", int(req.ContentLength)).Int("received", len(record.Stream)-idx-HTTP1_DELIMITER_LEN).Msg("truncate HTTP/1 request body")
 			record.EndOfStream = true
-			length_to_consume = Min(SSL_MAX_DATA_SIZE, len(record.Stream))
+			length_to_consume = min(SSL_MAX_DATA_SIZE, len(record.Stream))
 			return req, length_to_consume, nil
 		}
 		// wait for more data, do not return the half-received request body

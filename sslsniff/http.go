@@ -23,7 +23,7 @@ import (
 
 const (
 	// SSL
-	SSL_MAX_DATA_SIZE = 64 * 1024 // 64 KiB
+	SSL_MAX_DATA_SIZE = 64 * 64 * 1024 // 4 MiB
 	SSL_RW_READ       = 4
 	SSL_RW_WRITE      = 2
 
@@ -248,10 +248,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 				comm = charsToString(record.Info[len(record.Info)-1].Comm[:])
 				delete(s.Response, key)
 			} else {
-				if consumed > SSL_MAX_DATA_SIZE {
-					truncated = true
-					consumed = SSL_MAX_DATA_SIZE
-				}
+				// response won't exceed the max size
 				record.Stream = record.Stream[consumed:]
 				index := 0
 				last := 0

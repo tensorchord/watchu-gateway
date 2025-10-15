@@ -3,6 +3,7 @@ package sslsniff
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -23,9 +24,10 @@ import (
 
 const (
 	// SSL
-	SSL_MAX_DATA_SIZE = 64 * 64 * 1024 // 4 MiB
-	SSL_RW_READ       = 4
-	SSL_RW_WRITE      = 2
+	SSL_MAX_EVENT_SIZE = 64 * 1024               // 64 KiB
+	SSL_MAX_DATA_SIZE  = 64 * SSL_MAX_EVENT_SIZE // 4 MiB
+	SSL_RW_READ        = 4
+	SSL_RW_WRITE       = 2
 
 	// HTTP
 	HTTP1_DELIMITER_LEN    = 4
@@ -43,6 +45,13 @@ var (
 	HTTP2PREFACE     = []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
 	HTTP2PREFACE_LEN = len(HTTP2PREFACE)
 )
+
+func Min[T cmp.Ordered](a, b T) T {
+	if cmp.Less(a, b) {
+		return a
+	}
+	return b
+}
 
 func flattenHeader(h http.Header) map[string]string {
 	flat := make(map[string]string, len(h))
@@ -157,9 +166,8 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 				comm = charsToString(record.Info[len(record.Info)-1].Comm[:])
 				delete(s.Request, key)
 			} else {
-				if consumed > SSL_MAX_DATA_SIZE {
+				if consumed == SSL_MAX_DATA_SIZE {
 					truncated = true
-					consumed = SSL_MAX_DATA_SIZE
 				}
 				record.Stream = record.Stream[consumed:]
 				index := 0
@@ -242,7 +250,6 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 			}
 			var timestamp uint64
 			var comm string
-			truncated := false
 			if consumed == len(record.Stream) && record.EndOfStream {
 				timestamp = record.Info[len(record.Info)-1].TimestampNs
 				comm = charsToString(record.Info[len(record.Info)-1].Comm[:])
@@ -283,7 +290,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 				if err != nil {
 					log.Error().Err(err).Msg("failed to read response body")
 				}
-				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
+				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("")
 				record.EndOfStream = false
 				record.LastResp = nil
 				channel <- &watchu.TableResponse{
@@ -296,7 +303,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 					Protocol:      response.Proto,
 					Headers:       flattenHeader(response.Header),
 					Body:          body,
-					Truncated:     truncated,
+					Truncated:     false,
 				}
 				break
 			}
@@ -373,6 +380,13 @@ func (h1 *HTTP1Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 	// check if the body is fully received
 	length_to_consume := idx + HTTP1_DELIMITER_LEN + int(req.ContentLength)
 	if req.ContentLength >= 0 && length_to_consume > len(record.Stream) {
+		// when the data is too large to be handled, returned the truncated body
+		if length_to_consume > SSL_MAX_DATA_SIZE && len(record.Stream)+SSL_MAX_EVENT_SIZE > SSL_MAX_DATA_SIZE {
+			log.Debug().Int("content_length", int(req.ContentLength)).Int("received", len(record.Stream)-idx-HTTP1_DELIMITER_LEN).Msg("truncate HTTP/1 request body")
+			record.EndOfStream = true
+			length_to_consume = Min(SSL_MAX_DATA_SIZE, len(record.Stream))
+			return req, length_to_consume, nil
+		}
 		// wait for more data, do not return the half-received request body
 		log.Debug().Int("content_length", int(req.ContentLength)).Int("received", len(record.Stream)-idx-HTTP1_DELIMITER_LEN).Msg("incomplete HTTP request body, wait for more data")
 		record.EndOfStream = false
@@ -565,6 +579,15 @@ func (h2 *HTTP2Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 		return nil, lastPos, err
 	}
 
+	if !record.EndOfStream && lastPos+SSL_MAX_EVENT_SIZE > SSL_MAX_DATA_SIZE {
+		// truncate the request body
+		log.Debug().Int("lastPos", lastPos).Msg("truncate HTTP/2 request body")
+		record.EndOfStream = true
+	}
+	if !record.EndOfStream {
+		// wait for more data
+		return nil, 0, nil
+	}
 	// convert headers to http.Request
 	hdrs := http.Header{}
 	var method, scheme, path, authority string

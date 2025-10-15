@@ -9,7 +9,7 @@
 
 #define MAX_BODY_SIZE (64 * 1024) // 64 KiB
 #define RING_BUFFER_SIZE (32 * 1024 * 1024) // 32 MiB
-#define MAX_LOOP 64  // make it 64 * 64 = 4096KiB = 4MiB
+#define MAX_LOOP 64 // make it 64 * 64 = 4096KiB = 4MiB
 #define MAX_ENTRIES 10240
 #define TASK_COMM_LEN 16
 
@@ -101,12 +101,12 @@ int probe_ssl_read_exit(struct pt_regs *ctx) {
     if (ret <= 0)
         goto cleanup;
 
-    u64 now = bpf_ktime_get_ns();
+    u64 now     = bpf_ktime_get_ns();
     u64 uid_gid = bpf_get_current_uid_gid();
-    void *buf = (void *)info->buf_addr;
+    void *buf   = (void *)info->buf_addr;
 
-    // bpf_repeat(MAX_LOOP) {
-    #pragma unroll
+// bpf_repeat(MAX_LOOP) {
+#pragma unroll
     for (int i = 0; i < MAX_LOOP && ret > 0; ++i) {
         u32 length = (u32)ret; // Cast is safe: ret > 0 guaranteed by guard above
         if (length > MAX_BODY_SIZE)
@@ -117,7 +117,7 @@ int probe_ssl_read_exit(struct pt_regs *ctx) {
             // retry in the next loop, but still limited to MAX_LOOP
             continue;
         }
-    
+
         evt->pid_tgid     = key;
         evt->ssl_ptr      = info->ssl_ptr;
         evt->uid_gid      = uid_gid;
@@ -127,7 +127,7 @@ int probe_ssl_read_exit(struct pt_regs *ctx) {
         evt->rw           = 4;
         bpf_get_current_comm(&evt->comm, sizeof(evt->comm));
         bpf_probe_read_user(evt->data, length, buf);
-    
+
         bpf_ringbuf_submit(evt, 0);
         buf = (u8 *)buf + length;
         ret -= length;
@@ -148,27 +148,27 @@ int probe_ssl_read_ex_exit(struct pt_regs *ctx) {
     int ret = PT_REGS_RC(ctx);
     if (ret != 1)
         goto cleanup;
-    
+
     size_t readbytes = 0;
-    u64 now = bpf_ktime_get_ns();
-    u64 uid_gid = bpf_get_current_uid_gid();
+    u64 now          = bpf_ktime_get_ns();
+    u64 uid_gid      = bpf_get_current_uid_gid();
     bpf_probe_read_user(&readbytes, sizeof(readbytes), (void *)info->consumed_len_ptr);
 
     void *buf = (void *)info->buf_addr;
 
-    // bpf_repeat(MAX_LOOP) {
-    #pragma unroll
+// bpf_repeat(MAX_LOOP) {
+#pragma unroll
     for (int i = 0; i < MAX_LOOP && readbytes > 0; ++i) {
         u32 length = (u32)readbytes;
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;
-    
+
         struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
         if (!evt) {
             // retry in the next loop, but still limited to MAX_LOOP
             continue;
         }
-    
+
         evt->pid_tgid     = key;
         evt->ssl_ptr      = info->ssl_ptr;
         evt->uid_gid      = uid_gid;
@@ -178,7 +178,7 @@ int probe_ssl_read_ex_exit(struct pt_regs *ctx) {
         evt->rw           = 4;
         bpf_get_current_comm(&evt->comm, sizeof(evt->comm));
         bpf_probe_read_user(evt->data, length, buf);
-    
+
         bpf_ringbuf_submit(evt, 0);
         buf = (u8 *)buf + length;
         readbytes -= length;
@@ -199,24 +199,24 @@ int probe_ssl_write_exit(struct pt_regs *ctx) {
     int ret = PT_REGS_RC(ctx);
     if (ret <= 0)
         goto cleanup;
-    
-    u64 now = bpf_ktime_get_ns();
-    u64 uid_gid = bpf_get_current_uid_gid();
-    void *buf = (void *)info->buf_addr;
 
-    // bpf_repeat(MAX_LOOP) {
-    #pragma unroll
+    u64 now     = bpf_ktime_get_ns();
+    u64 uid_gid = bpf_get_current_uid_gid();
+    void *buf   = (void *)info->buf_addr;
+
+// bpf_repeat(MAX_LOOP) {
+#pragma unroll
     for (int i = 0; i < MAX_LOOP && ret > 0; ++i) {
         u32 length = (u32)ret;
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;
-    
+
         struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
         if (!evt) {
             // retry in the next loop, but still limited to MAX_LOOP
             continue;
         }
-        
+
         evt->pid_tgid     = key;
         evt->uid_gid      = uid_gid;
         evt->ssl_ptr      = info->ssl_ptr;
@@ -226,7 +226,7 @@ int probe_ssl_write_exit(struct pt_regs *ctx) {
         evt->rw           = 2;
         bpf_get_current_comm(&evt->comm, sizeof(evt->comm));
         bpf_probe_read_user(evt->data, length, buf);
-        
+
         bpf_ringbuf_submit(evt, 0);
         buf = (u8 *)buf + length;
         ret -= length;
@@ -247,16 +247,16 @@ int probe_ssl_write_ex_exit(struct pt_regs *ctx) {
     int ret = PT_REGS_RC(ctx);
     if (ret != 1)
         goto cleanup;
-        
+
     size_t written = 0;
     bpf_probe_read_user(&written, sizeof(written), (void *)info->consumed_len_ptr);
     u64 uid_gid = bpf_get_current_uid_gid();
-    u64 now = bpf_ktime_get_ns();
-    
+    u64 now     = bpf_ktime_get_ns();
+
     void *buf = (void *)info->buf_addr;
 
-    // bpf_repeat(MAX_LOOP) {
-    #pragma unroll
+// bpf_repeat(MAX_LOOP) {
+#pragma unroll
     for (int i = 0; i < MAX_LOOP && written > 0; ++i) {
         u32 length = (u32)written;
         if (length > MAX_BODY_SIZE)
@@ -276,7 +276,7 @@ int probe_ssl_write_ex_exit(struct pt_regs *ctx) {
         evt->rw           = 2;
         bpf_get_current_comm(&evt->comm, sizeof(evt->comm));
         bpf_probe_read_user(evt->data, length, buf);
-        
+
         bpf_ringbuf_submit(evt, 0);
         buf = (u8 *)buf + length;
         written -= length;

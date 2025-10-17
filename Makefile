@@ -14,3 +14,4 @@ format:
 
 lint:
 	@golangci-lint run
+	@find . -type f -name "*.c" | xargs clang-format --dry-run --Werror

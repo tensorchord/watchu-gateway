@@ -23,9 +23,10 @@ import (
 
 const (
 	// SSL
-	SSL_MAX_DATA_SIZE = 64 * 1024 // 64 KiB
-	SSL_RW_READ       = 4
-	SSL_RW_WRITE      = 2
+	SSL_MAX_EVENT_SIZE = 64 * 1024               // 64 KiB
+	SSL_MAX_DATA_SIZE  = 64 * SSL_MAX_EVENT_SIZE // 4 MiB
+	SSL_RW_READ        = 4
+	SSL_RW_WRITE       = 2
 
 	// HTTP
 	HTTP1_DELIMITER_LEN    = 4
@@ -140,82 +141,79 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 		} else {
 			parser = s.http1Parser
 		}
-		for len(record.Stream) > 0 {
-			request, consumed, err := parser.ParseRequest(record)
-			if err != nil {
-				log.Error().Str("body", string(record.Stream[:consumed])).Err(err).Msg("failed to parse HTTP request")
+		if len(record.Stream) == 0 {
+			continue
+		}
+		request, consumed, err := parser.ParseRequest(record)
+		if err != nil {
+			log.Error().Str("body", string(record.Stream[:consumed])).Err(err).Msg("failed to parse HTTP request")
+		}
+		// wait for more data
+		if consumed == 0 || !record.EndOfStream {
+			continue
+		}
+		var timestamp uint64
+		var comm string
+		truncated := false
+		if consumed == len(record.Stream) {
+			timestamp = record.Info[len(record.Info)-1].TimestampNs
+			comm = charsToString(record.Info[len(record.Info)-1].Comm[:])
+			delete(s.Request, key)
+		} else {
+			if consumed >= SSL_MAX_DATA_SIZE {
+				truncated = true
 			}
-			// wait for more data
-			if consumed == 0 {
-				break
-			}
-			var timestamp uint64
-			var comm string
-			truncated := false
-			if consumed == len(record.Stream) && record.EndOfStream {
-				timestamp = record.Info[len(record.Info)-1].TimestampNs
-				comm = charsToString(record.Info[len(record.Info)-1].Comm[:])
-				delete(s.Request, key)
-			} else {
-				if consumed > SSL_MAX_DATA_SIZE {
-					truncated = true
-					consumed = SSL_MAX_DATA_SIZE
-				}
-				record.Stream = record.Stream[consumed:]
-				index := 0
-				last := 0
-				length := consumed
-				for i, info := range record.Info {
-					index = i
-					if length == 0 {
-						break
-					} else if length >= int(info.DataLen) {
-						length -= int(info.DataLen)
-					} else {
-						break
-					}
-					last = i
-					if i == len(record.Info)-1 && length == 0 {
-						// consumed all data
-						index = len(record.Info)
-					}
-				}
-				timestamp = record.Info[last].TimestampNs
-				comm = charsToString(record.Info[last].Comm[:])
-				// keep the unparsed info
-				record.Info = record.Info[index:]
-			}
-			if record.EndOfStream {
-				if request == nil {
-					log.Warn().Int("consumed", consumed).Err(err).Msg("unexpected nil request")
+			record.Stream = record.Stream[consumed:]
+			index := 0
+			last := 0
+			length := consumed
+			for i, info := range record.Info {
+				index = i
+				if length == 0 {
+					break
+				} else if length >= int(info.DataLen) {
+					length -= int(info.DataLen)
+				} else {
 					break
 				}
-				body, err := readCloserToBytes(request.Body)
-				if err != nil {
-					log.Error().Err(err).Msg("failed to read request body")
+				last = i
+				if i == len(record.Info)-1 && length == 0 {
+					// consumed all data
+					index = len(record.Info)
 				}
-				url := request.RequestURI
-				if request.URL != nil {
-					url = request.URL.String()
-				}
-				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", request.Header).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
-				record.EndOfStream = false
-				record.LastResp = nil
-				channel <- &watchu.TableRequest{
-					ElapsedNs:     timestamp,
-					PidTid:        key.PidTgid,
-					UidGid:        key.UidGid,
-					Comm:          comm,
-					Method:        request.Method,
-					URL:           url,
-					ContentLength: request.ContentLength,
-					Protocol:      request.Proto,
-					Headers:       flattenHeader(request.Header),
-					Body:          body,
-					Truncated:     truncated,
-				}
-				break
 			}
+			timestamp = record.Info[last].TimestampNs
+			comm = charsToString(record.Info[last].Comm[:])
+			// keep the unparsed info
+			record.Info = record.Info[index:]
+		}
+		if request == nil {
+			log.Warn().Int("consumed", consumed).Err(err).Msg("unexpected nil request")
+			break
+		}
+		body, err := readCloserToBytes(request.Body)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to read request body")
+		}
+		url := request.RequestURI
+		if request.URL != nil {
+			url = request.URL.String()
+		}
+		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", request.Header).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
+		record.EndOfStream = false
+		record.LastResp = nil
+		channel <- &watchu.TableRequest{
+			ElapsedNs:     timestamp,
+			PidTid:        key.PidTgid,
+			UidGid:        key.UidGid,
+			Comm:          comm,
+			Method:        request.Method,
+			URL:           url,
+			ContentLength: request.ContentLength,
+			Protocol:      request.Proto,
+			Headers:       flattenHeader(request.Header),
+			Body:          body,
+			Truncated:     truncated,
 		}
 	}
 }
@@ -242,16 +240,12 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 			}
 			var timestamp uint64
 			var comm string
-			truncated := false
 			if consumed == len(record.Stream) && record.EndOfStream {
 				timestamp = record.Info[len(record.Info)-1].TimestampNs
 				comm = charsToString(record.Info[len(record.Info)-1].Comm[:])
 				delete(s.Response, key)
 			} else {
-				if consumed > SSL_MAX_DATA_SIZE {
-					truncated = true
-					consumed = SSL_MAX_DATA_SIZE
-				}
+				// response won't exceed the max size, see github issue #17
 				record.Stream = record.Stream[consumed:]
 				index := 0
 				last := 0
@@ -286,7 +280,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 				if err != nil {
 					log.Error().Err(err).Msg("failed to read response body")
 				}
-				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
+				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("")
 				record.EndOfStream = false
 				record.LastResp = nil
 				channel <- &watchu.TableResponse{
@@ -299,7 +293,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 					Protocol:      response.Proto,
 					Headers:       flattenHeader(response.Header),
 					Body:          body,
-					Truncated:     truncated,
+					Truncated:     false,
 				}
 				break
 			}
@@ -376,6 +370,13 @@ func (h1 *HTTP1Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 	// check if the body is fully received
 	length_to_consume := idx + HTTP1_DELIMITER_LEN + int(req.ContentLength)
 	if req.ContentLength >= 0 && length_to_consume > len(record.Stream) {
+		// when the data is too large to be handled, returned the truncated body
+		if length_to_consume > SSL_MAX_DATA_SIZE && len(record.Stream)+SSL_MAX_EVENT_SIZE > SSL_MAX_DATA_SIZE {
+			log.Debug().Int("content_length", int(req.ContentLength)).Int("received", len(record.Stream)-idx-HTTP1_DELIMITER_LEN).Msg("truncate HTTP/1 request body")
+			record.EndOfStream = true
+			length_to_consume = min(SSL_MAX_DATA_SIZE, len(record.Stream))
+			return req, length_to_consume, nil
+		}
 		// wait for more data, do not return the half-received request body
 		log.Debug().Int("content_length", int(req.ContentLength)).Int("received", len(record.Stream)-idx-HTTP1_DELIMITER_LEN).Msg("incomplete HTTP request body, wait for more data")
 		record.EndOfStream = false
@@ -568,6 +569,15 @@ func (h2 *HTTP2Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 		return nil, lastPos, err
 	}
 
+	if !record.EndOfStream && lastPos+SSL_MAX_EVENT_SIZE > SSL_MAX_DATA_SIZE {
+		// truncate the request body
+		log.Debug().Int("lastPos", lastPos).Msg("truncate HTTP/2 request body")
+		record.EndOfStream = true
+	}
+	if !record.EndOfStream {
+		// wait for more data
+		return nil, 0, nil
+	}
 	// convert headers to http.Request
 	hdrs := http.Header{}
 	var method, scheme, path, authority string

@@ -97,12 +97,12 @@ func isHTTP2Protocol(buf []uint8) bool {
 	// check if it's chunked encoding
 	_, consumed, err := parseStream(buf)
 	if err == nil && consumed > 0 {
-		logger.Trace().Bytes("buf", buf).Msg("detect HTTP/1.x chunked encoding")
+		logger.Trace().Msg("detect HTTP/1.x chunked encoding")
 		return false
 	}
 	// it's very likely HTTP/2 if no HTTP/1.x signature found
 	if len(buf) < HTTP2_FRAME_HEADER_LEN {
-		logger.Error().Bytes("buf", buf).Msg("cannot determine the protocol version")
+		logger.Error().Str("buf", hex.EncodeToString(buf)).Msg("cannot determine the protocol version")
 		return false
 	}
 	// try to parse the frame header according to https://datatracker.ietf.org/doc/html/rfc7540
@@ -110,16 +110,17 @@ func isHTTP2Protocol(buf []uint8) bool {
 	frameType := buf[3]
 	flags := buf[4]
 	streamID := binary.BigEndian.Uint32(buf[5:]) & (1<<31 - 1)
-	if length > SSL_MAX_DATA_SIZE || frameType > HTTP2_FRAME_MAX_CODE || flags&HTTP2_FLAGS_MASK != flags {
+	if length > SSL_MAX_DATA_SIZE || frameType > HTTP2_FRAME_MAX_CODE || flags&^HTTP2_FLAGS_MASK != 0 {
 		logger.Trace().Uint32("length", length).Uint8("frame", frameType).Uint8("flags", flags).Msg("invalid HTTP/2 frame header")
 		return false
 	}
-	if streamID == 0 && !(frameType == 0x4 || frameType == 0x6 || frameType == 0x7 || frameType == 0x8) {
+	//nolint:staticcheck
+	if streamID == 0 && !(frameType == uint8(http2.FrameSettings) || frameType == uint8(http2.FramePing) || frameType == uint8(http2.FrameGoAway) || frameType == uint8(http2.FrameWindowUpdate)) {
 		logger.Trace().Uint32("stream_id", streamID).Uint8("frame", frameType).Msg("invalid HTTP/2 stream ID with non-control frame")
 		return false
 	}
 
-	logger.Trace().Str("buf", hex.EncodeToString(buf)).Msg("guess HTTP2 by default")
+	logger.Trace().Msg("guess HTTP2 by default")
 	return true
 }
 
@@ -326,6 +327,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 				// response won't exceed the max size, see github issue #17
 				if consumed > len(record.Stream) {
 					log.Error().Int("consumed", consumed).Int("stream_len", len(record.Stream)).Bytes("stream", record.Stream).Msg("consumed length exceeds stream length")
+					consumed = len(record.Stream)
 				}
 				record.Stream = record.Stream[consumed:]
 				index := 0
@@ -647,6 +649,10 @@ func (h2 *HTTP2Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 	if !record.EndOfStream {
 		// wait for more data
 		return nil, 0, nil
+	}
+	// could be a GoAwayFrame, no need to record this one
+	if len(headers) == 0 && body.Len() == 0 {
+		return nil, lastPos, nil
 	}
 	// convert headers to http.Request
 	hdrs := http.Header{}

@@ -27,7 +27,7 @@ func SetUpLogger() {
 					Filename:   "watchu.log",
 					FileMode:   0600,
 					MaxSize:    50 * 1024 * 1024,
-					MaxBackups: 7,
+					MaxBackups: 15,
 					LocalTime:  false,
 				},
 			},

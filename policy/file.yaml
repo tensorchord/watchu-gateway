@@ -9,7 +9,7 @@ spec:
     event: "sys_enter_openat"
     args:
       - index: 1 # filename
-        type: "string"
+        type: "char_buf"
       - index: 2 # flags
         type: "uint64"
       - index: 3 # mode
@@ -18,22 +18,22 @@ spec:
     event: "sys_enter_openat2"
     args:
       - index: 1 # filename
-        type: "string"
+        type: "char_buf"
       - index: 3 # usize
         type: "uint64"
-  # - subsystem: "syscalls"
-  #   event: "sys_enter_open"
-  #   args:
-  #     - index: 0 # filename
-  #       type: "string"
-  #     - index: 1 # flags
-  #       type: "uint64"
-  #     - index: 2 # mode
-  #       type: "uint64"
   - subsystem: "syscalls"
     event: "sys_enter_creat"
     args:
       - index: 0 # filename
-        type: "string"
+        type: "char_buf"
       - index: 1 # mode
+        type: "uint64"
+  - subsystem: "syscalls"
+    event: "sys_enter_open"
+    args:
+      - index: 0 # filename
+        type: "char_buf"
+      - index: 1 # flags
+        type: "uint64"
+      - index: 2 # mode
         type: "uint64"

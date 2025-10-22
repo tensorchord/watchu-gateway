@@ -203,7 +203,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 		store.Add(&event)
 		if log.Debug().Enabled() {
 			var data, protocol string
-			if isBinary(event.Data[:event.DataLen]) {
+			if isHTTP2Protocol(event.Data[:event.DataLen]) {
 				data = string(hex.EncodeToString(event.Data[:event.DataLen]))
 				protocol = "HTTP/2"
 			} else {
@@ -221,7 +221,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 				Str("comm", charsToString(event.Comm[:])).
 				Str("data", data).
 				Str("protocol", protocol).
-				Msg("event")
+				Msg("HTTP event")
 		}
 	}
 }

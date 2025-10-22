@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -31,6 +33,8 @@ const (
 	// HTTP
 	HTTP1_DELIMITER_LEN    = 4
 	HTTP2_FRAME_HEADER_LEN = 9
+	HTTP2_FRAME_MAX_CODE   = 0x9
+	HTTP2_FLAGS_MASK       = 0x1 | 0x4 | 0x8 | 0x20
 	CRLF_LEN               = 2
 	ChunkedEncodingValue   = "chunked"
 	SSEHeaderPrefix        = "text/event-stream"
@@ -39,11 +43,86 @@ const (
 
 var (
 	// HTTP
-	CRLF             = []byte("\r\n")
-	HTTP1DELIMITER   = []byte("\r\n\r\n")
+	CRLF                 = []byte("\r\n")
+	HTTP1DELIMITER       = []byte("\r\n\r\n")
+	HTTP1CHUNK_END       = []byte("0\r\n\r\n")
+	HTTP1RESPONSE_PREFIX = []byte("HTTP/")
+	HTTP1REQUEST_METHODS = [][]byte{
+		[]byte("GET"),
+		[]byte("POST"),
+		[]byte("PUT"),
+		[]byte("DELETE"),
+		[]byte("HEAD"),
+		[]byte("OPTIONS"),
+		[]byte("PATCH"),
+		[]byte("TRACE"),
+		[]byte("CONNECT"),
+	}
 	HTTP2PREFACE     = []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
 	HTTP2PREFACE_LEN = len(HTTP2PREFACE)
 )
+
+func isBinary(data []uint8) bool {
+	for _, b := range data {
+		if unicode.IsControl(rune(b)) && b != 9 && b != 10 && b != 13 {
+			return true
+		}
+	}
+	return false
+}
+
+func isHTTP2Protocol(buf []uint8) bool {
+	logger := log.DefaultLogger
+	logger.Context = log.NewContext(nil).Str("ctx", "[Protocol]").Value()
+
+	if bytes.HasPrefix(buf, HTTP2PREFACE) {
+		logger.Trace().Msg("detect HTTP/2 preface")
+		return true
+	}
+	if bytes.HasPrefix(buf, HTTP1RESPONSE_PREFIX) || bytes.HasPrefix(buf, HTTP1CHUNK_END) {
+		logger.Trace().Msg("detect HTTP/1.x response")
+		return false
+	}
+	for _, method := range HTTP1REQUEST_METHODS {
+		if bytes.HasPrefix(buf, method) {
+			logger.Trace().Str("method", string(method)).Msg("detect HTTP/1.x request method")
+			return false
+		}
+	}
+	// HTTP/1.x are text based, unless compression is used
+	if !isBinary(buf) {
+		logger.Trace().Msg("plain text detected, likely HTTP/1.x")
+		return false
+	}
+	// check if it's chunked encoding
+	_, consumed, err := parseStream(buf)
+	if err == nil && consumed > 0 {
+		logger.Trace().Msg("detect HTTP/1.x chunked encoding")
+		return false
+	}
+	// it's very likely HTTP/2 if no HTTP/1.x signature found
+	if len(buf) < HTTP2_FRAME_HEADER_LEN {
+		logger.Error().Str("buf", hex.EncodeToString(buf)).Msg("cannot determine the protocol version")
+		return false
+	}
+	// try to parse the frame header according to https://datatracker.ietf.org/doc/html/rfc7540
+	length := (uint32(buf[0])<<16 | uint32(buf[1])<<8 | uint32(buf[2]))
+	frameType := buf[3]
+	flags := buf[4]
+	streamID := binary.BigEndian.Uint32(buf[5:]) & (1<<31 - 1)
+	if length > SSL_MAX_DATA_SIZE || frameType > HTTP2_FRAME_MAX_CODE || flags&^HTTP2_FLAGS_MASK != 0 {
+		logger.Trace().Uint32("length", length).Uint8("frame", frameType).Uint8("flags", flags).Msg("invalid HTTP/2 frame header")
+		return false
+	}
+	//nolint:staticcheck
+	if streamID == 0 && !(frameType == uint8(http2.FrameSettings) || frameType == uint8(http2.FramePing) || frameType == uint8(http2.FrameGoAway) || frameType == uint8(http2.FrameWindowUpdate)) {
+		logger.Trace().Uint32("stream_id", streamID).Uint8("frame", frameType).Msg("invalid HTTP/2 stream ID with non-control frame")
+		return false
+	}
+
+	logger.Trace().Msg("guess HTTP2 by default")
+	return true
+}
 
 func flattenHeader(h http.Header) map[string]string {
 	flat := make(map[string]string, len(h))
@@ -136,7 +215,7 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 
 	var parser HTTPParser
 	for key, record := range s.Request {
-		if isBinary(record.Stream) {
+		if isHTTP2Protocol(record.Stream) {
 			parser = s.http2Parser
 		} else {
 			parser = s.http1Parser
@@ -224,7 +303,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 
 	var parser HTTPParser
 	for key, record := range s.Response {
-		if isBinary(record.Stream) {
+		if isHTTP2Protocol(record.Stream) {
 			parser = s.http2Parser
 		} else {
 			parser = s.http1Parser
@@ -246,6 +325,10 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 				delete(s.Response, key)
 			} else {
 				// response won't exceed the max size, see github issue #17
+				if consumed > len(record.Stream) {
+					log.Error().Int("consumed", consumed).Int("stream_len", len(record.Stream)).Bytes("stream", record.Stream).Msg("consumed length exceeds stream length")
+					consumed = len(record.Stream)
+				}
 				record.Stream = record.Stream[consumed:]
 				index := 0
 				last := 0
@@ -314,15 +397,6 @@ func (s *SSLStore) Parse(ctx context.Context, reqChan chan *watchu.TableRequest,
 			s.parseResponse(respChan)
 		}
 	}
-}
-
-func isBinary(data []uint8) bool {
-	for _, b := range data {
-		if unicode.IsControl(rune(b)) && b != 9 && b != 10 && b != 13 {
-			return true
-		}
-	}
-	return false
 }
 
 func readCloserToBytes(rc io.ReadCloser) ([]byte, error) {
@@ -491,15 +565,11 @@ func (h2 *HTTP2Parser) parse(record *SSLRecord) (headers []hpack.HeaderField, bo
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				// wait for more data, suppress the EOF error
 				err = nil
+				log.Trace().Int("len", len(data)).Str("buf", hex.EncodeToString(data)).Msg("HTTP/2 parsing reaches EOF")
 				return
 			}
 			err = fmt.Errorf("failed to read HTTP/2 frame: %w", err)
 			return
-		}
-		if frame.Header().StreamID == 0 {
-			// ignore connection-level frames
-			lastPos += int(frame.Header().Length) + HTTP2_FRAME_HEADER_LEN
-			continue
 		}
 		switch f := frame.(type) {
 		case *http2.HeadersFrame:
@@ -553,12 +623,14 @@ func (h2 *HTTP2Parser) parse(record *SSLRecord) (headers []hpack.HeaderField, bo
 			}
 		case *http2.RSTStreamFrame:
 			record.EndOfStream = true
+		case *http2.GoAwayFrame:
+			record.EndOfStream = true
 		default:
 			// ignore other connection-level frames
-			log.Debug().Str("frame", fmt.Sprintf("%T", f)).Msg("ignoring non-header/data frame")
+			log.Trace().Bool("EOS", record.EndOfStream).Any("info", record.Info).Str("frame", fmt.Sprintf("%T", f)).Msg("ignoring non-header/data frame")
 		}
 		lastPos += int(frame.Header().Length) + HTTP2_FRAME_HEADER_LEN
-		log.Debug().Int("lastPos", lastPos).Any("type", frame).Msg("parsed another HTTP/2 frame")
+		log.Trace().Bool("EOS", record.EndOfStream).Any("info", record.Info).Int("lastPos", lastPos).Any("type", frame).Msg("parsed another HTTP/2 frame")
 	}
 	return
 }
@@ -577,6 +649,10 @@ func (h2 *HTTP2Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 	if !record.EndOfStream {
 		// wait for more data
 		return nil, 0, nil
+	}
+	// could be a GoAwayFrame, no need to record this one
+	if len(headers) == 0 && body.Len() == 0 {
+		return nil, lastPos, nil
 	}
 	// convert headers to http.Request
 	hdrs := http.Header{}

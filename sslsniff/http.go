@@ -278,7 +278,7 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 		if request.URL != nil {
 			url = request.URL.String()
 		}
-		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", request.Header).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
+		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", &request.Header).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
 		record.EndOfStream = false
 		record.LastResp = nil
 		channel <- &watchu.TableRequest{
@@ -311,7 +311,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 		for len(record.Stream) > 0 {
 			response, consumed, err := parser.ParseResponse(record)
 			if err != nil {
-				log.Error().Err(err).Msg("failed to parse HTTP response")
+				log.Error().Any("key", &key).Err(err).Msg("failed to parse HTTP response")
 			}
 			// wait for more data
 			if consumed == 0 {
@@ -363,7 +363,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 				if err != nil {
 					log.Error().Err(err).Msg("failed to read response body")
 				}
-				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("")
+				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", &response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("")
 				record.EndOfStream = false
 				record.LastResp = nil
 				channel <- &watchu.TableResponse{
@@ -498,7 +498,7 @@ func (h1 *HTTP1Parser) ParseResponse(record *SSLRecord) (*http.Response, int, er
 			return nil, idx + HTTP1_DELIMITER_LEN, err
 		}
 		// have to throw away to avoid infinite loop
-		return nil, 0, err
+		return nil, len(record.Stream), err
 	}
 	// find the end of the header
 	idx := bytes.Index(record.Stream, HTTP1DELIMITER)
@@ -613,10 +613,10 @@ func (h2 *HTTP2Parser) parse(record *SSLRecord) (headers []hpack.HeaderField, bo
 			record.EndOfStream = true
 		default:
 			// ignore other connection-level frames
-			log.Trace().Bool("EOS", record.EndOfStream).Any("info", record.Info).Str("frame", fmt.Sprintf("%T", f)).Msg("ignoring non-header/data frame")
+			log.Trace().Bool("EOS", record.EndOfStream).Any("info", &record.Info).Str("frame", fmt.Sprintf("%T", f)).Msg("ignoring non-header/data frame")
 		}
 		lastPos += int(frame.Header().Length) + HTTP2_FRAME_HEADER_LEN
-		log.Trace().Bool("EOS", record.EndOfStream).Any("info", record.Info).Int("lastPos", lastPos).Any("type", frame).Msg("parsed another HTTP/2 frame")
+		log.Trace().Bool("EOS", record.EndOfStream).Any("info", &record.Info).Int("lastPos", lastPos).Any("type", frame).Msg("parsed another HTTP/2 frame")
 	}
 	return
 }

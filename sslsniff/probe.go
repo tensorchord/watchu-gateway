@@ -139,7 +139,7 @@ func NewSSLProbe(additionalFile *string, storage *watchu.Storage) *SSLProbe {
 	if len(attachPaths) == 0 {
 		log.Fatal().Msg("no valid libssl or additional binary path to attach")
 	}
-	log.Info().Any("path", attachPaths).Msg("using libssl")
+	log.Info().Any("path", &attachPaths).Msg("using libssl")
 
 	objs := sslObjects{}
 	spec, err := ebpf.LoadCollectionSpec(specPath)

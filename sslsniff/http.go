@@ -267,10 +267,10 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 			record.Info = record.Info[index:]
 		}
 		if request == nil {
-			log.Warn().Int("consumed", consumed).Err(err).Msg("unexpected nil request")
-			break
+			// could be a GoAwayFrame
+			continue
 		}
-		body, err := readCloserToBytes(request.Body)
+		body, err := readDecodeBytes(request.Body, request.Header.Get("Content-Encoding"))
 		if err != nil {
 			log.Error().Err(err).Msg("failed to read request body")
 		}
@@ -359,7 +359,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 					log.Warn().Int("consumed", consumed).Err(err).Msg("unexpected nil response")
 					break
 				}
-				body, err := readCloserToBytes(response.Body)
+				body, err := readDecodeBytes(response.Body, response.Header.Get("Content-Encoding"))
 				if err != nil {
 					log.Error().Err(err).Msg("failed to read response body")
 				}
@@ -397,20 +397,6 @@ func (s *SSLStore) Parse(ctx context.Context, reqChan chan *watchu.TableRequest,
 			s.parseResponse(respChan)
 		}
 	}
-}
-
-func readCloserToBytes(rc io.ReadCloser) ([]byte, error) {
-	defer func() {
-		err := rc.Close()
-		if err != nil {
-			log.Error().Err(err).Msg("failed to close ReadCloser")
-		}
-	}()
-	buf, err := io.ReadAll(rc)
-	if err != nil {
-		return nil, err
-	}
-	return buf, nil
 }
 
 type HTTPParser interface {

@@ -225,7 +225,7 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 		}
 		request, consumed, err := parser.ParseRequest(record)
 		if err != nil {
-			log.Error().Str("body", string(record.Stream[:consumed])).Err(err).Msg("failed to parse HTTP request")
+			log.Error().Any("key", &key).Bytes("buf", record.Stream[:consumed]).Err(err).Msg("failed to parse HTTP request")
 		}
 		// wait for more data
 		if consumed == 0 || !record.EndOfStream {
@@ -272,13 +272,13 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 		}
 		body, err := readDecodeBytes(request.Body, request.Header.Get("Content-Encoding"))
 		if err != nil {
-			log.Error().Err(err).Msg("failed to read request body")
+			log.Error().Any("key", &key).Err(err).Msg("failed to read request body")
 		}
 		url := request.RequestURI
 		if request.URL != nil {
 			url = request.URL.String()
 		}
-		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", &request.Header).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
+		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", request.Header).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
 		record.EndOfStream = false
 		record.LastResp = nil
 		channel <- &watchu.TableRequest{
@@ -311,7 +311,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 		for len(record.Stream) > 0 {
 			response, consumed, err := parser.ParseResponse(record)
 			if err != nil {
-				log.Error().Any("key", &key).Err(err).Msg("failed to parse HTTP response")
+				log.Error().Any("key", &key).Bytes("buf", record.Stream[:consumed]).Err(err).Msg("failed to parse HTTP response")
 			}
 			// wait for more data
 			if consumed == 0 {
@@ -326,7 +326,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 			} else {
 				// response won't exceed the max size, see github issue #17
 				if consumed > len(record.Stream) {
-					log.Error().Int("consumed", consumed).Int("stream_len", len(record.Stream)).Bytes("stream", record.Stream).Msg("consumed length exceeds stream length")
+					log.Error().Any("key", &key).Int("consumed", consumed).Int("stream_len", len(record.Stream)).Bytes("stream", record.Stream).Msg("consumed length exceeds stream length")
 					consumed = len(record.Stream)
 				}
 				record.Stream = record.Stream[consumed:]
@@ -361,9 +361,9 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 				}
 				body, err := readDecodeBytes(response.Body, response.Header.Get("Content-Encoding"))
 				if err != nil {
-					log.Error().Err(err).Msg("failed to read response body")
+					log.Error().Any("key", &key).Err(err).Msg("failed to read response body")
 				}
-				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", &response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("")
+				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("")
 				record.EndOfStream = false
 				record.LastResp = nil
 				channel <- &watchu.TableResponse{
@@ -420,7 +420,7 @@ func (h1 *HTTP1Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 			return nil, idx + HTTP1_DELIMITER_LEN, err
 		}
 		// have to throw away to avoid infinite loop
-		return nil, 0, err
+		return nil, len(record.Stream), err
 	}
 	// find the end of the body
 	idx := bytes.Index(record.Stream, HTTP1DELIMITER)

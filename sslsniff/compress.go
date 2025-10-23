@@ -4,8 +4,14 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"io"
+	"strings"
 
 	"github.com/phuslu/log"
+)
+
+const (
+	EncodingGZip    = "gzip"
+	EncodingDeflate = "deflate"
 )
 
 func readCloserToBytes(rc io.ReadCloser) ([]byte, error) {
@@ -28,10 +34,13 @@ func readDecodeBytes(body io.ReadCloser, encoding string) ([]byte, error) {
 	}
 	var reader io.ReadCloser
 	var err error
-	switch encoding {
-	case "gzip":
+	if strings.Contains(encoding, ",") {
+		log.Warn().Str("encoding", encoding).Msg("multiple content-encoding detected, only the first one will be used")
+	}
+	switch {
+	case strings.HasPrefix(encoding, EncodingGZip):
 		reader, err = gzip.NewReader(body)
-	case "deflate":
+	case strings.HasPrefix(encoding, EncodingDeflate):
 		reader = flate.NewReader(body)
 	default:
 		reader = body

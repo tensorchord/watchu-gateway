@@ -515,7 +515,13 @@ func (h1 *HTTP1Parser) ParseResponse(record *SSLRecord) (*http.Response, int, er
 		contentLength = 0
 		resp.Body = io.NopCloser(bytes.NewReader([]byte{})) // change to empty body, so next time will handle the chunk
 	} else {
-		// Non-Streaming response should end
+		// Non-Streaming response should end here if the body has been fully received
+		consumed := idx + HTTP1_DELIMITER_LEN + int(contentLength)
+		if consumed > len(record.Stream) {
+			// wait for more data
+			log.Debug().Int("consumed", consumed).Int("len_stream", len(record.Stream)).Msg("wait for more data to fill this response")
+			return nil, 0, nil
+		}
 		record.EndOfStream = true
 	}
 	return resp, idx + HTTP1_DELIMITER_LEN + int(contentLength), nil

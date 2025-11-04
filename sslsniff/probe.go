@@ -100,7 +100,7 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links
 		*links = append(*links, up)
 	}
 	if failedProbes > 0 {
-		log.Fatal().Str("target", target).Msg("all the probes failed to attach")
+		log.Fatal().Int("failed", failedProbes).Str("target", target).Msg("failed to attach SSL")
 	}
 }
 

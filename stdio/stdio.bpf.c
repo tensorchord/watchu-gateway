@@ -93,6 +93,7 @@ static __always_inline u8 is_mcp_json_str(const char *buf, u32 len) {
         if (c == '{') {
             return 1;
         }
+        break;
     }
     return 0;
 }

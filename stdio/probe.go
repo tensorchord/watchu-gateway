@@ -83,7 +83,7 @@ func attachStdioProbes(objs stdioObjects, links *[]link.Link) {
 		*links = append(*links, tp)
 	}
 	if failedProbes > 0 {
-		log.Fatal().Msgf("%d probes failed to attach", failedProbes)
+		log.Fatal().Int("failed", failedProbes).Msg("failed to attach stdio")
 	}
 }
 

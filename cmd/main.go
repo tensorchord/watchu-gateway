@@ -43,7 +43,7 @@ func main() {
 	go sslProbe.Start(ctx)
 
 	stdioProbe := stdio.NewStdioProbe()
-	go stdioProbe.Start(ctx)
+	go stdioProbe.Start()
 
 	if len(*tetragonSocket) > 0 {
 		log.Info().Str("socket", *tetragonSocket).Msg("enable Tetragon integration")

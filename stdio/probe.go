@@ -4,7 +4,6 @@ package stdio
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -115,7 +114,7 @@ func NewStdioProbe() *StdioProbe {
 	}
 }
 
-func (sp *StdioProbe) Start(ctx context.Context) {
+func (sp *StdioProbe) Start() {
 	log.Info().Msg("listening for stdio events...")
 
 	var event stdioEvent

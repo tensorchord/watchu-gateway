@@ -89,7 +89,7 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links
 		{"SSL_write_ex", objs.ProbeSslWriteExExit, ex.Uretprobe},
 	}
 
-	var failedProbes int
+	failedProbes := 0
 	for _, probe := range probes {
 		up, err := probe.inject(probe.symbol, probe.prog, nil)
 		if err != nil {
@@ -99,7 +99,7 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links
 		}
 		*links = append(*links, up)
 	}
-	if failedProbes == len(probes) {
+	if failedProbes > 0 {
 		log.Fatal().Str("target", target).Msg("all the probes failed to attach")
 	}
 }

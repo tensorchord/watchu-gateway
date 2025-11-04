@@ -47,6 +47,8 @@ jobs:
 
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v8
+      with:
+        working-directory: ./collector
 
     - name: Lint
       run: make lint

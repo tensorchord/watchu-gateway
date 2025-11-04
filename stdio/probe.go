@@ -6,23 +6,60 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
-	"github.com/cilium/ebpf/rlimit"
 	"github.com/phuslu/log"
+
+	"github.com/tensorchord/watchu"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 stdio stdio.bpf.c -- -I../headers
 
-func charsToString(arr []int8) string {
-	b := make([]byte, len(arr))
-	for i, v := range arr {
-		b[i] = byte(v)
+const (
+	STDIO_READ  = 4
+	STDIO_WRITE = 2
+)
+
+type MCPRequest struct {
+	JsonRPC string                 `json:"jsonrpc"`
+	Method  string                 `json:"method"`
+	Params  map[string]interface{} `json:"params"`
+	ID      int                    `json:"id"`
+}
+
+type MCPResponse struct {
+	JsonRPC string                 `json:"jsonrpc"`
+	Result  map[string]interface{} `json:"result"`
+	ID      int                    `json:"id"`
+}
+
+func isValidMCPMessage(event *stdioEvent) bool {
+	dec := json.NewDecoder(bytes.NewReader(event.Data[:event.DataLen]))
+	switch event.Rw {
+	case STDIO_READ:
+		var msg MCPRequest
+		err := dec.Decode(&msg)
+		if err != nil {
+			log.Debug().Bytes("buf", event.Data[:event.DataLen]).Err(err).Msg("failed to decode MCP request")
+			return false
+		}
+		return len(msg.JsonRPC) > 0
+	case STDIO_WRITE:
+		var msg MCPResponse
+		err := dec.Decode(&msg)
+		if err != nil {
+			log.Debug().Bytes("buf", event.Data[:event.DataLen]).Err(err).Msg("failed to decode MCP response")
+			return false
+		}
+		return len(msg.JsonRPC) > 0
+	default:
+		log.Error().Uint8("rw", event.Rw).Msg("unknown RW type")
+		return false
 	}
-	return string(bytes.TrimRight(b, "\x00"))
 }
 
 func attachStdioProbes(objs stdioObjects, links *[]link.Link) {
@@ -58,10 +95,6 @@ type StdioProbe struct {
 }
 
 func NewStdioProbe() *StdioProbe {
-	if err := rlimit.RemoveMemlock(); err != nil {
-		log.Fatal().Err(err).Msg("failed to remove memlock limit")
-	}
-
 	objs := stdioObjects{}
 	if err := loadStdioObjects(&objs, nil); err != nil {
 		log.Fatal().Err(err).Msg("failed to load ebpf spec")
@@ -102,6 +135,10 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 			continue
 		}
 
+		if !isValidMCPMessage(&event) {
+			continue
+		}
+
 		if log.Debug().Enabled() {
 			log.Debug().
 				Uint64("timestamp", event.TimestampNs).
@@ -111,7 +148,7 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 				Uint64("req_len", event.ReqLen).
 				Uint64("data_len", event.DataLen).
 				Uint8("rw", event.Rw).
-				Str("comm", charsToString(event.Comm[:])).
+				Str("comm", watchu.CharsToString(event.Comm[:])).
 				Str("data", string(event.Data[:event.DataLen])).
 				Msg("stdio event")
 		}

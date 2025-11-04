@@ -15,7 +15,6 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
-	"github.com/cilium/ebpf/rlimit"
 	"github.com/phuslu/log"
 
 	"github.com/tensorchord/watchu"
@@ -74,14 +73,6 @@ func findLibSSLPath() (string, error) {
 	return "", fmt.Errorf("libssl not found, please set the path via env %s", libSSLPathEnv)
 }
 
-func charsToString(arr []int8) string {
-	b := make([]byte, len(arr))
-	for i, v := range arr {
-		b[i] = byte(v)
-	}
-	return string(bytes.TrimRight(b, "\x00"))
-}
-
 func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links *[]link.Link) {
 	probes := []struct {
 		symbol string
@@ -123,10 +114,6 @@ type SSLProbe struct {
 }
 
 func NewSSLProbe(additionalFile *string, storage *watchu.Storage) *SSLProbe {
-	if err := rlimit.RemoveMemlock(); err != nil {
-		log.Fatal().Err(err).Msg("failed to remove memlock limit")
-	}
-
 	attachPaths := []string{}
 	libPath, err := findLibSSLPath()
 	if err != nil {
@@ -224,7 +211,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 				Uint64("*SSL", event.SslPtr).
 				Uint32("data_len", event.DataLen).
 				Uint8("rw", event.Rw).
-				Str("comm", charsToString(event.Comm[:])).
+				Str("comm", watchu.CharsToString(event.Comm[:])).
 				Str("data", data).
 				Str("protocol", protocol).
 				Msg("HTTP event")

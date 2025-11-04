@@ -18,7 +18,3 @@ format:
 lint:
 	@golangci-lint run
 	@find . -type f -name "*.c" | xargs clang-format --dry-run --Werror
-
-demo:
-	@go generate ./...
-	@go build -o bin/demo cmd/demo.go

@@ -13,11 +13,6 @@
 #define MAX_BUF_SIZE (128 * 1024) // 128 KiB
 #define PEEK_BYTES 4
 
-#ifndef S_IFMT
-#define S_IFMT 00170000
-#define S_IFIFO 0010000
-#endif
-
 char __license[] SEC("license") = "Dual MIT/GPL";
 
 // ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_read/format
@@ -89,7 +84,7 @@ static __always_inline u8 is_mcp_json_str(const char *buf, u32 len) {
         return 0;
     }
 
-    #pragma unroll
+#pragma unroll
     for (int i = 0; i < PEEK_BYTES; i++) {
         char c = prefix[i];
         if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
@@ -101,21 +96,6 @@ static __always_inline u8 is_mcp_json_str(const char *buf, u32 len) {
     }
     return 0;
 }
-
-// static __always_inline struct file *fd_to_file(u64 fd) {
-//     struct task_struct *task = (void *)bpf_get_current_task_btf();
-//     struct fdtable *fdt = BPF_CORE_READ(task, files, fdt);
-//     u64 max_fds = BPF_CORE_READ(fdt, max_fds);
-//     struct file **fds = BPF_CORE_READ(fdt, fd);
-//     if (!fds || fd < 0) return NULL;
-//     struct file *f = NULL;
-//     bpf_core_read(&f, sizeof(f), &fds[fd]);
-//     return f;
-// }
-
-// static __always_inline u8 is_fd_fifo(u64 fd) {
-//     return fd_to_file(fd) == S_IFIFO;
-// }
 
 SEC("tracepoint/syscalls/sys_enter_read")
 int tracepoint_enter_read(struct enter_ctx *ctx) {

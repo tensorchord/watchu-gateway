@@ -1,25 +1,26 @@
 # WatchU
 
-Hey, Agent! The bees are watching you!
+Hey, Agent! :honeybee: The bees are watching you! :honeybee:
 
-## Usage
+## Collector Usage
 
 - SSL read/write
+- MCP StdIO
 - Process
 
 ```bash
-make build
+cd collector && make build
 
 # run the tetragon service with Unix socket
 docker run -d --name tetragon --rm \
     --pid=host --cgroupns=host --privileged \
     -v /sys/kernel/btf/vmlinux:/var/lib/tetragon/btf \
     -v /var/run/tetragon:/var/run/tetragon \
-    quay.io/cilium/tetragon:v1.5.0 \
+    quay.io/cilium/tetragon:v1.6.0 \
     --server-address unix:///var/run/tetragon/tetragon.sock
 
-# run with SSL & Tetragon
-sudo ./bin/app -tetragon-socket unix:///var/run/tetragon/tetragon.sock
-# or run with only SSL
-sudo ./bin/app
+# run with MCP StdIO & SSL & Tetragon
+sudo ./collector/bin/app -tetragon-socket unix:///var/run/tetragon/tetragon.sock
+# or run without Tetragon
+sudo ./collector/bin/app
 ```

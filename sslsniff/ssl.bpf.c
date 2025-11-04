@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 #include "common.h"
+#include "vm_used.h"
 #include "bpf_core_read.h"
 #include "bpf_helpers.h"
 #include "bpf_tracing.h"
@@ -105,9 +106,7 @@ int probe_ssl_read_exit(struct pt_regs *ctx) {
     u64 uid_gid = bpf_get_current_uid_gid();
     void *buf   = (void *)info->buf_addr;
 
-// bpf_repeat(MAX_LOOP) {
-#pragma unroll
-    for (int i = 0; i < MAX_LOOP && ret > 0; ++i) {
+    bpf_repeat(MAX_LOOP) {
         u32 length = (u32)ret; // Cast is safe: ret > 0 guaranteed by guard above
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;
@@ -156,9 +155,7 @@ int probe_ssl_read_ex_exit(struct pt_regs *ctx) {
 
     void *buf = (void *)info->buf_addr;
 
-// bpf_repeat(MAX_LOOP) {
-#pragma unroll
-    for (int i = 0; i < MAX_LOOP && readbytes > 0; ++i) {
+    bpf_repeat(MAX_LOOP) {
         u32 length = (u32)readbytes;
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;
@@ -204,9 +201,7 @@ int probe_ssl_write_exit(struct pt_regs *ctx) {
     u64 uid_gid = bpf_get_current_uid_gid();
     void *buf   = (void *)info->buf_addr;
 
-// bpf_repeat(MAX_LOOP) {
-#pragma unroll
-    for (int i = 0; i < MAX_LOOP && ret > 0; ++i) {
+    bpf_repeat(MAX_LOOP) {
         u32 length = (u32)ret;
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;
@@ -255,9 +250,7 @@ int probe_ssl_write_ex_exit(struct pt_regs *ctx) {
 
     void *buf = (void *)info->buf_addr;
 
-// bpf_repeat(MAX_LOOP) {
-#pragma unroll
-    for (int i = 0; i < MAX_LOOP && written > 0; ++i) {
+    bpf_repeat(MAX_LOOP) {
         u32 length = (u32)written;
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;

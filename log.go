@@ -9,6 +9,7 @@ import (
 func SetUpLogger() {
 	if log.IsTerminal(os.Stderr.Fd()) {
 		log.DefaultLogger = log.Logger{
+			Level:      log.DebugLevel,
 			TimeFormat: "15:04:05.123Z",
 			Caller:     1,
 			Writer: &log.ConsoleWriter{

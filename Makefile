@@ -3,6 +3,9 @@
 update_header:
 	@bash headers/update.sh
 
+gen_vmlinux:
+	@bpftool btf dump file /sys/kernel/btf/vmlinux format c > headers/vmlinux.h
+
 build:
 	@go generate ./...
 	@go build -o bin/app cmd/main.go

@@ -236,7 +236,7 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 		truncated := false
 		if consumed == len(record.Stream) {
 			timestamp = record.Info[len(record.Info)-1].TimestampNs
-			comm = charsToString(record.Info[len(record.Info)-1].Comm[:])
+			comm = watchu.CharsToString(record.Info[len(record.Info)-1].Comm[:])
 			delete(s.Request, key)
 		} else {
 			if consumed >= SSL_MAX_DATA_SIZE {
@@ -262,7 +262,7 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 				}
 			}
 			timestamp = record.Info[last].TimestampNs
-			comm = charsToString(record.Info[last].Comm[:])
+			comm = watchu.CharsToString(record.Info[last].Comm[:])
 			// keep the unparsed info
 			record.Info = record.Info[index:]
 		}
@@ -321,7 +321,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 			var comm string
 			if consumed == len(record.Stream) && record.EndOfStream {
 				timestamp = record.Info[len(record.Info)-1].TimestampNs
-				comm = charsToString(record.Info[len(record.Info)-1].Comm[:])
+				comm = watchu.CharsToString(record.Info[len(record.Info)-1].Comm[:])
 				delete(s.Response, key)
 			} else {
 				// response won't exceed the max size, see github issue #17
@@ -350,7 +350,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 					}
 				}
 				timestamp = record.Info[last].TimestampNs
-				comm = charsToString(record.Info[last].Comm[:])
+				comm = watchu.CharsToString(record.Info[last].Comm[:])
 				// keep the unparsed info
 				record.Info = record.Info[index:]
 			}

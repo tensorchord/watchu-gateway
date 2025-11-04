@@ -15,7 +15,6 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
-	"github.com/cilium/ebpf/rlimit"
 	"github.com/phuslu/log"
 
 	"github.com/tensorchord/watchu"
@@ -74,14 +73,6 @@ func findLibSSLPath() (string, error) {
 	return "", fmt.Errorf("libssl not found, please set the path via env %s", libSSLPathEnv)
 }
 
-func charsToString(arr []int8) string {
-	b := make([]byte, len(arr))
-	for i, v := range arr {
-		b[i] = byte(v)
-	}
-	return string(bytes.TrimRight(b, "\x00"))
-}
-
 func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links *[]link.Link) {
 	probes := []struct {
 		symbol string
@@ -98,12 +89,18 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links
 		{"SSL_write_ex", objs.ProbeSslWriteExExit, ex.Uretprobe},
 	}
 
+	failedProbes := 0
 	for _, probe := range probes {
-		if link, err := probe.inject(probe.symbol, probe.prog, nil); err != nil {
-			log.Fatal().Str("target", target).Err(err).Msgf("failed to attach probe %s", probe.symbol)
-		} else {
-			*links = append(*links, link)
+		up, err := probe.inject(probe.symbol, probe.prog, nil)
+		if err != nil {
+			log.Warn().Str("target", target).Err(err).Msgf("failed to attach probe %s", probe.symbol)
+			failedProbes++
+			continue
 		}
+		*links = append(*links, up)
+	}
+	if failedProbes > 0 {
+		log.Fatal().Int("failed", failedProbes).Str("target", target).Msg("failed to attach SSL")
 	}
 }
 
@@ -117,10 +114,6 @@ type SSLProbe struct {
 }
 
 func NewSSLProbe(additionalFile *string, storage *watchu.Storage) *SSLProbe {
-	if err := rlimit.RemoveMemlock(); err != nil {
-		log.Fatal().Err(err).Msg("failed to remove memlock limit")
-	}
-
 	attachPaths := []string{}
 	libPath, err := findLibSSLPath()
 	if err != nil {
@@ -196,7 +189,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 		}
 
 		if err = binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
-			log.Error().Err(err).Msg("parsing ringbuf record")
+			log.Error().Err(err).Msg("parsing ssl ringbuf record")
 			continue
 		}
 
@@ -218,7 +211,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 				Uint64("*SSL", event.SslPtr).
 				Uint32("data_len", event.DataLen).
 				Uint8("rw", event.Rw).
-				Str("comm", charsToString(event.Comm[:])).
+				Str("comm", watchu.CharsToString(event.Comm[:])).
 				Str("data", data).
 				Str("protocol", protocol).
 				Msg("HTTP event")
@@ -235,7 +228,7 @@ func (sp *SSLProbe) Close() {
 	close(sp.respChan)
 	err = sp.rb.Close()
 	if err != nil {
-		log.Error().Err(err).Msg("failed to close ringbuf reader")
+		log.Error().Err(err).Msg("failed to close ssl ringbuf reader")
 	}
 	for i, l := range sp.links {
 		err = l.Close()

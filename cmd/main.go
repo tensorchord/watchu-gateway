@@ -11,6 +11,7 @@ import (
 
 	"github.com/tensorchord/watchu"
 	"github.com/tensorchord/watchu/sslsniff"
+	"github.com/tensorchord/watchu/stdio"
 )
 
 const (
@@ -33,8 +34,16 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to initialize storage")
 	}
 
+	err = watchu.InitEBPF()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to initialize eBPF")
+	}
+
 	sslProbe := sslsniff.NewSSLProbe(binaryPath, storage)
 	go sslProbe.Start(ctx)
+
+	stdioProbe := stdio.NewStdioProbe()
+	go stdioProbe.Start()
 
 	if len(*tetragonSocket) > 0 {
 		log.Info().Str("socket", *tetragonSocket).Msg("enable Tetragon integration")
@@ -48,5 +57,6 @@ func main() {
 
 	<-ctx.Done()
 	sslProbe.Close()
+	stdioProbe.Close()
 	storage.Close()
 }

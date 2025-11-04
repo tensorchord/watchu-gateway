@@ -98,12 +98,18 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links
 		{"SSL_write_ex", objs.ProbeSslWriteExExit, ex.Uretprobe},
 	}
 
+	var failedProbes int
 	for _, probe := range probes {
-		if link, err := probe.inject(probe.symbol, probe.prog, nil); err != nil {
-			log.Fatal().Str("target", target).Err(err).Msgf("failed to attach probe %s", probe.symbol)
-		} else {
-			*links = append(*links, link)
+		up, err := probe.inject(probe.symbol, probe.prog, nil)
+		if err != nil {
+			log.Warn().Str("target", target).Err(err).Msgf("failed to attach probe %s", probe.symbol)
+			failedProbes++
+			continue
 		}
+		*links = append(*links, up)
+	}
+	if failedProbes == len(probes) {
+		log.Fatal().Str("target", target).Msg("all the probes failed to attach")
 	}
 }
 
@@ -196,7 +202,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 		}
 
 		if err = binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
-			log.Error().Err(err).Msg("parsing ringbuf record")
+			log.Error().Err(err).Msg("parsing ssl ringbuf record")
 			continue
 		}
 
@@ -235,7 +241,7 @@ func (sp *SSLProbe) Close() {
 	close(sp.respChan)
 	err = sp.rb.Close()
 	if err != nil {
-		log.Error().Err(err).Msg("failed to close ringbuf reader")
+		log.Error().Err(err).Msg("failed to close ssl ringbuf reader")
 	}
 	for i, l := range sp.links {
 		err = l.Close()

@@ -65,10 +65,12 @@ jobs:
         echo "$HOME/bin" >> $GITHUB_PATH
 
     - name: Apply database migrations
-      run: atlas migrate apply --env dev
+      run: |
+        PATH="$HOME/bin:$PATH" atlas migrate apply --env dev
 
     - name: Verify schema drift
-      run: atlas migrate validate --env dev
+      run: |
+        PATH="$HOME/bin:$PATH" atlas migrate validate --env dev
 
     - name: Build
       run: make build

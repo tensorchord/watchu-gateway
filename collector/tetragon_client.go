@@ -6,12 +6,12 @@ import (
 	"io"
 	"time"
 
+	"github.com/cilium/tetragon/api/v1/tetragon"
 	"github.com/phuslu/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
-	"github.com/cilium/tetragon/api/v1/tetragon"
 )
 
 type TetragonClient struct {

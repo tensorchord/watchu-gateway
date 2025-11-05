@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -60,7 +62,34 @@ var (
 	}
 	HTTP2PREFACE     = []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
 	HTTP2PREFACE_LEN = len(HTTP2PREFACE)
+	HEADER_API_KEYS  = []string{
+		"Authorization",
+		"X-API-Key",
+		"X-Auth-Token",
+		"X-Access-Token",
+		"X-Session-Token",
+		"Cookie",
+	}
+	HEADER_TOKEN_SECRET = []byte("tensorchord-watchu-sslsniff-mask-secret-c0ffee")
 )
+
+func flattenMaskedHeader(h http.Header) map[string]string {
+	flat := make(map[string]string, len(h))
+	m := hmac.New(sha256.New, HEADER_TOKEN_SECRET)
+	for k, v := range h {
+		value := strings.Join(v, ",")
+		for _, apiKey := range HEADER_API_KEYS {
+			if strings.Contains(k, apiKey) {
+				m.Reset()
+				m.Write([]byte(value))
+				value = fmt.Sprintf("masked-%s", hex.EncodeToString(m.Sum(nil)))
+				break
+			}
+		}
+		flat[k] = value
+	}
+	return flat
+}
 
 func isBinary(data []uint8) bool {
 	for _, b := range data {
@@ -122,14 +151,6 @@ func isHTTP2Protocol(buf []uint8) bool {
 
 	logger.Trace().Msg("guess HTTP2 by default")
 	return true
-}
-
-func flattenHeader(h http.Header) map[string]string {
-	flat := make(map[string]string, len(h))
-	for k, v := range h {
-		flat[k] = strings.Join(v, ",")
-	}
-	return flat
 }
 
 type SSLKey struct {
@@ -278,7 +299,8 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 		if request.URL != nil {
 			url = request.URL.String()
 		}
-		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", request.Header).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
+		headers := flattenMaskedHeader(request.Header)
+		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
 		record.EndOfStream = false
 		record.LastResp = nil
 		channel <- &watchu.TableRequest{
@@ -290,7 +312,7 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 			URL:           url,
 			ContentLength: request.ContentLength,
 			Protocol:      request.Proto,
-			Headers:       flattenHeader(request.Header),
+			Headers:       headers,
 			Body:          body,
 			Truncated:     truncated,
 		}
@@ -363,7 +385,8 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 				if err != nil {
 					log.Error().Any("key", &key).Err(err).Msg("failed to read response body")
 				}
-				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", response.Header).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("")
+				headers := flattenMaskedHeader(response.Header)
+				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("")
 				record.EndOfStream = false
 				record.LastResp = nil
 				channel <- &watchu.TableResponse{
@@ -374,7 +397,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 					StatusCode:    response.StatusCode,
 					ContentLength: response.ContentLength,
 					Protocol:      response.Proto,
-					Headers:       flattenHeader(response.Header),
+					Headers:       headers,
 					Body:          body,
 					Truncated:     false,
 				}

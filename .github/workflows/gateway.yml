@@ -57,20 +57,17 @@ jobs:
       with:
         go-version: stable
 
-    - name: Install PostgreSQL client & Atlas
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y postgresql-client
-        curl -sSf https://atlasgo.io/install.sh | sh -s -- -b $HOME/bin
-        echo "$HOME/bin" >> $GITHUB_PATH
+    - name: Set up Atlas CLI
+      uses: ariga/setup-atlas@v0
+
+    - name: Lint migrations
+      run: atlas migrate lint --env dev
 
     - name: Apply database migrations
-      run: |
-        PATH="$HOME/bin:$PATH" atlas migrate apply --env dev
+      run: atlas migrate apply --env dev
 
     - name: Verify schema drift
-      run: |
-        PATH="$HOME/bin:$PATH" atlas migrate validate --env dev
+      run: atlas migrate validate --env dev
 
     - name: Build
       run: make build

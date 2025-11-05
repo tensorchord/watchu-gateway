@@ -1,0 +1,1327 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "contact": {}
+    },
+    "paths": {
+        "/api/v1/analysis/correlation_summaries": {
+            "get": {
+                "description": "Returns correlation summaries for a host since the provided timestamp.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "analytics"
+                ],
+                "summary": "List correlation summaries",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Target host",
+                        "name": "host",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 timestamp lower bound",
+                        "name": "since",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Maximum number of records",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/pkg_httpapi.CorrelationSummaryResponse"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/analysis/heuristic_alerts": {
+            "get": {
+                "description": "Returns heuristic alerts for a host since the provided timestamp.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "analytics"
+                ],
+                "summary": "List heuristic alerts",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Target host",
+                        "name": "host",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 timestamp lower bound",
+                        "name": "since",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Maximum number of records",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/pkg_httpapi.HeuristicAlertResponse"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/analysis/process_events": {
+            "get": {
+                "description": "Returns individual lifecycle events for a host since the provided timestamp.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "analytics"
+                ],
+                "summary": "List process lifecycle events",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Target host",
+                        "name": "host",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 timestamp lower bound",
+                        "name": "since",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Maximum number of records",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/pkg_httpapi.ProcessEventResponse"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/analysis/process_http_events": {
+            "get": {
+                "description": "Returns process HTTP events for a host since the provided timestamp.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "analytics"
+                ],
+                "summary": "List process HTTP events",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Target host",
+                        "name": "host",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 timestamp lower bound",
+                        "name": "since",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Maximum number of records",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/pkg_httpapi.ProcessHTTPEventResponse"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/analysis/process_summary/{root_pid}": {
+            "get": {
+                "description": "Returns aggregated metadata and recent alerts for a specific process root.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "analytics"
+                ],
+                "summary": "Summarize a process root",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Target host",
+                        "name": "host",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Root PID",
+                        "name": "root_pid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Root exec ID",
+                        "name": "root_exec_id",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Maximum alerts",
+                        "name": "alerts_limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ProcessSummaryResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/analysis/process_tree": {
+            "get": {
+                "description": "Returns a hierarchical process tree for the most recent roots on a host.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "analytics"
+                ],
+                "summary": "List process tree",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Target host",
+                        "name": "host",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Specific root PID to expand",
+                        "name": "root_pid",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Specific root exec id to expand",
+                        "name": "root_exec_id",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Maximum unique roots",
+                        "name": "root_limit",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 2000,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Maximum nodes returned",
+                        "name": "node_limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/pkg_httpapi.ProcessTreeNodeResponse"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/analysis/prompt_injections/{request_id}": {
+            "get": {
+                "description": "Returns the HTTP request payload associated with a prompt injection request ID.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "analytics"
+                ],
+                "summary": "Get stored HTTP request for a prompt injection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Target host",
+                        "name": "host",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Prompt injection request UUID",
+                        "name": "request_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.HTTPRequestDetailResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/analysis/security_llm_analysis": {
+            "get": {
+                "description": "Returns LLM security analysis records and prompt injection summaries for a host.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "analytics"
+                ],
+                "summary": "List security semantic and prompt injection analysis",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Target host",
+                        "name": "host",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "maximum": 500,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Maximum semantic records",
+                        "name": "semantic_limit",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 500,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Maximum prompt injection records",
+                        "name": "prompt_limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.SecurityLLMAnalysisResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/ingest/exec_event": {
+            "post": {
+                "description": "Accepts a batch of process execution telemetry events for bulk ingestion.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ingest"
+                ],
+                "summary": "Ingest exec events",
+                "parameters": [
+                    {
+                        "description": "Exec event batch",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ExecEventBatch"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/ingest/http_request": {
+            "post": {
+                "description": "Accepts a batch of HTTP request telemetry events for bulk ingestion.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ingest"
+                ],
+                "summary": "Ingest HTTP request events",
+                "parameters": [
+                    {
+                        "description": "HTTP request batch",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.HTTPRequestBatch"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/ingest/http_response": {
+            "post": {
+                "description": "Accepts a batch of HTTP response telemetry events for bulk ingestion.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ingest"
+                ],
+                "summary": "Ingest HTTP response events",
+                "parameters": [
+                    {
+                        "description": "HTTP response batch",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.HTTPResponseBatch"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/healthz": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Health check",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.HealthResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/readyz": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Readiness check",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.HealthResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.ExecEvent": {
+            "type": "object",
+            "required": [
+                "args",
+                "comm",
+                "cwd",
+                "exec_id",
+                "host",
+                "p_exec_id",
+                "pid",
+                "ppid",
+                "timestamp"
+            ],
+            "properties": {
+                "args": {
+                    "type": "string"
+                },
+                "comm": {
+                    "type": "string"
+                },
+                "cwd": {
+                    "type": "string"
+                },
+                "exec_id": {
+                    "type": "string"
+                },
+                "host": {
+                    "type": "string"
+                },
+                "p_exec_id": {
+                    "type": "string"
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "ppid": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.HTTPRequestEvent": {
+            "type": "object",
+            "required": [
+                "comm",
+                "gid",
+                "host",
+                "method",
+                "pid",
+                "protocol",
+                "tid",
+                "timestamp",
+                "uid",
+                "url"
+            ],
+            "properties": {
+                "body": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "comm": {
+                    "type": "string"
+                },
+                "content_length": {
+                    "type": "integer"
+                },
+                "gid": {
+                    "type": "integer"
+                },
+                "headers": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "host": {
+                    "type": "string"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "protocol": {
+                    "type": "string"
+                },
+                "tid": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "type": "boolean"
+                },
+                "uid": {
+                    "type": "integer"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.HTTPResponseEvent": {
+            "type": "object",
+            "required": [
+                "comm",
+                "gid",
+                "host",
+                "pid",
+                "protocol",
+                "status_code",
+                "tid",
+                "timestamp",
+                "uid"
+            ],
+            "properties": {
+                "body": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "comm": {
+                    "type": "string"
+                },
+                "content_length": {
+                    "type": "integer"
+                },
+                "gid": {
+                    "type": "integer"
+                },
+                "headers": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "host": {
+                    "type": "string"
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "protocol": {
+                    "type": "string"
+                },
+                "status_code": {
+                    "type": "integer"
+                },
+                "tid": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "type": "boolean"
+                },
+                "uid": {
+                    "type": "integer"
+                }
+            }
+        },
+        "pkg_httpapi.CorrelationSummaryResponse": {
+            "type": "object",
+            "properties": {
+                "best_argument_match_flag": {
+                    "type": "integer"
+                },
+                "best_argument_score": {
+                    "type": "number"
+                },
+                "best_correlation_type": {
+                    "type": "string"
+                },
+                "best_event_args": {
+                    "type": "string"
+                },
+                "best_event_comm": {
+                    "type": "string"
+                },
+                "best_event_exec_id": {
+                    "type": "string"
+                },
+                "best_event_id": {
+                    "type": "string"
+                },
+                "best_gap_ms": {
+                    "type": "number"
+                },
+                "best_lineage_score": {
+                    "type": "number"
+                },
+                "best_temporal_score": {
+                    "type": "number"
+                },
+                "best_total_score": {
+                    "type": "number"
+                },
+                "event_root_exec_id": {
+                    "type": "string"
+                },
+                "event_root_pid": {
+                    "type": "integer"
+                },
+                "evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "host": {
+                    "type": "string"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "response_id": {
+                    "type": "string"
+                },
+                "response_ts": {
+                    "type": "string"
+                },
+                "root_exec_id": {
+                    "type": "string"
+                },
+                "root_pid": {
+                    "type": "integer"
+                },
+                "status_code": {
+                    "type": "integer"
+                },
+                "system_actions": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.ExecEventBatch": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.ExecEvent"
+                    }
+                }
+            }
+        },
+        "pkg_httpapi.HTTPRequestBatch": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.HTTPRequestEvent"
+                    }
+                }
+            }
+        },
+        "pkg_httpapi.HTTPRequestDetailResponse": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "comm": {
+                    "type": "string"
+                },
+                "content_length": {
+                    "type": "integer"
+                },
+                "gid": {
+                    "type": "integer"
+                },
+                "headers": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "host": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "protocol": {
+                    "type": "string"
+                },
+                "tid": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "type": "boolean"
+                },
+                "uid": {
+                    "type": "integer"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.HTTPResponseBatch": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.HTTPResponseEvent"
+                    }
+                }
+            }
+        },
+        "pkg_httpapi.HealthResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.HeuristicAlertResponse": {
+            "type": "object",
+            "properties": {
+                "alert_id": {
+                    "type": "string"
+                },
+                "alert_type": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "end_ts": {
+                    "type": "string"
+                },
+                "host": {
+                    "type": "string"
+                },
+                "root_exec_id": {
+                    "type": "string"
+                },
+                "root_pid": {
+                    "type": "integer"
+                },
+                "score": {
+                    "type": "number"
+                },
+                "severity": {
+                    "type": "string"
+                },
+                "start_ts": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.ProcessEventResponse": {
+            "type": "object",
+            "properties": {
+                "args": {
+                    "type": "string"
+                },
+                "comm": {
+                    "type": "string"
+                },
+                "cwd": {
+                    "type": "string"
+                },
+                "depth": {
+                    "type": "integer"
+                },
+                "end_ts": {
+                    "type": "string"
+                },
+                "exec_id": {
+                    "type": "string"
+                },
+                "host": {
+                    "type": "string"
+                },
+                "parent_exec_id": {
+                    "type": "string"
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "ppid": {
+                    "type": "integer"
+                },
+                "root_exec_id": {
+                    "type": "string"
+                },
+                "root_pid": {
+                    "type": "integer"
+                },
+                "start_ts": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.ProcessHTTPEventResponse": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "depth": {
+                    "type": "integer"
+                },
+                "exec_id": {
+                    "type": "string"
+                },
+                "headers": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "host": {
+                    "type": "string"
+                },
+                "http_id": {
+                    "type": "string"
+                },
+                "http_type": {
+                    "type": "string"
+                },
+                "is_mcp_http": {
+                    "type": "boolean"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "protocol": {
+                    "type": "string"
+                },
+                "root_exec_id": {
+                    "type": "string"
+                },
+                "root_pid": {
+                    "type": "integer"
+                },
+                "status_code": {
+                    "type": "integer"
+                },
+                "tid": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "type": "boolean"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.ProcessSummaryMeta": {
+            "type": "object",
+            "properties": {
+                "args": {
+                    "type": "string"
+                },
+                "comm": {
+                    "type": "string"
+                },
+                "event_count": {
+                    "type": "integer"
+                },
+                "exec_id": {
+                    "type": "string"
+                },
+                "first_seen": {
+                    "type": "string"
+                },
+                "last_seen": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.ProcessSummaryResponse": {
+            "type": "object",
+            "properties": {
+                "alerts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pkg_httpapi.HeuristicAlertResponse"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/pkg_httpapi.ProcessSummaryMeta"
+                }
+            }
+        },
+        "pkg_httpapi.ProcessTreeNodeResponse": {
+            "type": "object",
+            "properties": {
+                "args": {
+                    "type": "string"
+                },
+                "children": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pkg_httpapi.ProcessTreeNodeResponse"
+                    }
+                },
+                "comm": {
+                    "type": "string"
+                },
+                "cwd": {
+                    "type": "string"
+                },
+                "depth": {
+                    "type": "integer"
+                },
+                "end_ts": {
+                    "type": "string"
+                },
+                "exec_id": {
+                    "type": "string"
+                },
+                "parent_exec_id": {
+                    "type": "string"
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "ppid": {
+                    "type": "integer"
+                },
+                "root_exec_id": {
+                    "type": "string"
+                },
+                "root_pid": {
+                    "type": "integer"
+                },
+                "start_ts": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.PromptInjectionRecord": {
+            "type": "object",
+            "properties": {
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "observed_at": {
+                    "type": "string"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "severity": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.SecurityLLMAnalysisResponse": {
+            "type": "object",
+            "properties": {
+                "prompt_injections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pkg_httpapi.PromptInjectionRecord"
+                    }
+                },
+                "semantic": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pkg_httpapi.SecuritySemanticRecord"
+                    }
+                }
+            }
+        },
+        "pkg_httpapi.SecuritySemanticRecord": {
+            "type": "object",
+            "properties": {
+                "analyzed_at": {
+                    "type": "string"
+                },
+                "confidence": {
+                    "type": "number"
+                },
+                "details": {
+                    "type": "string"
+                },
+                "evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "recommendations": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "root_exec_id": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "threat_level": {
+                    "type": "integer"
+                },
+                "threat_type": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

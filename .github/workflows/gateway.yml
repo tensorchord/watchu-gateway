@@ -1,0 +1,81 @@
+name: Go Gateway
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - '.github/workflows/gateway.yml'
+      - 'gateway/**.go'
+      - 'gateway/Makefile'
+      - 'gateway/go.**'
+      - 'gateway/db/**'
+      - 'gateway/atlas.hcl'
+      - 'gateway/docker-compose.yaml'
+      - 'gateway/sqlc.yaml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - '.github/workflows/gateway.yml'
+      - 'gateway/**.go'
+      - 'gateway/Makefile'
+      - 'gateway/go.**'
+      - 'gateway/db/**'
+      - 'gateway/atlas.hcl'
+      - 'gateway/docker-compose.yaml'
+      - 'gateway/sqlc.yaml'
+  merge_group:
+  workflow_dispatch:
+
+jobs:
+
+  build:
+    env:
+      DATABASE_URL: postgres://watchu:watchu@localhost:5432/watchu?sslmode=disable
+    defaults:
+      run:
+        working-directory: ./gateway
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: watchu
+          POSTGRES_USER: watchu
+          POSTGRES_PASSWORD: watchu
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U watchu -d watchu"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: stable
+
+    - name: Install PostgreSQL client & Atlas
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y postgresql-client
+        curl -sSf https://atlasgo.io/install.sh | sudo sh -s -- -b /usr/local/bin
+
+    - name: Apply database migrations
+      run: atlas migrate apply --env dev
+
+    - name: Verify schema drift
+      run: atlas migrate validate --env dev
+
+    - name: Build
+      run: make build
+
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v8
+      with:
+        working-directory: ./gateway
+
+    - name: Lint
+      run: make lint

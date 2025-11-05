@@ -181,7 +181,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 		record, err := sp.rb.Read()
 		if err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
-				log.Info().Msg("ringbuf closed")
+				log.Info().Msg("SSL ringbuf closed")
 				return
 			}
 			log.Warn().Err(err).Msg("read from ringbuffer error")

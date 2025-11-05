@@ -122,7 +122,7 @@ func (sp *StdioProbe) Start() {
 		record, err := sp.rb.Read()
 		if err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
-				log.Info().Msg("ringbuf closed")
+				log.Info().Msg("stdio ringbuf closed")
 				return
 			}
 			log.Warn().Err(err).Msg("read from ringbuffer error")

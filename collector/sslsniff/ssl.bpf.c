@@ -108,6 +108,8 @@ int probe_ssl_read_exit(struct pt_regs *ctx) {
 
     bpf_repeat(MAX_LOOP) {
         u32 length = (u32)ret; // Cast is safe: ret > 0 guaranteed by guard above
+        if (length == 0)
+            break;
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;
 
@@ -157,6 +159,8 @@ int probe_ssl_read_ex_exit(struct pt_regs *ctx) {
 
     bpf_repeat(MAX_LOOP) {
         u32 length = (u32)readbytes;
+        if (length == 0)
+            break;
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;
 
@@ -203,6 +207,8 @@ int probe_ssl_write_exit(struct pt_regs *ctx) {
 
     bpf_repeat(MAX_LOOP) {
         u32 length = (u32)ret;
+        if (length == 0)
+            break;
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;
 
@@ -252,6 +258,8 @@ int probe_ssl_write_ex_exit(struct pt_regs *ctx) {
 
     bpf_repeat(MAX_LOOP) {
         u32 length = (u32)written;
+        if (length == 0)
+            break;
         if (length > MAX_BODY_SIZE)
             length = MAX_BODY_SIZE;
 

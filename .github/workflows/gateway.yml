@@ -61,13 +61,10 @@ jobs:
       uses: ariga/setup-atlas@v0
     
     - name: Deploy Atlas Migrations
-      uses: ariga/atlas-action/migrate/apply@v1
-      with:
-        url: $DATABASE_URL
-        dir: file://db/migrations
+      run: atlas migrate apply --env dev --dir "file://db/migrations" --url $DATABASE_URL
 
     - name: Verify schema drift
-      run: atlas migrate validate --env dev
+      run: atlas migrate validate --env dev --dir "file://db/migrations" --url $DATABASE_URL
 
     - name: Build
       run: make build

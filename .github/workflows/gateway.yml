@@ -60,12 +60,14 @@ jobs:
     - name: Set up Atlas CLI
       uses: ariga/setup-atlas@v0
     
+    - name: Verify schema drift
+      run: atlas migrate validate --env dev --dir "file://db/migrations" --dev-url $DATABASE_URL
+
+    
     - name: Deploy Atlas Migrations
       run: atlas migrate apply --env dev --dir "file://db/migrations" --url $DATABASE_URL
 
-    - name: Verify schema drift
-      run: atlas migrate validate --env dev --dir "file://db/migrations" --url $DATABASE_URL
-
+    
     - name: Build
       run: make build
 

@@ -61,7 +61,8 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y postgresql-client
-        curl -sSf https://atlasgo.io/install.sh | sudo sh -s -- -b /usr/local/bin
+        curl -sSf https://atlasgo.io/install.sh | sh -s -- -b $HOME/bin
+        echo "$HOME/bin" >> $GITHUB_PATH
 
     - name: Apply database migrations
       run: atlas migrate apply --env dev

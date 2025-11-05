@@ -10,21 +10,21 @@ var (
 
 func mustColumnsFromStruct[T any]() []string {
 	var zero T
-	typ := reflect.TypeOf(zero)
-	if typ.Kind() == reflect.Pointer {
-		typ = typ.Elem()
+	structType := reflect.TypeOf(zero)
+	if structType.Kind() == reflect.Pointer {
+		structType = structType.Elem()
 	}
 
-	if typ.Kind() != reflect.Struct {
+	if structType.Kind() != reflect.Struct {
 		panic("mustColumnsFromStruct requires a struct type")
 	}
 
-	cols := make([]string, 0, typ.NumField())
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	cols := make([]string, 0, structType.NumField())
+	for i := 0; i < structType.NumField(); i++ {
+		field := structType.Field(i)
 		tag := field.Tag.Get("db")
 		if tag == "" || tag == "-" {
-			panic("missing db tag on field " + typ.Name() + "." + field.Name)
+			panic("missing db tag on field " + structType.Name() + "." + field.Name)
 		}
 		cols = append(cols, tag)
 	}

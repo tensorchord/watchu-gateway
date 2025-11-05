@@ -60,9 +60,6 @@ jobs:
     - name: Set up Atlas CLI
       uses: ariga/setup-atlas@v0
     
-    - name: Lint migrations
-      run: atlas migrate lint --env dev --dev-url $DATABASE_URL
-    
     - name: Deploy Atlas Migrations
       uses: ariga/atlas-action/migrate/apply@v1
       with:

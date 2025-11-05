@@ -35,3 +35,6 @@ compose-down:
 
 clean:
 	rm -rf $(BIN_DIR)
+
+atlas-migrate-hash:
+	@atlas migrate hash --dir file://db/migrations

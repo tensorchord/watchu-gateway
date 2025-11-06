@@ -671,7 +671,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.ExecEvent": {
+        "github_com_tensorchord_watchu_pkg_ingest.ExecEvent": {
             "type": "object",
             "required": [
                 "args",
@@ -714,7 +714,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.HTTPRequestEvent": {
+        "github_com_tensorchord_watchu_pkg_ingest.HTTPRequestEvent": {
             "type": "object",
             "required": [
                 "comm",
@@ -779,7 +779,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.HTTPResponseEvent": {
+        "github_com_tensorchord_watchu_pkg_ingest.HTTPResponseEvent": {
             "type": "object",
             "required": [
                 "comm",
@@ -934,7 +934,7 @@ const docTemplate = `{
                 "events": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.ExecEvent"
+                        "$ref": "#/definitions/github_com_tensorchord_watchu_pkg_ingest.ExecEvent"
                     }
                 }
             }
@@ -945,7 +945,7 @@ const docTemplate = `{
                 "events": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.HTTPRequestEvent"
+                        "$ref": "#/definitions/github_com_tensorchord_watchu_pkg_ingest.HTTPRequestEvent"
                     }
                 }
             }
@@ -1012,7 +1012,7 @@ const docTemplate = `{
                 "events": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.HTTPResponseEvent"
+                        "$ref": "#/definitions/github_com_tensorchord_watchu_pkg_ingest.HTTPResponseEvent"
                     }
                 }
             }

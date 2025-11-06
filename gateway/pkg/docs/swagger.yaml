@@ -1,5 +1,5 @@
 definitions:
-  github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.ExecEvent:
+  github_com_tensorchord_watchu_pkg_ingest.ExecEvent:
     properties:
       args:
         type: string
@@ -30,7 +30,7 @@ definitions:
     - ppid
     - timestamp
     type: object
-  github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.HTTPRequestEvent:
+  github_com_tensorchord_watchu_pkg_ingest.HTTPRequestEvent:
     properties:
       body:
         items:
@@ -76,7 +76,7 @@ definitions:
     - uid
     - url
     type: object
-  github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.HTTPResponseEvent:
+  github_com_tensorchord_watchu_pkg_ingest.HTTPResponseEvent:
     properties:
       body:
         items:
@@ -181,14 +181,14 @@ definitions:
     properties:
       events:
         items:
-          $ref: '#/definitions/github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.ExecEvent'
+          $ref: '#/definitions/github_com_tensorchord_watchu_pkg_ingest.ExecEvent'
         type: array
     type: object
   pkg_httpapi.HTTPRequestBatch:
     properties:
       events:
         items:
-          $ref: '#/definitions/github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.HTTPRequestEvent'
+          $ref: '#/definitions/github_com_tensorchord_watchu_pkg_ingest.HTTPRequestEvent'
         type: array
     type: object
   pkg_httpapi.HTTPRequestDetailResponse:
@@ -232,7 +232,7 @@ definitions:
     properties:
       events:
         items:
-          $ref: '#/definitions/github_com_xieyuandong_llm-observability_watchu-gateway_pkg_ingest.HTTPResponseEvent'
+          $ref: '#/definitions/github_com_tensorchord_watchu_pkg_ingest.HTTPResponseEvent'
         type: array
     type: object
   pkg_httpapi.HealthResponse:

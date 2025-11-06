@@ -17,7 +17,7 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
 
-	"github.com/tensorchord/watchu"
+	"github.com/tensorchord/watchu/collector"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 ssl ssl.bpf.c -- -I../headers
@@ -108,12 +108,12 @@ type SSLProbe struct {
 	links    []link.Link
 	objs     *sslObjects
 	rb       *ringbuf.Reader
-	storage  *watchu.Storage
-	reqChan  chan *watchu.TableRequest
-	respChan chan *watchu.TableResponse
+	storage  *collector.Storage
+	reqChan  chan *collector.TableRequest
+	respChan chan *collector.TableResponse
 }
 
-func NewSSLProbe(additionalFile *string, storage *watchu.Storage) *SSLProbe {
+func NewSSLProbe(additionalFile *string, storage *collector.Storage) *SSLProbe {
 	attachPaths := []string{}
 	libPath, err := findLibSSLPath()
 	if err != nil {
@@ -165,8 +165,8 @@ func NewSSLProbe(additionalFile *string, storage *watchu.Storage) *SSLProbe {
 		links:    links,
 		rb:       rb,
 		storage:  storage,
-		reqChan:  make(chan *watchu.TableRequest, watchu.TableChannelSize),
-		respChan: make(chan *watchu.TableResponse, watchu.TableChannelSize),
+		reqChan:  make(chan *collector.TableRequest, collector.TableChannelSize),
+		respChan: make(chan *collector.TableResponse, collector.TableChannelSize),
 	}
 }
 
@@ -211,7 +211,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 				Uint64("*SSL", event.SslPtr).
 				Uint32("data_len", event.DataLen).
 				Uint8("rw", event.Rw).
-				Str("comm", watchu.CharsToString(event.Comm[:])).
+				Str("comm", collector.CharsToString(event.Comm[:])).
 				Str("data", data).
 				Str("protocol", protocol).
 				Msg("HTTP event")

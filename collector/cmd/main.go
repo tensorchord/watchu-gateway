@@ -9,9 +9,9 @@ import (
 
 	"github.com/phuslu/log"
 
-	"github.com/tensorchord/watchu"
-	"github.com/tensorchord/watchu/sslsniff"
-	"github.com/tensorchord/watchu/stdio"
+	"github.com/tensorchord/watchu/collector"
+	"github.com/tensorchord/watchu/collector/sslsniff"
+	"github.com/tensorchord/watchu/collector/stdio"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 )
 
 func main() {
-	watchu.SetUpLogger()
+	collector.SetUpLogger()
 	binaryPath := flag.String("binary-path", "", "extra user binary path to attach SSL uprobes (optional)")
 	dsn := flag.String("db", "watchu.db", "a duckdb database source name")
 	tetragonSocket := flag.String("tetragon-socket", "",
@@ -29,12 +29,12 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	storage, err := watchu.NewStorage(*dsn)
+	storage, err := collector.NewStorage(*dsn)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to initialize storage")
 	}
 
-	err = watchu.InitEBPF()
+	err = collector.InitEBPF()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to initialize eBPF")
 	}
@@ -47,7 +47,7 @@ func main() {
 
 	if len(*tetragonSocket) > 0 {
 		log.Info().Str("socket", *tetragonSocket).Msg("enable Tetragon integration")
-		tetragonClient, err := watchu.NewTetragonClient(*tetragonSocket, storage)
+		tetragonClient, err := collector.NewTetragonClient(*tetragonSocket, storage)
 		if err != nil {
 			log.Fatal().Err(err).Msg("failed to create Tetragon client")
 		}

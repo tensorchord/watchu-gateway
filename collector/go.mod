@@ -1,4 +1,4 @@
-module github.com/tensorchord/watchu
+module github.com/tensorchord/watchu/collector
 
 go 1.25.1
 

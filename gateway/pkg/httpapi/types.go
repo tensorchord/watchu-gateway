@@ -1,6 +1,6 @@
 package httpapi
 
-import "github.com/xieyuandong/llm-observability/watchu-gateway/pkg/ingest"
+import "github.com/tensorchord/watchu/pkg/ingest"
 
 // ErrorResponse defines the JSON structure returned on error.
 type ErrorResponse struct {

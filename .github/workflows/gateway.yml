@@ -63,11 +63,9 @@ jobs:
     - name: Verify schema drift
       run: atlas migrate validate --env dev --dir "file://db/migrations" --dev-url $DATABASE_URL
 
-    
     - name: Deploy Atlas Migrations
       run: atlas migrate apply --env dev --dir "file://db/migrations" --url $DATABASE_URL
 
-    
     - name: Build
       run: make build
 

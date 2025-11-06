@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-    "github.com/xieyuandong/llm-observability/watchu-gateway/pkg/gen/sqlc"
+	"github.com/tensorchord/watchu/pkg/gen/sqlc"
 )
 
 // CorrelationSummaryResponse represents the JSON payload returned by the correlations endpoint.

@@ -1,4 +1,4 @@
-module github.com/xieyuandong/llm-observability/watchu-gateway
+module github.com/tensorchord/watchu
 
 go 1.25.3
 

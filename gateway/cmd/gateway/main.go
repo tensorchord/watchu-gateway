@@ -10,13 +10,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/tensorchord/watchu/pkg/analysis"
-	"github.com/tensorchord/watchu/pkg/config"
-	"github.com/tensorchord/watchu/pkg/database"
-	"github.com/tensorchord/watchu/pkg/gen/sqlc"
-	"github.com/tensorchord/watchu/pkg/httpapi"
-	"github.com/tensorchord/watchu/pkg/ingest"
-	"github.com/tensorchord/watchu/pkg/server"
+	"github.com/tensorchord/watchu/gateway/pkg/analysis"
+	"github.com/tensorchord/watchu/gateway/pkg/config"
+	"github.com/tensorchord/watchu/gateway/pkg/database"
+	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
+	"github.com/tensorchord/watchu/gateway/pkg/httpapi"
+	"github.com/tensorchord/watchu/gateway/pkg/ingest"
+	"github.com/tensorchord/watchu/gateway/pkg/server"
 )
 
 func main() {

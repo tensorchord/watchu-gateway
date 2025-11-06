@@ -7,10 +7,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
-	docs "github.com/tensorchord/watchu/pkg/docs"
+	docs "github.com/tensorchord/watchu/gateway/pkg/docs"
 
-	"github.com/tensorchord/watchu/pkg/gen/sqlc"
-	"github.com/tensorchord/watchu/pkg/ingest"
+	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
+	"github.com/tensorchord/watchu/gateway/pkg/ingest"
 )
 
 // Dependencies captures services the HTTP layer relies on.

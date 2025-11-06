@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/tensorchord/watchu/pkg/ingest"
+	"github.com/tensorchord/watchu/gateway/pkg/ingest"
 )
 
 type ingestHandlers struct {

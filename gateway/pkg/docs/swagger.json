@@ -660,7 +660,7 @@
         }
     },
     "definitions": {
-        "github_com_tensorchord_watchu_pkg_ingest.ExecEvent": {
+        "github_com_tensorchord_watchu_gateway_pkg_ingest.ExecEvent": {
             "type": "object",
             "required": [
                 "args",
@@ -703,7 +703,7 @@
                 }
             }
         },
-        "github_com_tensorchord_watchu_pkg_ingest.HTTPRequestEvent": {
+        "github_com_tensorchord_watchu_gateway_pkg_ingest.HTTPRequestEvent": {
             "type": "object",
             "required": [
                 "comm",
@@ -768,7 +768,7 @@
                 }
             }
         },
-        "github_com_tensorchord_watchu_pkg_ingest.HTTPResponseEvent": {
+        "github_com_tensorchord_watchu_gateway_pkg_ingest.HTTPResponseEvent": {
             "type": "object",
             "required": [
                 "comm",
@@ -923,7 +923,7 @@
                 "events": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_tensorchord_watchu_pkg_ingest.ExecEvent"
+                        "$ref": "#/definitions/github_com_tensorchord_watchu_gateway_pkg_ingest.ExecEvent"
                     }
                 }
             }
@@ -934,7 +934,7 @@
                 "events": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_tensorchord_watchu_pkg_ingest.HTTPRequestEvent"
+                        "$ref": "#/definitions/github_com_tensorchord_watchu_gateway_pkg_ingest.HTTPRequestEvent"
                     }
                 }
             }
@@ -1001,7 +1001,7 @@
                 "events": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_tensorchord_watchu_pkg_ingest.HTTPResponseEvent"
+                        "$ref": "#/definitions/github_com_tensorchord_watchu_gateway_pkg_ingest.HTTPResponseEvent"
                     }
                 }
             }

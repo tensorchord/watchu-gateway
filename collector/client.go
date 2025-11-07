@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	EndpointHeath  = "/healthz"
+	EndpointHealth = "/healthz"
 	EndpointIngest = "/api/v1/ingest"
 	PathExec       = "exec_event"
 	PathRequest    = "http_request"
@@ -141,7 +141,7 @@ type RawRequest struct {
 func (raw RawRequest) ToRecord(host string) interface{} {
 	headers, err := json.Marshal(raw.Headers)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to marshal headers")
+		log.Error().Err(err).Msg("failed to marshal req headers")
 		return nil
 	}
 	return RecordRequest{
@@ -178,7 +178,7 @@ type RawResponse struct {
 func (raw RawResponse) ToRecord(host string) interface{} {
 	headers, err := json.Marshal(raw.Headers)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to marshal headers")
+		log.Error().Err(err).Msg("failed to marshal resp headers")
 		return nil
 	}
 	return RecordResponse{
@@ -220,7 +220,7 @@ func GetHostName() string {
 }
 
 func GatewayHealthCheck(baseURL string) error {
-	link, err := url.JoinPath(baseURL, EndpointHeath)
+	link, err := url.JoinPath(baseURL, EndpointHealth)
 	if err != nil {
 		return fmt.Errorf("failed to join URL path: %w", err)
 	}
@@ -228,6 +228,12 @@ func GatewayHealthCheck(baseURL string) error {
 	if err != nil {
 		return fmt.Errorf("failed to send HTTP request to the gateway health endpoint: %w", err)
 	}
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			log.Error().Err(err).Msg("failed to close health check response body")
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("gateway health check failed with status code: %d", resp.StatusCode)
 	}
@@ -308,7 +314,9 @@ func consumeFromChannel[R RawRecord](host string, channel <-chan R) func() []int
 			select {
 			case raw := <-channel:
 				record := raw.ToRecord(host)
-				events = append(events, record)
+				if record != nil {
+					events = append(events, record)
+				}
 			default:
 				return events
 			}

@@ -3,8 +3,10 @@ package collector
 import (
 	"bytes"
 	"fmt"
+	"io"
 
 	"github.com/cilium/ebpf/rlimit"
+	"github.com/phuslu/log"
 )
 
 func CharsToString(arr []int8) string {
@@ -13,6 +15,20 @@ func CharsToString(arr []int8) string {
 		b[i] = byte(v)
 	}
 	return string(bytes.TrimRight(b, "\x00"))
+}
+
+func ReadCloserToBytes(rc io.ReadCloser) ([]byte, error) {
+	defer func() {
+		err := rc.Close()
+		if err != nil {
+			log.Error().Err(err).Msg("failed to close ReadCloser")
+		}
+	}()
+	buf, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, err
+	}
+	return buf, nil
 }
 
 func InitEBPF() error {

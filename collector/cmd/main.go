@@ -21,7 +21,7 @@ const (
 func main() {
 	collector.SetUpLogger()
 	binaryPath := flag.String("binary-path", "", "extra user binary path to attach SSL uprobes (optional)")
-	dsn := flag.String("db", "watchu.db", "a duckdb database source name")
+	address := flag.String("gateway", "http://localhost:8080", "the gateway address")
 	tetragonSocket := flag.String("tetragon-socket", "",
 		fmt.Sprintf("the Tetragon gRPC socket path, e.g., '%s'. Leave it empty to disable Tetragon integration", TETRAGON_SOCKET))
 	flag.Parse()
@@ -29,9 +29,9 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	storage, err := collector.NewStorage(*dsn)
+	gatewayClient, err := collector.NewGatewayClient(*address)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to initialize storage")
+		log.Fatal().Err(err).Msg("failed to initialize gateway client")
 	}
 
 	err = collector.InitEBPF()
@@ -39,7 +39,7 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to initialize eBPF")
 	}
 
-	sslProbe := sslsniff.NewSSLProbe(binaryPath, storage)
+	sslProbe := sslsniff.NewSSLProbe(binaryPath, gatewayClient)
 	go sslProbe.Start(ctx)
 
 	stdioProbe := stdio.NewStdioProbe()
@@ -47,7 +47,7 @@ func main() {
 
 	if len(*tetragonSocket) > 0 {
 		log.Info().Str("socket", *tetragonSocket).Msg("enable Tetragon integration")
-		tetragonClient, err := collector.NewTetragonClient(*tetragonSocket, storage)
+		tetragonClient, err := collector.NewTetragonClient(*tetragonSocket, gatewayClient)
 		if err != nil {
 			log.Fatal().Err(err).Msg("failed to create Tetragon client")
 		}
@@ -58,5 +58,4 @@ func main() {
 	<-ctx.Done()
 	sslProbe.Close()
 	stdioProbe.Close()
-	storage.Close()
 }

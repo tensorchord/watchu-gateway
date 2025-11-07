@@ -108,12 +108,12 @@ type SSLProbe struct {
 	links    []link.Link
 	objs     *sslObjects
 	rb       *ringbuf.Reader
-	storage  *collector.Storage
-	reqChan  chan *collector.TableRequest
-	respChan chan *collector.TableResponse
+	client   *collector.GatewayClient
+	reqChan  chan *collector.RawRequest
+	respChan chan *collector.RawResponse
 }
 
-func NewSSLProbe(additionalFile *string, storage *collector.Storage) *SSLProbe {
+func NewSSLProbe(additionalFile *string, client *collector.GatewayClient) *SSLProbe {
 	attachPaths := []string{}
 	libPath, err := findLibSSLPath()
 	if err != nil {
@@ -164,17 +164,17 @@ func NewSSLProbe(additionalFile *string, storage *collector.Storage) *SSLProbe {
 		objs:     &objs,
 		links:    links,
 		rb:       rb,
-		storage:  storage,
-		reqChan:  make(chan *collector.TableRequest, collector.TableChannelSize),
-		respChan: make(chan *collector.TableResponse, collector.TableChannelSize),
+		client:   client,
+		reqChan:  make(chan *collector.RawRequest, collector.GatewayChannelSize),
+		respChan: make(chan *collector.RawResponse, collector.GatewayChannelSize),
 	}
 }
 
 func (sp *SSLProbe) Start(ctx context.Context) {
 	log.Info().Msg("listening for SSL read/write events...")
 	var event sslEvent
-	go sp.storage.InsertHTTPRequest(ctx, sp.reqChan)
-	go sp.storage.InsertHTTPResponse(ctx, sp.respChan)
+	go sp.client.IngestRequestEvent(ctx, sp.reqChan)
+	go sp.client.IngestResponseEvent(ctx, sp.respChan)
 	store := NewSSLStore()
 	go store.Parse(ctx, sp.reqChan, sp.respChan)
 	for {

@@ -231,7 +231,7 @@ func (s *SSLStore) Add(event *sslEvent) {
 	}
 }
 
-func (s *SSLStore) parseRequest(channel chan *collector.TableRequest) {
+func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 	s.reqMu.Lock()
 	defer s.reqMu.Unlock()
 
@@ -304,7 +304,7 @@ func (s *SSLStore) parseRequest(channel chan *collector.TableRequest) {
 		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
 		record.EndOfStream = false
 		record.LastResp = nil
-		channel <- &collector.TableRequest{
+		channel <- &collector.RawRequest{
 			ElapsedNs:     timestamp,
 			PidTid:        key.PidTgid,
 			UidGid:        key.UidGid,
@@ -320,7 +320,7 @@ func (s *SSLStore) parseRequest(channel chan *collector.TableRequest) {
 	}
 }
 
-func (s *SSLStore) parseResponse(channel chan *collector.TableResponse) {
+func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 	s.respMu.Lock()
 	defer s.respMu.Unlock()
 
@@ -390,7 +390,7 @@ func (s *SSLStore) parseResponse(channel chan *collector.TableResponse) {
 				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("")
 				record.EndOfStream = false
 				record.LastResp = nil
-				channel <- &collector.TableResponse{
+				channel <- &collector.RawResponse{
 					ElapsedNs:     timestamp,
 					PidTid:        key.PidTgid,
 					UidGid:        key.UidGid,
@@ -408,7 +408,7 @@ func (s *SSLStore) parseResponse(channel chan *collector.TableResponse) {
 	}
 }
 
-func (s *SSLStore) Parse(ctx context.Context, reqChan chan *collector.TableRequest, respChan chan *collector.TableResponse) {
+func (s *SSLStore) Parse(ctx context.Context, reqChan chan *collector.RawRequest, respChan chan *collector.RawResponse) {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 

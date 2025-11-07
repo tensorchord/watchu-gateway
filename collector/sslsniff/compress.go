@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/phuslu/log"
+
+	"github.com/tensorchord/watchu/collector"
 )
 
 const (
@@ -14,23 +16,9 @@ const (
 	EncodingDeflate = "deflate"
 )
 
-func readCloserToBytes(rc io.ReadCloser) ([]byte, error) {
-	defer func() {
-		err := rc.Close()
-		if err != nil {
-			log.Error().Err(err).Msg("failed to close ReadCloser")
-		}
-	}()
-	buf, err := io.ReadAll(rc)
-	if err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-
 func readDecodeBytes(body io.ReadCloser, encoding string) ([]byte, error) {
 	if len(encoding) == 0 {
-		return readCloserToBytes(body)
+		return collector.ReadCloserToBytes(body)
 	}
 	var reader io.ReadCloser
 	var err error
@@ -53,5 +41,5 @@ func readDecodeBytes(body io.ReadCloser, encoding string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return readCloserToBytes(reader)
+	return collector.ReadCloserToBytes(reader)
 }

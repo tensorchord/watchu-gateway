@@ -285,7 +285,7 @@ func (gc *GatewayClient) sendEvents(ctx context.Context, endpoint string, events
 		return
 	}
 	req.Header.Add("Content-Type", "application/json")
-	//nolint:bodyclose
+	//nolint:bodyclose closed in ReadCloserToBytes
 	resp, err := gc.client.Do(req)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to send HTTP request")

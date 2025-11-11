@@ -23,7 +23,7 @@ func main() {
 	SSLPath := flag.String("ssl-path", "", "extra user binary path to attach SSL uprobes (optional)")
 	address := flag.String("gateway", "", "the gateway address, e.g., 'http://localhost:8080'. Leave it empty to disable pushing events to the gateway")
 	tetragonSocket := flag.String("tetragon-socket", "",
-		fmt.Sprintf("the Tetragon gRPC socket path, e.g., '%s'. Leave it empty will disable Tetragon integration", TETRAGON_SOCKET))
+		fmt.Sprintf("the Tetragon gRPC socket path, e.g., '%s'. Leave it empty to disable Tetragon integration", TETRAGON_SOCKET))
 	flag.Parse()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

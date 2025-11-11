@@ -219,12 +219,16 @@ func GetHostName() string {
 	return fmt.Sprintf("unknown-host-%d", time.Now().UnixNano())
 }
 
-func GatewayHealthCheck(baseURL string) error {
+func GatewayHealthCheck(ctx context.Context, baseURL string) error {
 	link, err := url.JoinPath(baseURL, EndpointHealth)
 	if err != nil {
 		return fmt.Errorf("failed to join URL path: %w", err)
 	}
-	resp, err := http.Get(link)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP request to the gateway health endpoint: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send HTTP request to the gateway health endpoint: %w", err)
 	}
@@ -246,10 +250,14 @@ type GatewayClient struct {
 	client  *http.Client
 }
 
-func NewGatewayClient(baseURL string) (*GatewayClient, error) {
-	err := GatewayHealthCheck(baseURL)
-	if err != nil {
-		return nil, err
+func NewGatewayClient(ctx context.Context, baseURL string) (*GatewayClient, error) {
+	if len(baseURL) > 0 {
+		err := GatewayHealthCheck(ctx, baseURL)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		log.Info().Msg("gateway URL is empty, will disable pushing events to the gateway")
 	}
 	client := &http.Client{}
 	host := GetHostName()
@@ -257,7 +265,10 @@ func NewGatewayClient(baseURL string) (*GatewayClient, error) {
 	return &GatewayClient{client: client, host: host, baseURL: baseURL}, nil
 }
 
-func (gc *GatewayClient) sendEvents(endpoint string, events []interface{}) {
+func (gc *GatewayClient) sendEvents(ctx context.Context, endpoint string, events []interface{}) {
+	if len(gc.baseURL) == 0 {
+		return
+	}
 	payload, err := json.Marshal(BatchRecord{Events: events})
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal events")
@@ -268,12 +279,13 @@ func (gc *GatewayClient) sendEvents(endpoint string, events []interface{}) {
 		log.Error().Err(err).Msg("failed to join URL path")
 		return
 	}
-	req, err := http.NewRequest(http.MethodPost, link, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, link, bytes.NewReader(payload))
 	if err != nil {
 		log.Error().Err(err).Msg("failed to create HTTP request")
 		return
 	}
 	req.Header.Add("Content-Type", "application/json")
+	//nolint:bodyclose // closed in ReadCloserToBytes
 	resp, err := gc.client.Do(req)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to send HTTP request")
@@ -301,7 +313,7 @@ func (gc *GatewayClient) ingestEvents(ctx context.Context, endpoint string, prod
 		case <-ticker.C:
 			events := producer()
 			if len(events) > 0 {
-				gc.sendEvents(endpoint, events)
+				gc.sendEvents(ctx, endpoint, events)
 			}
 		}
 	}

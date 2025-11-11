@@ -332,6 +332,7 @@ func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 			parser = s.http1Parser
 		}
 		for len(record.Stream) > 0 {
+			//nolint:bodyclose // io.NopCloser
 			response, consumed, err := parser.ParseResponse(record)
 			if err != nil {
 				log.Error().Any("key", &key).Bytes("buf", record.Stream[:consumed]).Err(err).Msg("failed to parse HTTP response")

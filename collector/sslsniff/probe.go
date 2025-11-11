@@ -197,7 +197,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 		if log.Debug().Enabled() {
 			var data, protocol string
 			if isHTTP2Protocol(event.Data[:event.DataLen]) {
-				data = string(hex.EncodeToString(event.Data[:event.DataLen]))
+				data = hex.EncodeToString(event.Data[:event.DataLen])
 				protocol = "HTTP/2"
 			} else {
 				data = string(event.Data[:event.DataLen])

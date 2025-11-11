@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -67,7 +68,7 @@ func (tc *TetragonClient) Run(ctx context.Context) {
 		}
 		for {
 			event, err := eventStream.Recv()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				log.Info().Msg("event stream closed")
 				break
 			}

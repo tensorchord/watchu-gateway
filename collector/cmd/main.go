@@ -20,26 +20,26 @@ const (
 
 func main() {
 	collector.SetUpLogger()
-	binaryPath := flag.String("binary-path", "", "extra user binary path to attach SSL uprobes (optional)")
-	address := flag.String("gateway", "http://localhost:8080", "the gateway address")
+	SSLPath := flag.String("ssl-path", "", "extra user binary path to attach SSL uprobes (optional)")
+	address := flag.String("gateway", "", "the gateway address, e.g., 'http://localhost:8080'. Leave it empty to disable pushing events to the gateway")
 	tetragonSocket := flag.String("tetragon-socket", "",
-		fmt.Sprintf("the Tetragon gRPC socket path, e.g., '%s'. Leave it empty to disable Tetragon integration", TETRAGON_SOCKET))
+		fmt.Sprintf("the Tetragon gRPC socket path, e.g., '%s'. Leave it empty will disable Tetragon integration", TETRAGON_SOCKET))
 	flag.Parse()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	gatewayClient, err := collector.NewGatewayClient(*address)
+	gatewayClient, err := collector.NewGatewayClient(ctx, *address)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to initialize gateway client")
+		log.Panic().Err(err).Msg("failed to initialize gateway client")
 	}
 
 	err = collector.InitEBPF()
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to initialize eBPF")
+		log.Panic().Err(err).Msg("failed to initialize eBPF")
 	}
 
-	sslProbe := sslsniff.NewSSLProbe(binaryPath, gatewayClient)
+	sslProbe := sslsniff.NewSSLProbe(SSLPath, gatewayClient)
 	go sslProbe.Start(ctx)
 
 	stdioProbe := stdio.NewStdioProbe()
@@ -49,7 +49,7 @@ func main() {
 		log.Info().Str("socket", *tetragonSocket).Msg("enable Tetragon integration")
 		tetragonClient, err := collector.NewTetragonClient(*tetragonSocket, gatewayClient)
 		if err != nil {
-			log.Fatal().Err(err).Msg("failed to create Tetragon client")
+			log.Panic().Err(err).Msg("failed to create Tetragon client")
 		}
 		defer tetragonClient.Close()
 		go tetragonClient.Run(ctx)

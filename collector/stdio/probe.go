@@ -5,15 +5,15 @@ package stdio
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
+	"github.com/tidwall/gjson"
 
-	"github.com/tensorchord/watchu"
+	"github.com/tensorchord/watchu/collector"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 stdio stdio.bpf.c -- -I../headers
@@ -24,37 +24,27 @@ const (
 )
 
 type MCPRequest struct {
-	JsonRPC string                 `json:"jsonrpc"`
-	Method  string                 `json:"method"`
-	Params  map[string]interface{} `json:"params"`
-	ID      int                    `json:"id"`
+	JsonRPC string         `json:"jsonrpc"`
+	Method  string         `json:"method"`
+	Params  map[string]any `json:"params"`
+	ID      int            `json:"id"`
 }
 
 type MCPResponse struct {
-	JsonRPC string                 `json:"jsonrpc"`
-	Result  map[string]interface{} `json:"result"`
-	ID      int                    `json:"id"`
+	JsonRPC string         `json:"jsonrpc"`
+	Result  map[string]any `json:"result"`
+	ID      int            `json:"id"`
 }
 
 func isValidMCPMessage(event *stdioEvent) bool {
-	dec := json.NewDecoder(bytes.NewReader(event.Data[:event.DataLen]))
+	if !gjson.GetBytes(event.Data[:event.DataLen], "jsonrpc").Exists() {
+		return false
+	}
 	switch event.Rw {
 	case STDIO_READ:
-		var msg MCPRequest
-		err := dec.Decode(&msg)
-		if err != nil {
-			log.Debug().Bytes("buf", event.Data[:event.DataLen]).Err(err).Msg("failed to decode MCP request")
-			return false
-		}
-		return len(msg.JsonRPC) > 0
+		return gjson.GetBytes(event.Data[:event.DataLen], "method").Exists()
 	case STDIO_WRITE:
-		var msg MCPResponse
-		err := dec.Decode(&msg)
-		if err != nil {
-			log.Debug().Bytes("buf", event.Data[:event.DataLen]).Err(err).Msg("failed to decode MCP response")
-			return false
-		}
-		return len(msg.JsonRPC) > 0
+		return gjson.GetBytes(event.Data[:event.DataLen], "result").Exists()
 	default:
 		log.Error().Uint8("rw", event.Rw).Msg("unknown RW type")
 		return false
@@ -122,7 +112,7 @@ func (sp *StdioProbe) Start() {
 		record, err := sp.rb.Read()
 		if err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
-				log.Info().Msg("ringbuf closed")
+				log.Info().Msg("stdio ringbuf closed")
 				return
 			}
 			log.Warn().Err(err).Msg("read from ringbuffer error")
@@ -147,7 +137,7 @@ func (sp *StdioProbe) Start() {
 				Uint64("req_len", event.ReqLen).
 				Uint64("data_len", event.DataLen).
 				Uint8("rw", event.Rw).
-				Str("comm", watchu.CharsToString(event.Comm[:])).
+				Str("comm", collector.CharsToString(event.Comm[:])).
 				Str("data", string(event.Data[:event.DataLen])).
 				Msg("stdio event")
 		}

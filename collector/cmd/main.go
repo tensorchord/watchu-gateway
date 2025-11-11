@@ -9,9 +9,9 @@ import (
 
 	"github.com/phuslu/log"
 
-	"github.com/tensorchord/watchu"
-	"github.com/tensorchord/watchu/sslsniff"
-	"github.com/tensorchord/watchu/stdio"
+	"github.com/tensorchord/watchu/collector"
+	"github.com/tensorchord/watchu/collector/sslsniff"
+	"github.com/tensorchord/watchu/collector/stdio"
 )
 
 const (
@@ -19,9 +19,9 @@ const (
 )
 
 func main() {
-	watchu.SetUpLogger()
-	binaryPath := flag.String("binary-path", "", "extra user binary path to attach SSL uprobes (optional)")
-	dsn := flag.String("db", "watchu.db", "a duckdb database source name")
+	collector.SetUpLogger()
+	SSLPath := flag.String("ssl-path", "", "extra user binary path to attach SSL uprobes (optional)")
+	address := flag.String("gateway", "", "the gateway address, e.g., 'http://localhost:8080'. Leave it empty to disable pushing events to the gateway")
 	tetragonSocket := flag.String("tetragon-socket", "",
 		fmt.Sprintf("the Tetragon gRPC socket path, e.g., '%s'. Leave it empty to disable Tetragon integration", TETRAGON_SOCKET))
 	flag.Parse()
@@ -29,17 +29,17 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	storage, err := watchu.NewStorage(*dsn)
+	gatewayClient, err := collector.NewGatewayClient(ctx, *address)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to initialize storage")
+		log.Panic().Err(err).Msg("failed to initialize gateway client")
 	}
 
-	err = watchu.InitEBPF()
+	err = collector.InitEBPF()
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to initialize eBPF")
+		log.Panic().Err(err).Msg("failed to initialize eBPF")
 	}
 
-	sslProbe := sslsniff.NewSSLProbe(binaryPath, storage)
+	sslProbe := sslsniff.NewSSLProbe(SSLPath, gatewayClient)
 	go sslProbe.Start(ctx)
 
 	stdioProbe := stdio.NewStdioProbe()
@@ -47,9 +47,9 @@ func main() {
 
 	if len(*tetragonSocket) > 0 {
 		log.Info().Str("socket", *tetragonSocket).Msg("enable Tetragon integration")
-		tetragonClient, err := watchu.NewTetragonClient(*tetragonSocket, storage)
+		tetragonClient, err := collector.NewTetragonClient(*tetragonSocket, gatewayClient)
 		if err != nil {
-			log.Fatal().Err(err).Msg("failed to create Tetragon client")
+			log.Panic().Err(err).Msg("failed to create Tetragon client")
 		}
 		defer tetragonClient.Close()
 		go tetragonClient.Run(ctx)
@@ -58,5 +58,4 @@ func main() {
 	<-ctx.Done()
 	sslProbe.Close()
 	stdioProbe.Close()
-	storage.Close()
 }

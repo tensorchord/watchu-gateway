@@ -1,27 +1,28 @@
-package watchu
+package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
 
+	"github.com/cilium/tetragon/api/v1/tetragon"
 	"github.com/phuslu/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
-	"github.com/cilium/tetragon/api/v1/tetragon"
 )
 
 type TetragonClient struct {
-	conn    *grpc.ClientConn
-	client  tetragon.FineGuidanceSensorsClient
-	storage *Storage
-	channel chan *TableExec
+	conn          *grpc.ClientConn
+	client        tetragon.FineGuidanceSensorsClient
+	gatewayClient *GatewayClient
+	channel       chan *RawExec
 }
 
-func NewTetragonClient(socketPath string, storage *Storage) (*TetragonClient, error) {
+func NewTetragonClient(socketPath string, gatewayClient *GatewayClient) (*TetragonClient, error) {
 	conn, err := grpc.NewClient(socketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial: %w", err)
@@ -30,10 +31,10 @@ func NewTetragonClient(socketPath string, storage *Storage) (*TetragonClient, er
 	log.Info().Str("state", state.String()).Msg("connected to Tetragon gRPC server")
 	client := tetragon.NewFineGuidanceSensorsClient(conn)
 	return &TetragonClient{
-		conn:    conn,
-		client:  client,
-		storage: storage,
-		channel: make(chan *TableExec, TableChannelSize),
+		conn:          conn,
+		client:        client,
+		gatewayClient: gatewayClient,
+		channel:       make(chan *RawExec, GatewayChannelSize),
 	}, nil
 }
 
@@ -46,7 +47,7 @@ func (tc *TetragonClient) Close() {
 }
 
 func (tc *TetragonClient) Run(ctx context.Context) {
-	go tc.storage.InsertExecEvent(ctx, tc.channel)
+	go tc.gatewayClient.IngestExecEvent(ctx, tc.channel)
 	for {
 		eventStream, err := tc.client.GetEvents(ctx, &tetragon.GetEventsRequest{})
 		if err != nil {
@@ -67,7 +68,7 @@ func (tc *TetragonClient) Run(ctx context.Context) {
 		}
 		for {
 			event, err := eventStream.Recv()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				log.Info().Msg("event stream closed")
 				break
 			}
@@ -94,7 +95,7 @@ func (tc *TetragonClient) Run(ctx context.Context) {
 				if pp != nil && pp.Pid != nil {
 					ppid = pp.Pid.Value
 				}
-				tc.channel <- &TableExec{
+				tc.channel <- &RawExec{
 					Timestamp: exec.Process.StartTime.AsTime(),
 					Pid:       exec.Process.Pid.Value,
 					PPid:      ppid,

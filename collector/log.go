@@ -1,4 +1,4 @@
-package watchu
+package collector
 
 import (
 	"os"

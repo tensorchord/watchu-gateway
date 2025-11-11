@@ -17,7 +17,7 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
 
-	"github.com/tensorchord/watchu"
+	"github.com/tensorchord/watchu/collector"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 ssl ssl.bpf.c -- -I../headers
@@ -108,12 +108,12 @@ type SSLProbe struct {
 	links    []link.Link
 	objs     *sslObjects
 	rb       *ringbuf.Reader
-	storage  *watchu.Storage
-	reqChan  chan *watchu.TableRequest
-	respChan chan *watchu.TableResponse
+	client   *collector.GatewayClient
+	reqChan  chan *collector.RawRequest
+	respChan chan *collector.RawResponse
 }
 
-func NewSSLProbe(additionalFile *string, storage *watchu.Storage) *SSLProbe {
+func NewSSLProbe(additionalFile *string, client *collector.GatewayClient) *SSLProbe {
 	attachPaths := []string{}
 	libPath, err := findLibSSLPath()
 	if err != nil {
@@ -164,24 +164,24 @@ func NewSSLProbe(additionalFile *string, storage *watchu.Storage) *SSLProbe {
 		objs:     &objs,
 		links:    links,
 		rb:       rb,
-		storage:  storage,
-		reqChan:  make(chan *watchu.TableRequest, watchu.TableChannelSize),
-		respChan: make(chan *watchu.TableResponse, watchu.TableChannelSize),
+		client:   client,
+		reqChan:  make(chan *collector.RawRequest, collector.GatewayChannelSize),
+		respChan: make(chan *collector.RawResponse, collector.GatewayChannelSize),
 	}
 }
 
 func (sp *SSLProbe) Start(ctx context.Context) {
 	log.Info().Msg("listening for SSL read/write events...")
 	var event sslEvent
-	go sp.storage.InsertHTTPRequest(ctx, sp.reqChan)
-	go sp.storage.InsertHTTPResponse(ctx, sp.respChan)
+	go sp.client.IngestRequestEvent(ctx, sp.reqChan)
+	go sp.client.IngestResponseEvent(ctx, sp.respChan)
 	store := NewSSLStore()
 	go store.Parse(ctx, sp.reqChan, sp.respChan)
 	for {
 		record, err := sp.rb.Read()
 		if err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
-				log.Info().Msg("ringbuf closed")
+				log.Info().Msg("SSL ringbuf closed")
 				return
 			}
 			log.Warn().Err(err).Msg("read from ringbuffer error")
@@ -197,7 +197,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 		if log.Debug().Enabled() {
 			var data, protocol string
 			if isHTTP2Protocol(event.Data[:event.DataLen]) {
-				data = string(hex.EncodeToString(event.Data[:event.DataLen]))
+				data = hex.EncodeToString(event.Data[:event.DataLen])
 				protocol = "HTTP/2"
 			} else {
 				data = string(event.Data[:event.DataLen])
@@ -211,7 +211,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 				Uint64("*SSL", event.SslPtr).
 				Uint32("data_len", event.DataLen).
 				Uint8("rw", event.Rw).
-				Str("comm", watchu.CharsToString(event.Comm[:])).
+				Str("comm", collector.CharsToString(event.Comm[:])).
 				Str("data", data).
 				Str("protocol", protocol).
 				Msg("HTTP event")

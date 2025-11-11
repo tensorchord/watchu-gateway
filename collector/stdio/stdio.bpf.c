@@ -79,7 +79,7 @@ static __always_inline u8 is_mcp_json_str(const char *buf, u32 len) {
         return 0;
     }
 
-    char prefix[8];
+    char prefix[PEEK_BYTES];
     if (bpf_probe_read(prefix, PEEK_BYTES, buf) != 0) {
         return 0;
     }

@@ -13,7 +13,7 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
 
-	"github.com/tensorchord/watchu"
+	"github.com/tensorchord/watchu/collector"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 stdio stdio.bpf.c -- -I../headers
@@ -147,7 +147,7 @@ func (sp *StdioProbe) Start() {
 				Uint64("req_len", event.ReqLen).
 				Uint64("data_len", event.DataLen).
 				Uint8("rw", event.Rw).
-				Str("comm", watchu.CharsToString(event.Comm[:])).
+				Str("comm", collector.CharsToString(event.Comm[:])).
 				Str("data", string(event.Data[:event.DataLen])).
 				Msg("stdio event")
 		}

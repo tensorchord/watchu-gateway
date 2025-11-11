@@ -20,9 +20,10 @@ import (
 	"unicode"
 
 	"github.com/phuslu/log"
-	"github.com/tensorchord/watchu"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
+
+	"github.com/tensorchord/watchu/collector"
 )
 
 const (
@@ -230,7 +231,7 @@ func (s *SSLStore) Add(event *sslEvent) {
 	}
 }
 
-func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
+func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 	s.reqMu.Lock()
 	defer s.reqMu.Unlock()
 
@@ -257,7 +258,7 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 		truncated := false
 		if consumed == len(record.Stream) {
 			timestamp = record.Info[len(record.Info)-1].TimestampNs
-			comm = watchu.CharsToString(record.Info[len(record.Info)-1].Comm[:])
+			comm = collector.CharsToString(record.Info[len(record.Info)-1].Comm[:])
 			delete(s.Request, key)
 		} else {
 			if consumed >= SSL_MAX_DATA_SIZE {
@@ -283,7 +284,7 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 				}
 			}
 			timestamp = record.Info[last].TimestampNs
-			comm = watchu.CharsToString(record.Info[last].Comm[:])
+			comm = collector.CharsToString(record.Info[last].Comm[:])
 			// keep the unparsed info
 			record.Info = record.Info[index:]
 		}
@@ -303,7 +304,7 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
 		record.EndOfStream = false
 		record.LastResp = nil
-		channel <- &watchu.TableRequest{
+		channel <- &collector.RawRequest{
 			ElapsedNs:     timestamp,
 			PidTid:        key.PidTgid,
 			UidGid:        key.UidGid,
@@ -319,7 +320,7 @@ func (s *SSLStore) parseRequest(channel chan *watchu.TableRequest) {
 	}
 }
 
-func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
+func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 	s.respMu.Lock()
 	defer s.respMu.Unlock()
 
@@ -343,7 +344,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 			var comm string
 			if consumed == len(record.Stream) && record.EndOfStream {
 				timestamp = record.Info[len(record.Info)-1].TimestampNs
-				comm = watchu.CharsToString(record.Info[len(record.Info)-1].Comm[:])
+				comm = collector.CharsToString(record.Info[len(record.Info)-1].Comm[:])
 				delete(s.Response, key)
 			} else {
 				// response won't exceed the max size, see github issue #17
@@ -372,7 +373,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 					}
 				}
 				timestamp = record.Info[last].TimestampNs
-				comm = watchu.CharsToString(record.Info[last].Comm[:])
+				comm = collector.CharsToString(record.Info[last].Comm[:])
 				// keep the unparsed info
 				record.Info = record.Info[index:]
 			}
@@ -389,7 +390,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("")
 				record.EndOfStream = false
 				record.LastResp = nil
-				channel <- &watchu.TableResponse{
+				channel <- &collector.RawResponse{
 					ElapsedNs:     timestamp,
 					PidTid:        key.PidTgid,
 					UidGid:        key.UidGid,
@@ -407,7 +408,7 @@ func (s *SSLStore) parseResponse(channel chan *watchu.TableResponse) {
 	}
 }
 
-func (s *SSLStore) Parse(ctx context.Context, reqChan chan *watchu.TableRequest, respChan chan *watchu.TableResponse) {
+func (s *SSLStore) Parse(ctx context.Context, reqChan chan *collector.RawRequest, respChan chan *collector.RawResponse) {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 

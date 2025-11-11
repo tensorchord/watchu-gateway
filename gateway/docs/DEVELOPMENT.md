@@ -2,14 +2,17 @@
 
 ## Project Layout
 
-- `cmd/gateway`: Application entrypoint, config wiring, server bootstrap.
-- `internal/config`: Environment-based configuration loading.
-- `internal/database`: Database connection pool helpers.
-- `internal/ingest`: COPY-based ingestion services and event DTOs.
-- `internal/httpapi`: Gin router registration, request/response models, and handlers.
-- `internal/analysis`: Incremental analysis scheduler orchestration.
-- `db/sqlc`: SQL schema and query definitions used by `sqlc`.
-- `pkg/docs`: Generated Swagger assets (run `make swagger` to refresh).
+- `cmd/gateway`: Application entrypoint, configuration bootstrap, and wiring.
+- `pkg/config`: Environment-based configuration loading and validation.
+- `pkg/database`: PostgreSQL connection pool helpers and migration utilities.
+- `pkg/server`: Lightweight HTTP server wrapper that handles graceful shutdown.
+- `pkg/httpapi`: Gin router registration, request/response DTOs, and HTTP handlers.
+- `pkg/ingest`: COPY-based ingestion services and payload validation.
+- `pkg/analysis`: Incremental analysis scheduler orchestration and helpers.
+- `internal/gen/sqlc`: Go bindings generated from `db/sqlc` queries (via `sqlc`).
+- `db/migrations`: Atlas SQL migrations applied on start-up or during local dev.
+- `db/sqlc`: SQL schema definitions and query files that feed `sqlc generate`.
+- `pkg/docs`: Generated Swagger assets (refresh with `make swagger`).
 - `scripts`: Utility scripts (e.g. Swagger generation, setup helpers).
 
 ## API Documentation
@@ -60,14 +63,14 @@ Schema definitions live under `db/migrations` (Atlas migrations) and `db/sqlc/sc
 
 5. **Launch Services**
    - Native: export `DATABASE_URL` then `make run`.
-   - Docker Compose:
-     ```bash
-     make compose-up
-     ```
-     Stop with `make compose-down`.
-         PostgreSQL 18+ stores data under `/var/lib/postgresql`; remove existing `pgdata` volumes if you previously mounted `/var/lib/postgresql/data`. Schema bootstraps from `db/migrations` via `/docker-entrypoint-initdb.d`, so drop the volume (`docker compose down -v`) whenever you change migrations.
+    - Docker Compose:
+       ```bash
+       make compose-up
+       ```
+       Stop with `make compose-down`.
+    - When running under Docker, PostgreSQL 18+ stores data under `/var/lib/postgresql`; remove existing `pgdata` volumes if you previously mounted `/var/lib/postgresql/data`. The schema bootstraps from `db/migrations` via `/docker-entrypoint-initdb.d`, so drop the volume (`docker compose down -v`) whenever you change migrations.
 
-5. **Analysis Scheduler**
+6. **Analysis Scheduler**
    Configure via environment variables (`ANALYSIS_*`). Disable by leaving `ANALYSIS_ENABLED` unset or `false`.
 
 ## Local Testing Tips
@@ -78,4 +81,4 @@ Schema definitions live under `db/migrations` (Atlas migrations) and `db/sqlc/sc
 
 ## Generated Assets
 
-Generated artifacts (`pkg/docs`, `internal/gen/sqlc`) should be regenerated whenever handlers or queries change. The Makefile and scripts directory expose the required tooling commands.
+Generated artifacts (`pkg/docs`, `internal/gen/sqlc`) should be regenerated whenever handlers or queries change. Run `sqlc generate` after updating files under `db/sqlc`, and rerun `make swagger` whenever you modify handler annotations.

@@ -305,6 +305,34 @@ func (q *Queries) ListHeuristicAlertsByRoot(ctx context.Context, arg ListHeurist
 	return items, nil
 }
 
+const listHosts = `-- name: ListHosts :many
+SELECT DISTINCT host
+FROM process_lifecycle
+WHERE host IS NOT NULL AND host <> ''
+ORDER BY host ASC
+LIMIT $1
+`
+
+func (q *Queries) ListHosts(ctx context.Context, limit int32) ([]string, error) {
+	rows, err := q.db.Query(ctx, listHosts, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var host string
+		if err := rows.Scan(&host); err != nil {
+			return nil, err
+		}
+		items = append(items, host)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProcessEventsByHostSince = `-- name: ListProcessEventsByHostSince :many
 SELECT
     host,
@@ -457,40 +485,40 @@ func (q *Queries) ListProcessHTTPEventsByHostSince(ctx context.Context, arg List
 
 const listProcessTreeNodesByRoots = `-- name: ListProcessTreeNodesByRoots :many
 SELECT
-	host,
-	exec_id,
-	p_exec_id,
-	pid,
-	ppid,
-	root_exec_id,
-	root_pid,
-	depth,
-	start_ts,
-	end_ts,
-	comm,
-	args,
-	cwd
+  host,
+  exec_id,
+  p_exec_id,
+  pid,
+  ppid,
+  root_exec_id,
+  root_pid,
+  depth,
+  start_ts,
+  end_ts,
+  comm,
+  args,
+  cwd
 FROM process_lifecycle
 WHERE host = $1
-	AND (
-		($4 <> '' AND root_exec_id = $4)
-		OR (
-			$4 = '' AND (
-				(root_pid IS NOT NULL AND root_pid = ANY($2::bigint[]))
-				OR (root_pid IS NULL AND $3::boolean)
-			)
-		)
-	)
+  AND (
+    ($4 <> '' AND root_exec_id = $4)
+    OR (
+      $4 = '' AND (
+        (root_pid IS NOT NULL AND root_pid = ANY($2::bigint[]))
+        OR (root_pid IS NULL AND $3::boolean)
+      )
+    )
+  )
 ORDER BY root_pid NULLS LAST, depth ASC, start_ts ASC
 LIMIT $5
 `
 
 type ListProcessTreeNodesByRootsParams struct {
-	Host        string
-	RootPids    []int64
-	IncludeNull bool
-	RootExecID  string
-	Limit       int32
+	Host    string
+	Column2 []int64
+	Column3 bool
+	Column4 interface{}
+	Limit   int32
 }
 
 type ListProcessTreeNodesByRootsRow struct {
@@ -512,9 +540,9 @@ type ListProcessTreeNodesByRootsRow struct {
 func (q *Queries) ListProcessTreeNodesByRoots(ctx context.Context, arg ListProcessTreeNodesByRootsParams) ([]ListProcessTreeNodesByRootsRow, error) {
 	rows, err := q.db.Query(ctx, listProcessTreeNodesByRoots,
 		arg.Host,
-		arg.RootPids,
-		arg.IncludeNull,
-		arg.RootExecID,
+		arg.Column2,
+		arg.Column3,
+		arg.Column4,
 		arg.Limit,
 	)
 	if err != nil {
@@ -663,34 +691,6 @@ LIMIT $2
 type ListSecurityAnalysisByHostParams struct {
 	Host  pgtype.Text
 	Limit int32
-}
-
-const listHosts = `-- name: ListHosts :many
-SELECT DISTINCT host
-FROM process_lifecycle
-WHERE host IS NOT NULL AND host <> ''
-ORDER BY host ASC
-LIMIT $1
-`
-
-func (q *Queries) ListHosts(ctx context.Context, limit int32) ([]string, error) {
-	rows, err := q.db.Query(ctx, listHosts, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var host string
-		if err := rows.Scan(&host); err != nil {
-			return nil, err
-		}
-		items = append(items, host)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 type ListSecurityAnalysisByHostRow struct {

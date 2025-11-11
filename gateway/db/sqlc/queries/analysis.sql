@@ -177,11 +177,16 @@ SELECT
 FROM process_lifecycle
 WHERE host = $1
   AND (
-    (root_pid IS NOT NULL AND root_pid = ANY($2::bigint[]))
-    OR (root_pid IS NULL AND $3::boolean)
+    ($4 <> '' AND root_exec_id = $4)
+    OR (
+      $4 = '' AND (
+        (root_pid IS NOT NULL AND root_pid = ANY($2::bigint[]))
+        OR (root_pid IS NULL AND $3::boolean)
+      )
+    )
   )
 ORDER BY root_pid NULLS LAST, depth ASC, start_ts ASC
-LIMIT $4;
+LIMIT $5;
 
 -- name: GetProcessMetaByHostRoot :one
 SELECT
@@ -214,3 +219,10 @@ WHERE host = $1
   AND ($3 = '' OR root_exec_id = $3)
 ORDER BY severity DESC, score DESC
 LIMIT $4;
+
+-- name: ListHosts :many
+SELECT DISTINCT host
+FROM process_lifecycle
+WHERE host IS NOT NULL AND host <> ''
+ORDER BY host ASC
+LIMIT $1;

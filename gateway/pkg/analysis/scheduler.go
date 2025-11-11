@@ -130,6 +130,10 @@ func (s *Scheduler) runAnalysis(ctx context.Context, host string) error {
 		return nil
 	}
 
+	if err := s.refreshProcessLifecycle(ctx, tx, host, windowSince, until); err != nil {
+		return err
+	}
+
 	if err := s.populateProcessHTTP(ctx, tx, host, windowSince, until); err != nil {
 		return err
 	}
@@ -175,83 +179,127 @@ func (s *Scheduler) ensureWatermark(ctx context.Context, tx pgx.Tx, host string,
 }
 
 func (s *Scheduler) populateProcessHTTP(ctx context.Context, tx pgx.Tx, host string, since, until time.Time) error {
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO process_http_events (
-			host, http_id, http_type, timestamp, pid, tid, method, url, status_code,
-			protocol, headers, body, truncated, exec_id, root_exec_id, root_pid,
-			depth, is_mcp_http
-		)
-		SELECT
-			r.host,
-			r.id,
-			'request',
-			r.timestamp,
-			r.pid,
-			r.tid,
-			r.method,
-			r.url,
-			NULL,
-			r.protocol,
-			r.headers,
-			r.body,
-			r.truncated,
-			NULL,
-			NULL,
-			NULL,
-			NULL,
-			FALSE
-		FROM http_request r
-		WHERE r.host = $1 AND r.timestamp > $2 AND r.timestamp <= $3
-		ON CONFLICT (host, http_id, http_type) DO UPDATE
-		SET timestamp = EXCLUDED.timestamp,
-			pid = EXCLUDED.pid,
-			tid = EXCLUDED.tid,
-			method = EXCLUDED.method,
-			url = EXCLUDED.url,
-			protocol = EXCLUDED.protocol,
-			headers = EXCLUDED.headers,
-			body = EXCLUDED.body,
-			truncated = EXCLUDED.truncated;
-	`, host, since, until); err != nil {
-		return err
-	}
-
+	// Window rank ensures we only upsert a single row per (host, http_id, http_type).
 	_, err := tx.Exec(ctx, `
+		WITH http_union AS (
+			SELECT
+				resp.host,
+				resp.id AS http_id,
+				'response' AS http_type,
+				resp.timestamp,
+				resp.pid,
+				resp.tid,
+				resp.status_code::int,
+				NULL::varchar AS method,
+				NULL::varchar AS url,
+				resp.protocol,
+				resp.headers,
+				resp.body,
+				resp.truncated
+			FROM http_response resp
+			WHERE resp.host = $1
+			  AND resp.timestamp > $2
+			  AND resp.timestamp <= $3
+			UNION ALL
+			SELECT
+				req.host,
+				req.id AS http_id,
+				'request' AS http_type,
+				req.timestamp,
+				req.pid,
+				req.tid,
+				NULL::int,
+				req.method,
+				req.url,
+				req.protocol,
+				req.headers,
+				req.body,
+				req.truncated
+			FROM http_request req
+			WHERE req.host = $1
+			  AND req.timestamp > $2
+			  AND req.timestamp <= $3
+		),
+		hdr AS (
+			SELECT
+				h.*,
+				((h.headers ? 'Mcp-Session-Id') AND coalesce(h.headers->>'Mcp-Session-Id','') <> '')       AS has_mcp_session,
+				((h.headers ? 'Mcp-Protocol-Version') AND coalesce(h.headers->>'Mcp-Protocol-Version','') <> '') AS has_mcp_proto,
+				coalesce(h.headers->>'Access-Control-Allow-Headers',  '') AS ac_allow_headers,
+				coalesce(h.headers->>'Access-Control-Expose-Headers', '') AS ac_expose_headers
+			FROM http_union h
+		),
+		ranked AS (
+			SELECT
+				h.host,
+				h.http_id,
+				h.http_type,
+				h.timestamp,
+				h.pid,
+				h.tid,
+				h.method,
+				h.url,
+				h.status_code,
+				h.protocol,
+				h.headers,
+				h.body,
+				h.truncated,
+				l.exec_id,
+				l.root_exec_id,
+				l.root_pid,
+				l.depth,
+				CASE
+					WHEN h.http_type = 'request' THEN (
+						coalesce(h.url, '') = '/mcp' OR h.has_mcp_proto OR h.has_mcp_session
+					)
+					WHEN h.http_type = 'response' THEN (
+						(POSITION('mcp-session-id' IN h.ac_allow_headers) > 0 AND POSITION('mcp-protocol-version' IN h.ac_allow_headers) > 0)
+						OR (POSITION('mcp-session-id' IN h.ac_expose_headers) > 0)
+					)
+					ELSE FALSE
+				END AS is_mcp_http,
+				ROW_NUMBER() OVER (
+					PARTITION BY h.host, h.http_id, h.http_type
+					ORDER BY l.start_ts DESC, l.depth ASC
+				) AS row_num
+			FROM hdr h
+			JOIN process_lifecycle l
+			  ON l.host = h.host AND l.pid = h.pid
+			 AND h.timestamp BETWEEN l.start_ts AND (l.end_ts + analyze_idle_timeout())
+		),
+		enriched AS (
+			SELECT
+				host,
+				http_id,
+				http_type,
+				timestamp,
+				pid,
+				tid,
+				method,
+				url,
+				status_code,
+				protocol,
+				headers,
+				body,
+				truncated,
+				exec_id,
+				root_exec_id,
+				root_pid,
+				depth,
+				is_mcp_http
+			FROM ranked
+			WHERE row_num = 1
+		)
 		INSERT INTO process_http_events (
 			host, http_id, http_type, timestamp, pid, tid, method, url, status_code,
 			protocol, headers, body, truncated, exec_id, root_exec_id, root_pid,
 			depth, is_mcp_http
 		)
 		SELECT
-			resp.host,
-			resp.id,
-			'response',
-			resp.timestamp,
-			resp.pid,
-			resp.tid,
-			req.method,
-			req.url,
-			resp.status_code,
-			resp.protocol,
-			resp.headers,
-			resp.body,
-			resp.truncated,
-			NULL,
-			NULL,
-			NULL,
-			NULL,
-			FALSE
-		FROM http_response resp
-		LEFT JOIN LATERAL (
-			SELECT q.method, q.url
-			FROM http_request q
-			WHERE q.host = resp.host
-			  AND q.pid = resp.pid
-			  AND q.timestamp <= resp.timestamp
-			ORDER BY q.timestamp DESC
-			LIMIT 1
-		) req ON TRUE
-		WHERE resp.host = $1 AND resp.timestamp > $2 AND resp.timestamp <= $3
+			host, http_id, http_type, timestamp, pid, tid, method, url, status_code,
+			protocol, headers, body, truncated, exec_id, root_exec_id, root_pid,
+			depth, is_mcp_http
+		FROM enriched
 		ON CONFLICT (host, http_id, http_type) DO UPDATE
 		SET timestamp = EXCLUDED.timestamp,
 			pid = EXCLUDED.pid,
@@ -262,8 +310,18 @@ func (s *Scheduler) populateProcessHTTP(ctx context.Context, tx pgx.Tx, host str
 			protocol = EXCLUDED.protocol,
 			headers = EXCLUDED.headers,
 			body = EXCLUDED.body,
-			truncated = EXCLUDED.truncated;
+			truncated = EXCLUDED.truncated,
+			exec_id = EXCLUDED.exec_id,
+			root_exec_id = EXCLUDED.root_exec_id,
+			root_pid = EXCLUDED.root_pid,
+			depth = EXCLUDED.depth,
+			is_mcp_http = EXCLUDED.is_mcp_http;
 	`, host, since, until)
+	return err
+}
+
+func (s *Scheduler) refreshProcessLifecycle(ctx context.Context, tx pgx.Tx, host string, since, until time.Time) error {
+	_, err := tx.Exec(ctx, `SELECT refresh_process_lifecycle_incremental($1, $2, $3)`, host, since, until)
 	return err
 }
 
@@ -299,7 +357,8 @@ func (s *Scheduler) populateCorrelationSummary(ctx context.Context, tx pgx.Tx, h
 			NULL,
 			NULL,
 			NULL,
-			NULL
+			NULL::jsonb,
+			NULL::jsonb
 		FROM http_response resp
 		LEFT JOIN LATERAL (
 			SELECT q.method, q.url
@@ -323,15 +382,19 @@ func (s *Scheduler) populateCorrelationSummary(ctx context.Context, tx pgx.Tx, h
 func (s *Scheduler) populateHeuristicAlerts(ctx context.Context, tx pgx.Tx, host string, since, until time.Time) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO heuristic_alerts (
-			alert_id, host, start_ts, root_exec_id, root_pid, status_code, details
+			alert_id, alert_type, host, severity, score, start_ts, end_ts,
+			root_exec_id, root_pid, details
 		)
 		SELECT
 			CONCAT('http_5xx:', resp.host, ':', resp.id::text),
+			'http_5xx',
 			resp.host,
+			'medium',
+			NULL,
 			resp.timestamp,
 			NULL,
 			NULL,
-			resp.status_code::int,
+			NULL,
 			json_build_object(
 				'summary', 'HTTP 5xx response detected',
 				'status_code', resp.status_code
@@ -341,8 +404,12 @@ func (s *Scheduler) populateHeuristicAlerts(ctx context.Context, tx pgx.Tx, host
 		  AND resp.timestamp > $2 AND resp.timestamp <= $3
 		  AND resp.status_code >= 500
 		ON CONFLICT (alert_id) DO UPDATE
-		SET start_ts = EXCLUDED.start_ts,
-			status_code = EXCLUDED.status_code,
+		SET severity = EXCLUDED.severity,
+			score = EXCLUDED.score,
+			start_ts = EXCLUDED.start_ts,
+			end_ts = EXCLUDED.end_ts,
+			root_exec_id = EXCLUDED.root_exec_id,
+			root_pid = EXCLUDED.root_pid,
 			details = EXCLUDED.details;
 	`, host, since, until)
 	return err

@@ -191,6 +191,7 @@ type analyticsHandlers struct {
 func registerAnalyticsRoutes(group *gin.RouterGroup, queries *sqlc.Queries) {
 	h := analyticsHandlers{queries: queries}
 	group.GET("/correlation_summaries", h.getCorrelations)
+	group.GET("/hosts", h.listHosts)
 	group.GET("/heuristic_alerts", h.getHeuristicAlerts)
 	group.GET("/process_http_events", h.getHTTPEvents)
 	group.GET("/security_llm_analysis", h.getSecurityLLMAnalysis)
@@ -293,6 +294,31 @@ func (h analyticsHandlers) getHeuristicAlerts(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, resp)
+}
+
+// listHosts godoc
+// @Summary      List available hosts
+// @Description  Returns distinct hosts observed in process telemetry.
+// @Tags         analytics
+// @Produce      json
+// @Param        limit query     int false "Maximum number of hosts" minimum(1) maximum(1000)
+// @Success      200   {array}   string
+// @Failure      400   {object}  ErrorResponse
+// @Failure      500   {object}  ErrorResponse
+// @Router       /api/v1/analysis/hosts [get]
+func (h analyticsHandlers) listHosts(c *gin.Context) {
+	limit, ok := parseLimitQuery(c, "limit", 200, 1, 1000)
+	if !ok {
+		return
+	}
+
+	hosts, err := h.queries.ListHosts(c.Request.Context(), limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, hosts)
 }
 
 // getHTTPEvents godoc
@@ -617,7 +643,7 @@ func (h analyticsHandlers) getProcessTree(c *gin.Context) {
 		}
 	}
 
-	if len(rootIDs) == 0 && !includeNullRoot {
+	if rootExecFilter == "" && len(rootIDs) == 0 && !includeNullRoot {
 		c.JSON(http.StatusOK, []ProcessTreeNodeResponse{})
 		return
 	}
@@ -627,10 +653,11 @@ func (h analyticsHandlers) getProcessTree(c *gin.Context) {
 	}
 
 	nodesRows, err := h.queries.ListProcessTreeNodesByRoots(c.Request.Context(), sqlc.ListProcessTreeNodesByRootsParams{
-		Host:    host,
-		Column2: rootIDs,
-		Column3: includeNullRoot,
-		Limit:   nodeLimit,
+		Host:        host,
+		RootPids:    rootIDs,
+		IncludeNull: includeNullRoot,
+		RootExecID:  rootExecFilter,
+		Limit:       nodeLimit,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -650,11 +677,6 @@ func (h analyticsHandlers) getProcessTree(c *gin.Context) {
 
 	for _, row := range nodesRows {
 		rootExec := stringPtrFromText(row.RootExecID)
-		if rootExecFilter != "" {
-			if rootExec == nil || *rootExec != rootExecFilter {
-				continue
-			}
-		}
 
 		execID := row.ExecID
 		node := &treeNode{
@@ -831,9 +853,9 @@ func parseCommonParams(c *gin.Context) (string, time.Time, int32, bool) {
 		return "", time.Time{}, 0, false
 	}
 
-	since, err := time.Parse(time.RFC3339Nano, sinceStr)
+	since, err := parseSinceParam(sinceStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "since must be RFC3339"})
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		return "", time.Time{}, 0, false
 	}
 
@@ -845,6 +867,45 @@ func parseCommonParams(c *gin.Context) (string, time.Time, int32, bool) {
 	}
 
 	return host, since, int32(limit64), true
+}
+
+func parseSinceParam(raw string) (time.Time, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Time{}, fmt.Errorf("since is required")
+	}
+
+	candidates := []string{trimmed}
+	if strings.Contains(trimmed, " ") {
+		if alt := strings.Replace(trimmed, " ", "+", 1); alt != trimmed {
+			candidates = append([]string{alt}, candidates...)
+		}
+	}
+
+	for _, candidate := range candidates {
+		if ts, err := time.Parse(time.RFC3339Nano, candidate); err == nil {
+			return ts, nil
+		}
+		if ts, err := time.Parse(time.RFC3339, candidate); err == nil {
+			return ts, nil
+		}
+	}
+
+	const (
+		iso8601NoTZ      = "2006-01-02T15:04:05"
+		iso8601NoTZSpace = "2006-01-02 15:04:05"
+	)
+
+	for _, candidate := range candidates {
+		if ts, err := time.Parse(iso8601NoTZ, candidate); err == nil {
+			return ts.UTC(), nil
+		}
+		if ts, err := time.Parse(iso8601NoTZSpace, candidate); err == nil {
+			return ts.UTC(), nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("since must be RFC3339")
 }
 
 func parseLimitQuery(c *gin.Context, key string, defaultVal, minVal, maxVal int32) (int32, bool) {

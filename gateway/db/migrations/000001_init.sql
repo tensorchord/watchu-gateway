@@ -94,13 +94,13 @@ CREATE INDEX IF NOT EXISTS idx_pl_host_root ON process_lifecycle(host, root_exec
 
 -- Incremental upsert of lifecycle from exec_events within a time window
 CREATE OR REPLACE FUNCTION refresh_process_lifecycle_incremental(
-    p_host  varchar,
-    p_since timestamptz,
-    p_until timestamptz DEFAULT now()
+        p_host  varchar,
+        p_since timestamptz,
+        p_until timestamptz DEFAULT now()
 ) RETURNS integer LANGUAGE plpgsql AS $$
 DECLARE v_rows integer := 0;
 BEGIN
-  WITH candidates AS (
+    WITH RECURSIVE candidates AS (
       SELECT DISTINCT host, exec_id
       FROM exec_events
       WHERE host = p_host
@@ -220,82 +220,30 @@ BEGIN
 END;
 $$;
 
--- HTTP activity with lifecycle mapping and host propagation
-CREATE OR REPLACE VIEW process_http_events AS
-WITH http_union AS (
-    SELECT
-        r.host,
-        r.id AS http_id,
-        'response' AS http_type,
-        r.timestamp,
-        r.pid,
-        r.tid,
-        r.status_code,
-        NULL::varchar AS method,
-        NULL::varchar AS url,
-        r.protocol,
-        r.headers,
-        r.body,
-        r.truncated
-    FROM http_response r
-    UNION ALL
-    SELECT
-        q.host,
-        q.id AS http_id,
-        'request' AS http_type,
-        q.timestamp,
-        q.pid,
-        q.tid,
-        NULL::smallint AS status_code,
-        q.method,
-        q.url,
-        q.protocol,
-        q.headers,
-        q.body,
-        q.truncated
-    FROM http_request q
-),
-hdr AS (
-    SELECT
-      h.*,
-      ((h.headers ? 'Mcp-Session-Id') AND coalesce(h.headers->>'Mcp-Session-Id','') <> '')       AS has_mcp_session,
-      ((h.headers ? 'Mcp-Protocol-Version') AND coalesce(h.headers->>'Mcp-Protocol-Version','') <> '') AS has_mcp_proto,
-      coalesce(h.headers->>'Access-Control-Allow-Headers',  '') AS ac_allow_headers,
-      coalesce(h.headers->>'Access-Control-Expose-Headers', '') AS ac_expose_headers
-    FROM http_union h
-)
-SELECT
-    h.host,
-    h.http_id,
-    h.http_type,
-    h.timestamp,
-    h.pid,
-    h.tid,
-    h.method,
-    h.url,
-    h.status_code,
-    h.protocol,
-    h.headers,
-    h.body,
-    h.truncated,
-    l.exec_id,
-    l.root_exec_id,
-    l.root_pid,
-    l.depth,
-    CASE
-      WHEN h.http_type = 'request' THEN (
-        coalesce(h.url, '') = '/mcp' OR h.has_mcp_proto OR h.has_mcp_session
-      )
-      WHEN h.http_type = 'response' THEN (
-        (POSITION('mcp-session-id' IN h.ac_allow_headers) > 0 AND POSITION('mcp-protocol-version' IN h.ac_allow_headers) > 0)
-        OR (POSITION('mcp-session-id' IN h.ac_expose_headers) > 0)
-      )
-      ELSE FALSE
-    END AS is_mcp_http
-FROM hdr h
-JOIN process_lifecycle l
-  ON l.host = h.host AND l.pid = h.pid
- AND h.timestamp BETWEEN l.start_ts AND (l.end_ts + analyze_idle_timeout());
+CREATE TABLE IF NOT EXISTS process_http_events (
+        host          varchar NOT NULL,
+        http_id       uuid NOT NULL,
+        http_type     varchar NOT NULL,
+        timestamp     timestamptz NOT NULL,
+        pid           integer,
+        tid           integer,
+        method        varchar,
+        url           varchar,
+        status_code   integer,
+        protocol      varchar,
+        headers       jsonb,
+        body          bytea,
+        truncated     boolean,
+        exec_id       varchar,
+        root_exec_id  varchar,
+        root_pid      bigint,
+        depth         integer,
+        is_mcp_http   boolean,
+        PRIMARY KEY (host, http_id, http_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_process_http_events_host_ts ON process_http_events(host, timestamp);
+CREATE INDEX IF NOT EXISTS idx_process_http_events_host_type ON process_http_events(host, http_type);
 
 -- Response events enriched with lifecycle metadata
 CREATE OR REPLACE VIEW response_lineage AS

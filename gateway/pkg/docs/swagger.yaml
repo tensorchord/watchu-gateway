@@ -526,6 +526,36 @@ paths:
       summary: List heuristic alerts
       tags:
       - analytics
+  /api/v1/analysis/hosts:
+    get:
+      description: Returns distinct hosts observed in process telemetry.
+      parameters:
+      - description: Maximum number of hosts
+        in: query
+        maximum: 1000
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_httpapi.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_httpapi.ErrorResponse'
+      summary: List available hosts
+      tags:
+      - analytics
   /api/v1/analysis/process_events:
     get:
       description: Returns individual lifecycle events for a host since the provided

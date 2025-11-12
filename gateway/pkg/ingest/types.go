@@ -14,7 +14,7 @@ type HTTPRequestEvent struct {
 	GID           int32           `json:"gid" binding:"required" db:"gid"`
 	Comm          string          `json:"comm" binding:"required" db:"comm"`
 	Method        string          `json:"method" binding:"required" db:"method"`
-	ContentLength *int64          `json:"content_length" db:"content_length"`
+	ContentLength int64           `json:"content_length" db:"content_length"`
 	URL           string          `json:"url" binding:"required" db:"url"`
 	Protocol      string          `json:"protocol" binding:"required" db:"protocol"`
 	Headers       json.RawMessage `json:"headers" db:"headers"`
@@ -32,7 +32,7 @@ type HTTPResponseEvent struct {
 	GID           int32           `json:"gid" binding:"required" db:"gid"`
 	Comm          string          `json:"comm" binding:"required" db:"comm"`
 	StatusCode    int32           `json:"status_code" binding:"required" db:"status_code"`
-	ContentLength *int64          `json:"content_length" db:"content_length"`
+	ContentLength int64           `json:"content_length" db:"content_length"`
 	Protocol      string          `json:"protocol" binding:"required" db:"protocol"`
 	Headers       json.RawMessage `json:"headers" db:"headers"`
 	Body          []byte          `json:"body" db:"body"`

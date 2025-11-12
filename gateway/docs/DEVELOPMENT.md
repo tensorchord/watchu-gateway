@@ -9,7 +9,7 @@
 - `pkg/httpapi`: Gin router registration, request/response DTOs, and HTTP handlers.
 - `pkg/ingest`: COPY-based ingestion services and payload validation.
 - `pkg/analysis`: Incremental analysis scheduler orchestration and helpers.
-- `internal/gen/sqlc`: Go bindings generated from `db/sqlc` queries (via `sqlc`).
+- `pkg/gen/sqlc`: Go bindings generated from `db/sqlc` queries (via `sqlc`).
 - `db/migrations`: Atlas SQL migrations applied on start-up or during local dev.
 - `db/sqlc`: SQL schema definitions and query files that feed `sqlc generate`.
 - `pkg/docs`: Generated Swagger assets (refresh with `make swagger`).
@@ -76,9 +76,9 @@ Schema definitions live under `db/migrations` (Atlas migrations) and `db/sqlc/sc
 ## Local Testing Tips
 
 - Use the example JSON payloads in `docs/examples` (create as needed) to POST batches to `/api/v1/ingest/http_request`, `/api/v1/ingest/http_response`, or `/api/v1/ingest/exec_event`.
-- Query analytics endpoints with parameters such as `GET /api/v1/analysis/correlation_summaries?host=node-1&since=2024-01-01T00:00:00Z`.
+- Query analytics endpoints with parameters such as `GET /api/v1/analysis/correlation_summaries?host=node-1&since=2024-01-01T00:00:00Z&until=2024-01-02T00:00:00Z` (omit `until` to default to the current time).
 - Check service health at `/healthz` and API docs at `/swagger/index.html`.
 
 ## Generated Assets
 
-Generated artifacts (`pkg/docs`, `internal/gen/sqlc`) should be regenerated whenever handlers or queries change. Run `sqlc generate` after updating files under `db/sqlc`, and rerun `make swagger` whenever you modify handler annotations.
+Generated artifacts (`pkg/docs`, `pkg/gen/sqlc`) should be regenerated whenever handlers or queries change. Run `sqlc generate` after updating files under `db/sqlc`, and rerun `make swagger` whenever you modify handler annotations.

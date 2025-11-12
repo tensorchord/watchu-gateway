@@ -33,7 +33,7 @@ func (s *Service) IngestHTTPRequests(ctx context.Context, events []HTTPRequestEv
 			event.GID,
 			event.Comm,
 			event.Method,
-			nilIfNil(event.ContentLength),
+			event.ContentLength,
 			event.URL,
 			event.Protocol,
 			event.Headers,
@@ -63,7 +63,7 @@ func (s *Service) IngestHTTPResponses(ctx context.Context, events []HTTPResponse
 			event.GID,
 			event.Comm,
 			event.StatusCode,
-			nilIfNil(event.ContentLength),
+			event.ContentLength,
 			event.Protocol,
 			event.Headers,
 			event.Body,
@@ -101,9 +101,5 @@ func (s *Service) IngestExecEvents(ctx context.Context, events []ExecEvent) erro
 	return err
 }
 
-func nilIfNil(v *int64) any {
-	if v == nil {
-		return nil
-	}
-	return *v
-}
+// ContentLength is now a value type (int64); unknown length should be
+// represented by -1 following net/http semantics and stored as such.

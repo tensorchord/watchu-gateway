@@ -1,4 +1,4 @@
--- name: ListCorrelationsByHostSince :many
+-- name: ListCorrelationsByHostRange :many
 SELECT
     host,
     response_id,
@@ -24,12 +24,13 @@ SELECT
     system_actions,
     evidence
 FROM correlation_summary
-WHERE host = $1
-  AND response_ts > $2
+WHERE host = sqlc.arg('host')
+  AND response_ts >= sqlc.arg('since')
+  AND response_ts <= sqlc.arg('until')
 ORDER BY response_ts DESC
-LIMIT $3;
+LIMIT sqlc.arg('limit');
 
--- name: ListHeuristicAlertsByHostSince :many
+-- name: ListHeuristicAlertsByHostRange :many
 SELECT
     alert_id,
     alert_type,
@@ -42,12 +43,13 @@ SELECT
     root_pid,
     details
 FROM heuristic_alerts
-WHERE host = $1
-  AND start_ts > $2
+WHERE host = sqlc.arg('host')
+  AND start_ts >= sqlc.arg('since')
+  AND start_ts <= sqlc.arg('until')
 ORDER BY start_ts DESC
-LIMIT $3;
+LIMIT sqlc.arg('limit');
 
--- name: ListProcessHTTPEventsByHostSince :many
+-- name: ListProcessHTTPEventsByHostRange :many
 SELECT
     host,
     http_id,
@@ -68,10 +70,11 @@ SELECT
     depth,
     is_mcp_http
 FROM process_http_events
-WHERE host = $1
-  AND timestamp > $2
+WHERE host = sqlc.arg('host')
+  AND timestamp >= sqlc.arg('since')
+  AND timestamp <= sqlc.arg('until')
 ORDER BY timestamp DESC
-LIMIT $3;
+LIMIT sqlc.arg('limit');
 
 -- name: ListSecurityAnalysisByHost :many
 SELECT
@@ -126,7 +129,7 @@ FROM http_request
 WHERE host = $1
   AND id = $2;
 
--- name: ListProcessEventsByHostSince :many
+-- name: ListProcessEventsByHostRange :many
 SELECT
     host,
     exec_id,
@@ -142,22 +145,29 @@ SELECT
     args,
     cwd
 FROM process_lifecycle
-WHERE host = $1
-  AND start_ts > $2
+WHERE host = sqlc.arg('host')
+  AND start_ts >= sqlc.arg('since')
+  AND start_ts <= sqlc.arg('until')
 ORDER BY start_ts DESC
-LIMIT $3;
+LIMIT sqlc.arg('limit');
 
 -- name: ListProcessTreeRootsByHost :many
 WITH roots AS (
   SELECT root_pid, MAX(start_ts) AS last_seen
   FROM process_lifecycle
-  WHERE host = $1
+  WHERE host = sqlc.arg('host')
+    AND (
+      sqlc.arg('until')::timestamptz IS NULL OR start_ts <= sqlc.arg('until')::timestamptz
+    )
+    AND (
+      sqlc.arg('since')::timestamptz IS NULL OR COALESCE(end_ts, 'infinity'::timestamptz) >= sqlc.arg('since')::timestamptz
+    )
   GROUP BY root_pid
 )
 SELECT root_pid
 FROM roots
 ORDER BY last_seen DESC NULLS LAST
-LIMIT $2;
+LIMIT sqlc.arg('limit');
 
 -- name: ListProcessTreeNodesByRoots :many
 SELECT
@@ -175,18 +185,24 @@ SELECT
   args,
   cwd
 FROM process_lifecycle
-WHERE host = $1
+WHERE host = sqlc.arg('host')::text
   AND (
-    ($4 <> '' AND root_exec_id = $4)
+    (sqlc.arg('root_exec_id')::text <> '' AND root_exec_id = sqlc.arg('root_exec_id')::text)
     OR (
-      $4 = '' AND (
-        (root_pid IS NOT NULL AND root_pid = ANY($2::bigint[]))
-        OR (root_pid IS NULL AND $3::boolean)
+      sqlc.arg('root_exec_id')::text = '' AND (
+        (root_pid IS NOT NULL AND root_pid = ANY(sqlc.arg('root_pids')::bigint[]))
+        OR (root_pid IS NULL AND sqlc.arg('include_null')::boolean)
       )
     )
   )
+    AND (
+      sqlc.arg('until')::timestamptz IS NULL OR start_ts <= sqlc.arg('until')::timestamptz
+    )
+    AND (
+      sqlc.arg('since')::timestamptz IS NULL OR COALESCE(end_ts, 'infinity'::timestamptz) >= sqlc.arg('since')::timestamptz
+    )
 ORDER BY root_pid NULLS LAST, depth ASC, start_ts ASC
-LIMIT $5;
+LIMIT sqlc.arg('limit');
 
 -- name: GetProcessMetaByHostRoot :one
 SELECT

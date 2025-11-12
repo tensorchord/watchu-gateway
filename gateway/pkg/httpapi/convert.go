@@ -32,6 +32,15 @@ func int64PtrFromInt8(v pgtype.Int8) *int64 {
 	return &val
 }
 
+// int64ValueFromInt8 converts a possibly-null BIGINT to an int64 value,
+// using -1 as the sentinel for unknown length to mirror net/http semantics.
+func int64ValueFromInt8(v pgtype.Int8) int64 {
+	if !v.Valid {
+		return -1
+	}
+	return v.Int64
+}
+
 func float64PtrFromFloat8(v pgtype.Float8) *float64 {
 	if !v.Valid {
 		return nil

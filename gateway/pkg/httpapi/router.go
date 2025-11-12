@@ -11,6 +11,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	docs "github.com/tensorchord/watchu/gateway/pkg/docs"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
 	"github.com/tensorchord/watchu/gateway/pkg/ingest"
 )
@@ -19,6 +20,7 @@ import (
 type Dependencies struct {
 	Ingest  *ingest.Service
 	Queries *sqlc.Queries
+	Pool    *pgxpool.Pool
 }
 
 // NewRouter returns a Gin engine with registered routes based on dependencies.
@@ -37,7 +39,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	engine.Use(cors.New(corsConfig))
 
 	docs.SwaggerInfo.BasePath = "/"
-	registerHealth(engine)
+	registerHealth(engine, deps.Pool)
 	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	swaggerHandler := ginSwagger.WrapHandler(swaggerFiles.Handler)
 	engine.GET("/swagger/*any", func(c *gin.Context) {

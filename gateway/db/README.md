@@ -46,7 +46,7 @@ Atlas keeps the schema authoritative and produces ordered migration files under
 ## Working With sqlc
 
 sqlc reads the schema and query files to generate Go types and helpers under
-`internal/gen/sqlc`.
+`pkg/gen/sqlc`.
 
 1. Edit or add SQL files inside `db/sqlc/schema` and `db/sqlc/queries`.
 

@@ -8,5 +8,5 @@ sql:
     gen:
       go:
         package: sqlc
-        out: internal/gen/sqlc
+        out: pkg/gen/sqlc
         sql_package: pgx/v5

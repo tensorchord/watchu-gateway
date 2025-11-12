@@ -119,7 +119,7 @@ type HTTPRequestDetailResponse struct {
 	GID           int32           `json:"gid"`
 	Comm          string          `json:"comm"`
 	Method        string          `json:"method"`
-	ContentLength *int64          `json:"content_length,omitempty"`
+	ContentLength int64           `json:"content_length"`
 	URL           string          `json:"url"`
 	Protocol      string          `json:"protocol"`
 	Headers       json.RawMessage `json:"headers,omitempty"`
@@ -208,20 +208,22 @@ func registerAnalyticsRoutes(group *gin.RouterGroup, queries *sqlc.Queries) {
 // @Produce      json
 // @Param        host  query     string true  "Target host"
 // @Param        since query     string true  "RFC3339 timestamp lower bound"
+// @Param        until query     string false "RFC3339 timestamp upper bound (defaults to now)"
 // @Param        limit query     int    false "Maximum number of records" minimum(1) maximum(1000)
 // @Success      200   {array}   CorrelationSummaryResponse
 // @Failure      400   {object}  ErrorResponse
 // @Failure      500   {object}  ErrorResponse
 // @Router       /api/v1/analysis/correlation_summaries [get]
 func (h analyticsHandlers) getCorrelations(c *gin.Context) {
-	host, since, limit, ok := parseCommonParams(c)
+	host, since, until, limit, ok := parseRangeParams(c)
 	if !ok {
 		return
 	}
-	rows, err := h.queries.ListCorrelationsByHostSince(c.Request.Context(), sqlc.ListCorrelationsByHostSinceParams{
-		Host:       host,
-		ResponseTs: pgtype.Timestamptz{Time: since, Valid: true},
-		Limit:      limit,
+	rows, err := h.queries.ListCorrelationsByHostRange(c.Request.Context(), sqlc.ListCorrelationsByHostRangeParams{
+		Host:  host,
+		Since: pgtype.Timestamptz{Time: since, Valid: true},
+		Until: pgtype.Timestamptz{Time: until, Valid: true},
+		Limit: limit,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -267,21 +269,23 @@ func (h analyticsHandlers) getCorrelations(c *gin.Context) {
 // @Produce      json
 // @Param        host  query     string true  "Target host"
 // @Param        since query     string true  "RFC3339 timestamp lower bound"
+// @Param        until query     string false "RFC3339 timestamp upper bound (defaults to now)"
 // @Param        limit query     int    false "Maximum number of records" minimum(1) maximum(1000)
 // @Success      200   {array}   HeuristicAlertResponse
 // @Failure      400   {object}  ErrorResponse
 // @Failure      500   {object}  ErrorResponse
 // @Router       /api/v1/analysis/heuristic_alerts [get]
 func (h analyticsHandlers) getHeuristicAlerts(c *gin.Context) {
-	host, since, limit, ok := parseCommonParams(c)
+	host, since, until, limit, ok := parseRangeParams(c)
 	if !ok {
 		return
 	}
 
-	rows, err := h.queries.ListHeuristicAlertsByHostSince(c.Request.Context(), sqlc.ListHeuristicAlertsByHostSinceParams{
-		Host:    host,
-		StartTs: pgtype.Timestamptz{Time: since, Valid: true},
-		Limit:   limit,
+	rows, err := h.queries.ListHeuristicAlertsByHostRange(c.Request.Context(), sqlc.ListHeuristicAlertsByHostRangeParams{
+		Host:  host,
+		Since: pgtype.Timestamptz{Time: since, Valid: true},
+		Until: pgtype.Timestamptz{Time: until, Valid: true},
+		Limit: limit,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -328,21 +332,23 @@ func (h analyticsHandlers) listHosts(c *gin.Context) {
 // @Produce      json
 // @Param        host  query     string true  "Target host"
 // @Param        since query     string true  "RFC3339 timestamp lower bound"
+// @Param        until query     string false "RFC3339 timestamp upper bound (defaults to now)"
 // @Param        limit query     int    false "Maximum number of records" minimum(1) maximum(1000)
 // @Success      200   {array}   ProcessHTTPEventResponse
 // @Failure      400   {object}  ErrorResponse
 // @Failure      500   {object}  ErrorResponse
 // @Router       /api/v1/analysis/process_http_events [get]
 func (h analyticsHandlers) getHTTPEvents(c *gin.Context) {
-	host, since, limit, ok := parseCommonParams(c)
+	host, since, until, limit, ok := parseRangeParams(c)
 	if !ok {
 		return
 	}
 
-	rows, err := h.queries.ListProcessHTTPEventsByHostSince(c.Request.Context(), sqlc.ListProcessHTTPEventsByHostSinceParams{
-		Host:      host,
-		Timestamp: pgtype.Timestamptz{Time: since, Valid: true},
-		Limit:     limit,
+	rows, err := h.queries.ListProcessHTTPEventsByHostRange(c.Request.Context(), sqlc.ListProcessHTTPEventsByHostRangeParams{
+		Host:  host,
+		Since: pgtype.Timestamptz{Time: since, Valid: true},
+		Until: pgtype.Timestamptz{Time: until, Valid: true},
+		Limit: limit,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -513,7 +519,7 @@ func (h analyticsHandlers) getPromptInjectionDetails(c *gin.Context) {
 		GID:           row.Gid,
 		Comm:          row.Comm,
 		Method:        row.Method,
-		ContentLength: int64PtrFromInt8(row.ContentLength),
+		ContentLength: int64ValueFromInt8(row.ContentLength),
 		URL:           row.Url,
 		Protocol:      row.Protocol,
 		Headers:       jsonInterface(row.Headers),
@@ -531,21 +537,23 @@ func (h analyticsHandlers) getPromptInjectionDetails(c *gin.Context) {
 // @Produce      json
 // @Param        host  query     string true  "Target host"
 // @Param        since query     string true  "RFC3339 timestamp lower bound"
+// @Param        until query     string false "RFC3339 timestamp upper bound (defaults to now)"
 // @Param        limit query     int    false "Maximum number of records" minimum(1) maximum(1000)
 // @Success      200   {array}   ProcessEventResponse
 // @Failure      400   {object}  ErrorResponse
 // @Failure      500   {object}  ErrorResponse
 // @Router       /api/v1/analysis/process_events [get]
 func (h analyticsHandlers) getProcessEvents(c *gin.Context) {
-	host, since, limit, ok := parseCommonParams(c)
+	host, since, until, limit, ok := parseRangeParams(c)
 	if !ok {
 		return
 	}
 
-	rows, err := h.queries.ListProcessEventsByHostSince(c.Request.Context(), sqlc.ListProcessEventsByHostSinceParams{
-		Host:    host,
-		StartTs: pgtype.Timestamptz{Time: since, Valid: true},
-		Limit:   limit,
+	rows, err := h.queries.ListProcessEventsByHostRange(c.Request.Context(), sqlc.ListProcessEventsByHostRangeParams{
+		Host:  host,
+		Since: pgtype.Timestamptz{Time: since, Valid: true},
+		Until: pgtype.Timestamptz{Time: until, Valid: true},
+		Limit: limit,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -583,6 +591,8 @@ func (h analyticsHandlers) getProcessEvents(c *gin.Context) {
 // @Param        host        query     string true  "Target host"
 // @Param        root_pid    query     string false "Specific root PID to expand"
 // @Param        root_exec_id query    string false "Specific root exec id to expand"
+// @Param        since       query     string false "RFC3339 timestamp lower bound"
+// @Param        until       query     string false "RFC3339 timestamp upper bound"
 // @Param        root_limit  query     int    false "Maximum unique roots" minimum(1) maximum(100)
 // @Param        node_limit  query     int    false "Maximum nodes returned" minimum(1) maximum(2000)
 // @Success      200         {array}   ProcessTreeNodeResponse
@@ -608,6 +618,11 @@ func (h analyticsHandlers) getProcessTree(c *gin.Context) {
 
 	rootExecFilter := strings.TrimSpace(c.Query("root_exec_id"))
 
+	sinceBound, untilBound, ok := parseOptionalBounds(c)
+	if !ok {
+		return
+	}
+
 	var (
 		rootIDs         []int64
 		includeNullRoot bool
@@ -626,6 +641,8 @@ func (h analyticsHandlers) getProcessTree(c *gin.Context) {
 		roots, err := h.queries.ListProcessTreeRootsByHost(c.Request.Context(), sqlc.ListProcessTreeRootsByHostParams{
 			Host:  host,
 			Limit: rootLimit,
+			Since: sinceBound,
+			Until: untilBound,
 		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -657,6 +674,8 @@ func (h analyticsHandlers) getProcessTree(c *gin.Context) {
 		RootPids:    rootIDs,
 		IncludeNull: includeNullRoot,
 		RootExecID:  rootExecFilter,
+		Since:       sinceBound,
+		Until:       untilBound,
 		Limit:       nodeLimit,
 	})
 	if err != nil {
@@ -840,33 +859,81 @@ func (h analyticsHandlers) getProcessSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-func parseCommonParams(c *gin.Context) (string, time.Time, int32, bool) {
+func parseOptionalBounds(c *gin.Context) (pgtype.Timestamptz, pgtype.Timestamptz, bool) {
+	var since pgtype.Timestamptz
+	var until pgtype.Timestamptz
+
+	sinceStr := strings.TrimSpace(c.Query("since"))
+	if sinceStr != "" {
+		timestamp, err := parseSinceParam(sinceStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			return pgtype.Timestamptz{}, pgtype.Timestamptz{}, false
+		}
+		since = pgtype.Timestamptz{Time: timestamp, Valid: true}
+	}
+
+	untilStr := strings.TrimSpace(c.Query("until"))
+	if untilStr != "" {
+		timestamp, err := parseSinceParam(untilStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			return pgtype.Timestamptz{}, pgtype.Timestamptz{}, false
+		}
+		if since.Valid && timestamp.Before(since.Time) {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "until must be greater than or equal to since"})
+			return pgtype.Timestamptz{}, pgtype.Timestamptz{}, false
+		}
+		until = pgtype.Timestamptz{Time: timestamp, Valid: true}
+	}
+
+	return since, until, true
+}
+
+func parseRangeParams(c *gin.Context) (string, time.Time, time.Time, int32, bool) {
 	host := c.Query("host")
 	if host == "" {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "host is required"})
-		return "", time.Time{}, 0, false
+		return "", time.Time{}, time.Time{}, 0, false
 	}
 
 	sinceStr := c.Query("since")
 	if sinceStr == "" {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "since is required"})
-		return "", time.Time{}, 0, false
+		return "", time.Time{}, time.Time{}, 0, false
 	}
 
 	since, err := parseSinceParam(sinceStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
-		return "", time.Time{}, 0, false
+		return "", time.Time{}, time.Time{}, 0, false
+	}
+
+	untilStr := strings.TrimSpace(c.Query("until"))
+	var until time.Time
+	if untilStr == "" {
+		until = time.Now().UTC()
+	} else {
+		until, err = parseSinceParam(untilStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			return "", time.Time{}, time.Time{}, 0, false
+		}
+	}
+
+	if until.Before(since) {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "until must be greater than or equal to since"})
+		return "", time.Time{}, time.Time{}, 0, false
 	}
 
 	limitStr := c.DefaultQuery("limit", "100")
 	limit64, err := strconv.ParseInt(limitStr, 10, 32)
 	if err != nil || limit64 <= 0 {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "limit must be positive integer"})
-		return "", time.Time{}, 0, false
+		return "", time.Time{}, time.Time{}, 0, false
 	}
 
-	return host, since, int32(limit64), true
+	return host, since, until, int32(limit64), true
 }
 
 func parseSinceParam(raw string) (time.Time, error) {

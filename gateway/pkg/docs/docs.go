@@ -41,6 +41,12 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "type": "string",
+                        "description": "RFC3339 timestamp upper bound (defaults to now)",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
                         "maximum": 1000,
                         "minimum": 1,
                         "type": "integer",
@@ -98,6 +104,12 @@ const docTemplate = `{
                         "name": "since",
                         "in": "query",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 timestamp upper bound (defaults to now)",
+                        "name": "until",
+                        "in": "query"
                     },
                     {
                         "maximum": 1000,
@@ -204,6 +216,12 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "type": "string",
+                        "description": "RFC3339 timestamp upper bound (defaults to now)",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
                         "maximum": 1000,
                         "minimum": 1,
                         "type": "integer",
@@ -261,6 +279,12 @@ const docTemplate = `{
                         "name": "since",
                         "in": "query",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 timestamp upper bound (defaults to now)",
+                        "name": "until",
+                        "in": "query"
                     },
                     {
                         "maximum": 1000,
@@ -392,6 +416,18 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Specific root exec id to expand",
                         "name": "root_exec_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 timestamp lower bound",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 timestamp upper bound",
+                        "name": "until",
                         "in": "query"
                     },
                     {

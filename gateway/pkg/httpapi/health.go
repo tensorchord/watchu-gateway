@@ -4,11 +4,21 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func registerHealth(engine *gin.Engine) {
+func registerHealth(engine *gin.Engine, pool *pgxpool.Pool) {
 	engine.GET("/healthz", health)
-	engine.GET("/readyz", ready)
+	// ready depends on external deps; check DB if available.
+	engine.GET("/readyz", func(c *gin.Context) {
+		if pool != nil {
+			if err := pool.Ping(c.Request.Context()); err != nil {
+				c.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "database not ready"})
+				return
+			}
+		}
+		ready(c)
+	})
 }
 
 // health godoc

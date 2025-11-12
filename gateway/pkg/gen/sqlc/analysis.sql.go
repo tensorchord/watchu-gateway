@@ -104,7 +104,7 @@ func (q *Queries) GetProcessMetaByHostRoot(ctx context.Context, arg GetProcessMe
 	return i, err
 }
 
-const listCorrelationsByHostSince = `-- name: ListCorrelationsByHostSince :many
+const listCorrelationsByHostRange = `-- name: ListCorrelationsByHostRange :many
 SELECT
     host,
     response_id,
@@ -131,19 +131,26 @@ SELECT
     evidence
 FROM correlation_summary
 WHERE host = $1
-  AND response_ts > $2
+  AND response_ts >= $2
+  AND response_ts <= $3
 ORDER BY response_ts DESC
-LIMIT $3
+LIMIT $4
 `
 
-type ListCorrelationsByHostSinceParams struct {
-	Host       string
-	ResponseTs pgtype.Timestamptz
-	Limit      int32
+type ListCorrelationsByHostRangeParams struct {
+	Host  string
+	Since pgtype.Timestamptz
+	Until pgtype.Timestamptz
+	Limit int32
 }
 
-func (q *Queries) ListCorrelationsByHostSince(ctx context.Context, arg ListCorrelationsByHostSinceParams) ([]CorrelationSummary, error) {
-	rows, err := q.db.Query(ctx, listCorrelationsByHostSince, arg.Host, arg.ResponseTs, arg.Limit)
+func (q *Queries) ListCorrelationsByHostRange(ctx context.Context, arg ListCorrelationsByHostRangeParams) ([]CorrelationSummary, error) {
+	rows, err := q.db.Query(ctx, listCorrelationsByHostRange,
+		arg.Host,
+		arg.Since,
+		arg.Until,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +193,7 @@ func (q *Queries) ListCorrelationsByHostSince(ctx context.Context, arg ListCorre
 	return items, nil
 }
 
-const listHeuristicAlertsByHostSince = `-- name: ListHeuristicAlertsByHostSince :many
+const listHeuristicAlertsByHostRange = `-- name: ListHeuristicAlertsByHostRange :many
 SELECT
     alert_id,
     alert_type,
@@ -200,19 +207,26 @@ SELECT
     details
 FROM heuristic_alerts
 WHERE host = $1
-  AND start_ts > $2
+  AND start_ts >= $2
+  AND start_ts <= $3
 ORDER BY start_ts DESC
-LIMIT $3
+LIMIT $4
 `
 
-type ListHeuristicAlertsByHostSinceParams struct {
-	Host    string
-	StartTs pgtype.Timestamptz
-	Limit   int32
+type ListHeuristicAlertsByHostRangeParams struct {
+	Host  string
+	Since pgtype.Timestamptz
+	Until pgtype.Timestamptz
+	Limit int32
 }
 
-func (q *Queries) ListHeuristicAlertsByHostSince(ctx context.Context, arg ListHeuristicAlertsByHostSinceParams) ([]HeuristicAlert, error) {
-	rows, err := q.db.Query(ctx, listHeuristicAlertsByHostSince, arg.Host, arg.StartTs, arg.Limit)
+func (q *Queries) ListHeuristicAlertsByHostRange(ctx context.Context, arg ListHeuristicAlertsByHostRangeParams) ([]HeuristicAlert, error) {
+	rows, err := q.db.Query(ctx, listHeuristicAlertsByHostRange,
+		arg.Host,
+		arg.Since,
+		arg.Until,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +319,35 @@ func (q *Queries) ListHeuristicAlertsByRoot(ctx context.Context, arg ListHeurist
 	return items, nil
 }
 
-const listProcessEventsByHostSince = `-- name: ListProcessEventsByHostSince :many
+const listHosts = `-- name: ListHosts :many
+SELECT DISTINCT host
+FROM process_lifecycle
+WHERE host IS NOT NULL AND host <> ''
+ORDER BY host ASC
+LIMIT $1
+`
+
+func (q *Queries) ListHosts(ctx context.Context, limit int32) ([]string, error) {
+	rows, err := q.db.Query(ctx, listHosts, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var host string
+		if err := rows.Scan(&host); err != nil {
+			return nil, err
+		}
+		items = append(items, host)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProcessEventsByHostRange = `-- name: ListProcessEventsByHostRange :many
 SELECT
     host,
     exec_id,
@@ -322,18 +364,20 @@ SELECT
     cwd
 FROM process_lifecycle
 WHERE host = $1
-  AND start_ts > $2
+  AND start_ts >= $2
+  AND start_ts <= $3
 ORDER BY start_ts DESC
-LIMIT $3
+LIMIT $4
 `
 
-type ListProcessEventsByHostSinceParams struct {
-	Host    string
-	StartTs pgtype.Timestamptz
-	Limit   int32
+type ListProcessEventsByHostRangeParams struct {
+	Host  string
+	Since pgtype.Timestamptz
+	Until pgtype.Timestamptz
+	Limit int32
 }
 
-type ListProcessEventsByHostSinceRow struct {
+type ListProcessEventsByHostRangeRow struct {
 	Host       string
 	ExecID     string
 	PExecID    pgtype.Text
@@ -349,15 +393,20 @@ type ListProcessEventsByHostSinceRow struct {
 	Cwd        pgtype.Text
 }
 
-func (q *Queries) ListProcessEventsByHostSince(ctx context.Context, arg ListProcessEventsByHostSinceParams) ([]ListProcessEventsByHostSinceRow, error) {
-	rows, err := q.db.Query(ctx, listProcessEventsByHostSince, arg.Host, arg.StartTs, arg.Limit)
+func (q *Queries) ListProcessEventsByHostRange(ctx context.Context, arg ListProcessEventsByHostRangeParams) ([]ListProcessEventsByHostRangeRow, error) {
+	rows, err := q.db.Query(ctx, listProcessEventsByHostRange,
+		arg.Host,
+		arg.Since,
+		arg.Until,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListProcessEventsByHostSinceRow
+	var items []ListProcessEventsByHostRangeRow
 	for rows.Next() {
-		var i ListProcessEventsByHostSinceRow
+		var i ListProcessEventsByHostRangeRow
 		if err := rows.Scan(
 			&i.Host,
 			&i.ExecID,
@@ -383,7 +432,7 @@ func (q *Queries) ListProcessEventsByHostSince(ctx context.Context, arg ListProc
 	return items, nil
 }
 
-const listProcessHTTPEventsByHostSince = `-- name: ListProcessHTTPEventsByHostSince :many
+const listProcessHTTPEventsByHostRange = `-- name: ListProcessHTTPEventsByHostRange :many
 SELECT
     host,
     http_id,
@@ -405,19 +454,26 @@ SELECT
     is_mcp_http
 FROM process_http_events
 WHERE host = $1
-  AND timestamp > $2
+  AND timestamp >= $2
+  AND timestamp <= $3
 ORDER BY timestamp DESC
-LIMIT $3
+LIMIT $4
 `
 
-type ListProcessHTTPEventsByHostSinceParams struct {
-	Host      string
-	Timestamp pgtype.Timestamptz
-	Limit     int32
+type ListProcessHTTPEventsByHostRangeParams struct {
+	Host  string
+	Since pgtype.Timestamptz
+	Until pgtype.Timestamptz
+	Limit int32
 }
 
-func (q *Queries) ListProcessHTTPEventsByHostSince(ctx context.Context, arg ListProcessHTTPEventsByHostSinceParams) ([]ProcessHttpEvent, error) {
-	rows, err := q.db.Query(ctx, listProcessHTTPEventsByHostSince, arg.Host, arg.Timestamp, arg.Limit)
+func (q *Queries) ListProcessHTTPEventsByHostRange(ctx context.Context, arg ListProcessHTTPEventsByHostRangeParams) ([]ProcessHttpEvent, error) {
+	rows, err := q.db.Query(ctx, listProcessHTTPEventsByHostRange,
+		arg.Host,
+		arg.Since,
+		arg.Until,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -457,39 +513,47 @@ func (q *Queries) ListProcessHTTPEventsByHostSince(ctx context.Context, arg List
 
 const listProcessTreeNodesByRoots = `-- name: ListProcessTreeNodesByRoots :many
 SELECT
-	host,
-	exec_id,
-	p_exec_id,
-	pid,
-	ppid,
-	root_exec_id,
-	root_pid,
-	depth,
-	start_ts,
-	end_ts,
-	comm,
-	args,
-	cwd
+  host,
+  exec_id,
+  p_exec_id,
+  pid,
+  ppid,
+  root_exec_id,
+  root_pid,
+  depth,
+  start_ts,
+  end_ts,
+  comm,
+  args,
+  cwd
 FROM process_lifecycle
-WHERE host = $1
-	AND (
-		($4 <> '' AND root_exec_id = $4)
-		OR (
-			$4 = '' AND (
-				(root_pid IS NOT NULL AND root_pid = ANY($2::bigint[]))
-				OR (root_pid IS NULL AND $3::boolean)
-			)
-		)
-	)
+WHERE host = $1::text
+  AND (
+    ($2::text <> '' AND root_exec_id = $2::text)
+    OR (
+      $2::text = '' AND (
+        (root_pid IS NOT NULL AND root_pid = ANY($3::bigint[]))
+        OR (root_pid IS NULL AND $4::boolean)
+      )
+    )
+  )
+    AND (
+      $5::timestamptz IS NULL OR start_ts <= $5::timestamptz
+    )
+    AND (
+      $6::timestamptz IS NULL OR COALESCE(end_ts, 'infinity'::timestamptz) >= $6::timestamptz
+    )
 ORDER BY root_pid NULLS LAST, depth ASC, start_ts ASC
-LIMIT $5
+LIMIT $7
 `
 
 type ListProcessTreeNodesByRootsParams struct {
 	Host        string
+	RootExecID  string
 	RootPids    []int64
 	IncludeNull bool
-	RootExecID  string
+	Until       pgtype.Timestamptz
+	Since       pgtype.Timestamptz
 	Limit       int32
 }
 
@@ -512,9 +576,11 @@ type ListProcessTreeNodesByRootsRow struct {
 func (q *Queries) ListProcessTreeNodesByRoots(ctx context.Context, arg ListProcessTreeNodesByRootsParams) ([]ListProcessTreeNodesByRootsRow, error) {
 	rows, err := q.db.Query(ctx, listProcessTreeNodesByRoots,
 		arg.Host,
+		arg.RootExecID,
 		arg.RootPids,
 		arg.IncludeNull,
-		arg.RootExecID,
+		arg.Until,
+		arg.Since,
 		arg.Limit,
 	)
 	if err != nil {
@@ -553,22 +619,35 @@ const listProcessTreeRootsByHost = `-- name: ListProcessTreeRootsByHost :many
 WITH roots AS (
   SELECT root_pid, MAX(start_ts) AS last_seen
   FROM process_lifecycle
-  WHERE host = $1
+  WHERE host = $2
+    AND (
+      $3::timestamptz IS NULL OR start_ts <= $3::timestamptz
+    )
+    AND (
+      $4::timestamptz IS NULL OR COALESCE(end_ts, 'infinity'::timestamptz) >= $4::timestamptz
+    )
   GROUP BY root_pid
 )
 SELECT root_pid
 FROM roots
 ORDER BY last_seen DESC NULLS LAST
-LIMIT $2
+LIMIT $1
 `
 
 type ListProcessTreeRootsByHostParams struct {
-	Host  string
 	Limit int32
+	Host  string
+	Until pgtype.Timestamptz
+	Since pgtype.Timestamptz
 }
 
 func (q *Queries) ListProcessTreeRootsByHost(ctx context.Context, arg ListProcessTreeRootsByHostParams) ([]pgtype.Int8, error) {
-	rows, err := q.db.Query(ctx, listProcessTreeRootsByHost, arg.Host, arg.Limit)
+	rows, err := q.db.Query(ctx, listProcessTreeRootsByHost,
+		arg.Limit,
+		arg.Host,
+		arg.Until,
+		arg.Since,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -663,34 +742,6 @@ LIMIT $2
 type ListSecurityAnalysisByHostParams struct {
 	Host  pgtype.Text
 	Limit int32
-}
-
-const listHosts = `-- name: ListHosts :many
-SELECT DISTINCT host
-FROM process_lifecycle
-WHERE host IS NOT NULL AND host <> ''
-ORDER BY host ASC
-LIMIT $1
-`
-
-func (q *Queries) ListHosts(ctx context.Context, limit int32) ([]string, error) {
-	rows, err := q.db.Query(ctx, listHosts, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var host string
-		if err := rows.Scan(&host); err != nil {
-			return nil, err
-		}
-		items = append(items, host)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 type ListSecurityAnalysisByHostRow struct {

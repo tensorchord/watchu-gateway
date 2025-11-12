@@ -43,6 +43,7 @@ func main() {
 	router := httpapi.NewRouter(httpapi.Dependencies{
 		Ingest:  ingestService,
 		Queries: queries,
+		Pool:    pool,
 	})
 	srv := server.New(cfg.Address, router)
 

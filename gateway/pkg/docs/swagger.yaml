@@ -460,6 +460,10 @@ paths:
         name: since
         required: true
         type: string
+      - description: RFC3339 timestamp upper bound (defaults to now)
+        in: query
+        name: until
+        type: string
       - description: Maximum number of records
         in: query
         maximum: 1000
@@ -499,6 +503,10 @@ paths:
         in: query
         name: since
         required: true
+        type: string
+      - description: RFC3339 timestamp upper bound (defaults to now)
+        in: query
+        name: until
         type: string
       - description: Maximum number of records
         in: query
@@ -571,6 +579,10 @@ paths:
         name: since
         required: true
         type: string
+      - description: RFC3339 timestamp upper bound (defaults to now)
+        in: query
+        name: until
+        type: string
       - description: Maximum number of records
         in: query
         maximum: 1000
@@ -610,6 +622,10 @@ paths:
         in: query
         name: since
         required: true
+        type: string
+      - description: RFC3339 timestamp upper bound (defaults to now)
+        in: query
+        name: until
         type: string
       - description: Maximum number of records
         in: query
@@ -701,6 +717,14 @@ paths:
       - description: Specific root exec id to expand
         in: query
         name: root_exec_id
+        type: string
+      - description: RFC3339 timestamp lower bound
+        in: query
+        name: since
+        type: string
+      - description: RFC3339 timestamp upper bound
+        in: query
+        name: until
         type: string
       - description: Maximum unique roots
         in: query

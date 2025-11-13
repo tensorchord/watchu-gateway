@@ -24,3 +24,19 @@ sudo ./collector/bin/app -tetragon-socket unix:///var/run/tetragon/tetragon.sock
 # or run without Tetragon
 sudo ./collector/bin/app
 ```
+
+## Gateway Usage
+
+```bash
+cd gateway && make compose-up
+```
+
+The gateway will be available at `http://localhost:8080`.
+
+## Frontend Usage
+
+```bash
+cd frontend && npm install && VITE_API_BASE_URL="http://localhost:8080/api/v1" npm run dev
+```
+
+The frontend will be available at `http://localhost:5173`.

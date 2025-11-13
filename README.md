@@ -24,3 +24,11 @@ sudo ./collector/bin/app -tetragon-socket unix:///var/run/tetragon/tetragon.sock
 # or run without Tetragon
 sudo ./collector/bin/app
 ```
+
+## Gateway & Frontend Usage
+
+```bash
+cd gateway && make compose-up
+```
+
+The gateway will be available at `http://localhost:8080`, the frontend will be available at `http://localhost:5173`.

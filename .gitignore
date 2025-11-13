@@ -78,3 +78,7 @@ bin/
 
 # db file
 *.db
+
+# frontend
+frontend/node_modules/
+frontend/dist/

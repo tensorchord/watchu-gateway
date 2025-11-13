@@ -1,0 +1,29 @@
+.logo {
+  height: 48px;
+  margin: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 18px;
+  color: #1677ff;
+}
+
+.header {
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  gap: 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.title {
+  margin: 0 !important;
+}
+
+.content {
+  margin: 24px;
+  padding: 0 8px 24px;
+}

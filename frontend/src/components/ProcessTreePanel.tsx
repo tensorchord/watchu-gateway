@@ -2,7 +2,7 @@ import { MinusSquareOutlined, PlusSquareOutlined, ReloadOutlined, SearchOutlined
 import { Button, Card, Empty, Flex, Input, Skeleton, Space, Tag, Tree, Typography } from "antd";
 import type { DataNode, TreeProps } from "antd/es/tree";
 import dayjs, { Dayjs } from "dayjs";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { ProcessTreeNodeResponse } from "../types/api";
 
@@ -172,15 +172,6 @@ function collectTreeDataKeys(nodes: TreeDataNode[]): string[] {
     return result;
 }
 
-function arraysHaveSameMembers(a: string[], b: string[]): boolean {
-    if (a.length !== b.length) {
-        return false;
-    }
-    const sortedA = [...a].sort();
-    const sortedB = [...b].sort();
-    return sortedA.every((value, index) => value === sortedB[index]);
-}
-
 function countNodes(nodes: NormalizedProcessTreeNode[]): number {
     return nodes.reduce((total, node) => total + 1 + countNodes(node.children), 0);
 }
@@ -229,14 +220,9 @@ export default function ProcessTreePanel({
         return filterTreeByRange(base, since, until);
     }, [since, tree, until]);
     const [search, setSearch] = useState("");
-    const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
-    const [autoExpandParent, setAutoExpandParent] = useState(true);
-
-    useEffect(() => {
-        const rootKeys = normalizedTree.map((node) => node.key);
-        setExpandedKeys((previous) => (arraysHaveSameMembers(previous, rootKeys) ? previous : rootKeys));
-        setAutoExpandParent((prev) => (prev ? false : prev));
-    }, [normalizedTree]);
+    const rootKeys = useMemo(() => normalizedTree.map((node) => node.key), [normalizedTree]);
+    const allTreeKeys = useMemo(() => collectExpandedKeys(normalizedTree), [normalizedTree]);
+    const [manualExpandedKeys, setManualExpandedKeys] = useState<string[]>([]);
 
     const totalNodes = useMemo(() => countNodes(normalizedTree), [normalizedTree]);
     const maxDepth = useMemo(() => computeMaxDepth(normalizedTree), [normalizedTree]);
@@ -265,15 +251,23 @@ export default function ProcessTreePanel({
     }, [normalizedTree, search]);
 
     const filteredKeys = useMemo(() => collectTreeDataKeys(treeData), [treeData]);
+    const hasFilters = useMemo(() => Boolean(search.trim()), [search]);
     const visibleCount = filteredKeys.length;
 
-    useEffect(() => {
-        const hasFilters = Boolean(search.trim());
-        const targetKeys = hasFilters ? filteredKeys : normalizedTree.map((node) => node.key);
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setExpandedKeys((previous) => (arraysHaveSameMembers(previous, targetKeys) ? previous : targetKeys));
-        setAutoExpandParent(hasFilters);
-    }, [filteredKeys, normalizedTree, search]);
+    const expandedKeys = useMemo(() => {
+        if (hasFilters) {
+            return filteredKeys;
+        }
+        if (manualExpandedKeys.length === 0) {
+            return rootKeys;
+        }
+        const validKeys = new Set(allTreeKeys);
+        const sanitized = manualExpandedKeys.filter((key) => validKeys.has(key));
+        if (sanitized.length === 0) {
+            return rootKeys;
+        }
+        return Array.from(new Set([...sanitized, ...rootKeys]));
+    }, [allTreeKeys, filteredKeys, hasFilters, manualExpandedKeys, rootKeys]);
 
     const handleSelect = useCallback<NonNullable<TreeProps<TreeDataNode>["onSelect"]>>(
         (keys, info) => {
@@ -290,14 +284,12 @@ export default function ProcessTreePanel({
     );
 
     const handleExpandAll = useCallback(() => {
-        setExpandedKeys(collectExpandedKeys(normalizedTree));
-        setAutoExpandParent(false);
-    }, [normalizedTree]);
+        setManualExpandedKeys(allTreeKeys);
+    }, [allTreeKeys]);
 
     const handleCollapseAll = useCallback(() => {
-        setExpandedKeys(normalizedTree.map((node) => node.key));
-        setAutoExpandParent(false);
-    }, [normalizedTree]);
+        setManualExpandedKeys(rootKeys);
+    }, [rootKeys]);
 
     const summaryItems = useMemo(
         () =>
@@ -413,10 +405,9 @@ export default function ProcessTreePanel({
                         <Tree<TreeDataNode>
                             treeData={treeData}
                             expandedKeys={expandedKeys}
-                            autoExpandParent={autoExpandParent}
+                            autoExpandParent={hasFilters}
                             onExpand={(keys) => {
-                                setExpandedKeys(keys as string[]);
-                                setAutoExpandParent(false);
+                                setManualExpandedKeys(keys as string[]);
                             }}
                             onSelect={handleSelect}
                         />

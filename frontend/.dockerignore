@@ -1,0 +1,11 @@
+node_modules
+dist
+.npm
+.vite
+.turbo
+coverage
+Dockerfile
+docker-compose.yaml
+*.log
+*.local
+.DS_Store

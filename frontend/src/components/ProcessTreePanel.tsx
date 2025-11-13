@@ -234,9 +234,8 @@ export default function ProcessTreePanel({
 
     useEffect(() => {
         const rootKeys = normalizedTree.map((node) => node.key);
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setExpandedKeys((previous) => (arraysHaveSameMembers(previous, rootKeys) ? previous : rootKeys));
-        setAutoExpandParent(false);
+        setAutoExpandParent((prev) => (prev ? false : prev));
     }, [normalizedTree]);
 
     const totalNodes = useMemo(() => countNodes(normalizedTree), [normalizedTree]);

@@ -2,7 +2,7 @@ import { MinusSquareOutlined, PlusSquareOutlined, ReloadOutlined, SearchOutlined
 import { Button, Card, Empty, Flex, Input, Skeleton, Space, Tag, Tree, Typography } from "antd";
 import type { DataNode, TreeProps } from "antd/es/tree";
 import dayjs, { Dayjs } from "dayjs";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ProcessTreeNodeResponse } from "../types/api";
 
@@ -228,16 +228,29 @@ export default function ProcessTreePanel({
         const base = normalizeTree(tree);
         return filterTreeByRange(base, since, until);
     }, [since, tree, until]);
+    
     const [search, setSearch] = useState("");
-    const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+    
+    // Derive initial expanded keys from normalized tree
+    const initialExpandedKeys = useMemo(() => normalizedTree.map((node) => node.key), [normalizedTree]);
+    
+    const [expandedKeys, setExpandedKeys] = useState<string[]>(() => initialExpandedKeys);
     const [autoExpandParent, setAutoExpandParent] = useState(true);
+    const previousNormalizedTreeKeysRef = useRef<string[]>([]);
 
+    // Update expanded keys when normalized tree changes (new tree data loaded)
+    const currentNormalizedTreeKeys = useMemo(() => normalizedTree.map((node) => node.key), [normalizedTree]);
+    
     useEffect(() => {
-        const rootKeys = normalizedTree.map((node) => node.key);
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setExpandedKeys((previous) => (arraysHaveSameMembers(previous, rootKeys) ? previous : rootKeys));
-        setAutoExpandParent(false);
-    }, [normalizedTree]);
+        if (!arraysHaveSameMembers(previousNormalizedTreeKeysRef.current, currentNormalizedTreeKeys)) {
+            previousNormalizedTreeKeysRef.current = currentNormalizedTreeKeys;
+            // Use requestAnimationFrame to defer state updates and avoid synchronous setState in effect
+            requestAnimationFrame(() => {
+                setExpandedKeys(currentNormalizedTreeKeys);
+                setAutoExpandParent(false);
+            });
+        }
+    }, [currentNormalizedTreeKeys]);
 
     const totalNodes = useMemo(() => countNodes(normalizedTree), [normalizedTree]);
     const maxDepth = useMemo(() => computeMaxDepth(normalizedTree), [normalizedTree]);
@@ -267,14 +280,31 @@ export default function ProcessTreePanel({
 
     const filteredKeys = useMemo(() => collectTreeDataKeys(treeData), [treeData]);
     const visibleCount = filteredKeys.length;
+    const previousFilteredKeysRef = useRef<string[]>([]);
+    const previousSearchRef = useRef<string>("");
 
+    // Update expanded keys when search filter changes
     useEffect(() => {
         const hasFilters = Boolean(search.trim());
-        const targetKeys = hasFilters ? filteredKeys : normalizedTree.map((node) => node.key);
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setExpandedKeys((previous) => (arraysHaveSameMembers(previous, targetKeys) ? previous : targetKeys));
-        setAutoExpandParent(hasFilters);
-    }, [filteredKeys, normalizedTree, search]);
+        const targetKeys = hasFilters ? filteredKeys : currentNormalizedTreeKeys;
+        const previousTargetKeys = hasFilters ? previousFilteredKeysRef.current : previousNormalizedTreeKeysRef.current;
+        
+        const keysChanged = !arraysHaveSameMembers(previousTargetKeys, targetKeys);
+        const searchChanged = previousSearchRef.current !== search;
+        
+        if (keysChanged || searchChanged) {
+            previousFilteredKeysRef.current = filteredKeys;
+            previousSearchRef.current = search;
+            
+            // Use requestAnimationFrame to defer state updates and avoid synchronous setState in effect
+            requestAnimationFrame(() => {
+                if (keysChanged) {
+                    setExpandedKeys(targetKeys);
+                }
+                setAutoExpandParent(hasFilters);
+            });
+        }
+    }, [filteredKeys, currentNormalizedTreeKeys, search]);
 
     const handleSelect = useCallback<NonNullable<TreeProps<TreeDataNode>["onSelect"]>>(
         (keys, info) => {

@@ -434,7 +434,7 @@ export function extractProcessEventFromTooltip(
     if (!point) {
         return null;
     }
-    if (typeof point !== "object" || point === null || !("processEvent" in point)) {
+    if (!point || typeof point !== "object" || !("processEvent" in point)) {
         return null;
     }
     const candidate = (point as { processEvent?: CombinedEvent }).processEvent;

@@ -162,7 +162,7 @@ type SSLKey struct {
 
 type EventInfo struct {
 	TimestampNs uint64
-	DataLen     uint32
+	DataLen     uint64
 	Comm        [16]int8
 }
 

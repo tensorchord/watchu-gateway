@@ -31,15 +31,15 @@ type sslCallInfoEx struct {
 type sslEvent struct {
 	_           structs.HostLayout
 	TimestampNs uint64
-	ReqLen      uint64
 	PidTgid     uint64
 	UidGid      uint64
 	SslPtr      uint64
-	DataLen     uint32
+	ReqLen      uint64
+	DataLen     uint64
 	Rw          uint8
 	Comm        [16]int8
 	Data        [65536]uint8
-	_           [3]byte
+	_           [7]byte
 }
 
 // loadSsl returns the embedded CollectionSpec for ssl.

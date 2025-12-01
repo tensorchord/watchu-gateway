@@ -26,3 +26,8 @@ type HTTPResponseBatch struct {
 type ExecEventBatch struct {
 	Events []ingest.ExecEvent `json:"events"`
 }
+
+// MCPSTDIOBatch wraps STDIO MCP JSON-RPC events.
+type MCPSTDIOBatch struct {
+	Events []ingest.MCPSTDIOEvent `json:"events"`
+}

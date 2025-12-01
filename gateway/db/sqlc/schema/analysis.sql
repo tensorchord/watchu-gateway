@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS process_lifecycle (
     PRIMARY KEY (host, exec_id)
 );
 
+
+
 CREATE TABLE IF NOT EXISTS security_analysis_results (
     id UUID PRIMARY KEY,
     analyzed_at TIMESTAMPTZ,

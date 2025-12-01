@@ -17,6 +17,7 @@ func registerIngestRoutes(group *gin.RouterGroup, svc *ingest.Service) {
 	group.POST("/http_request", h.postHTTPRequests)
 	group.POST("/http_response", h.postHTTPResponses)
 	group.POST("/exec_event", h.postExecEvents)
+	group.POST("/mcp_stdio", h.postMCPSTDIOEvents)
 }
 
 // postHTTPRequests godoc
@@ -97,6 +98,34 @@ func (h ingestHandlers) postExecEvents(c *gin.Context) {
 		return
 	}
 	if err := h.svc.IngestExecEvents(c.Request.Context(), payload.Events); err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	c.Status(http.StatusAccepted)
+}
+
+// postMCPSTDIOEvents godoc
+// @Summary Ingest STDIO MCP events
+// @Description Accepts MCP JSON-RPC events captured from STDIO transports.
+// @Tags ingest
+// @Accept json
+// @Produce json
+// @Param payload body MCPSTDIOBatch true "STDIO MCP batch"
+// @Success 202
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /api/v1/ingest/mcp_stdio [post]
+func (h ingestHandlers) postMCPSTDIOEvents(c *gin.Context) {
+	var payload MCPSTDIOBatch
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if len(payload.Events) == 0 {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "events must not be empty"})
+		return
+	}
+	if err := h.svc.IngestMCPSTDIOEvents(c.Request.Context(), payload.Events); err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
 	}

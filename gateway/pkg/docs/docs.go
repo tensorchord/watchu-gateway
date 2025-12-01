@@ -712,6 +712,49 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/ingest/mcp_stdio": {
+            "post": {
+                "description": "Accepts MCP JSON-RPC events captured from STDIO transports.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ingest"
+                ],
+                "summary": "Ingest STDIO MCP events",
+                "parameters": [
+                    {
+                        "description": "STDIO MCP batch",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.MCPSTDIOBatch"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/healthz": {
             "get": {
                 "produces": [
@@ -915,6 +958,73 @@ const docTemplate = `{
                 },
                 "truncated": {
                     "type": "boolean"
+                },
+                "uid": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_tensorchord_watchu_gateway_pkg_ingest.MCPSTDIOEvent": {
+            "type": "object",
+            "required": [
+                "gid",
+                "host",
+                "message_type",
+                "pid",
+                "tid",
+                "timestamp",
+                "uid"
+            ],
+            "properties": {
+                "corr_id": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "gid": {
+                    "type": "integer"
+                },
+                "host": {
+                    "type": "string"
+                },
+                "jsonrpc": {
+                    "type": "string"
+                },
+                "message_type": {
+                    "type": "string",
+                    "enum": [
+                        "request",
+                        "response",
+                        "notification"
+                    ]
+                },
+                "method": {
+                    "type": "string"
+                },
+                "params": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "result": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "tid": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "string"
                 },
                 "uid": {
                     "type": "integer"
@@ -1141,6 +1251,17 @@ const docTemplate = `{
                 },
                 "start_ts": {
                     "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.MCPSTDIOBatch": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_tensorchord_watchu_gateway_pkg_ingest.MCPSTDIOEvent"
+                    }
                 }
             }
         },

@@ -102,6 +102,41 @@ type LlmPromptInjectionResult struct {
 	Categories    pgtype.Text
 }
 
+type McpEventsNormalized struct {
+	Transport   string
+	Host        string
+	Timestamp   pgtype.Timestamptz
+	Pid         pgtype.Int4
+	ExecID      pgtype.Text
+	RootExecID  pgtype.Text
+	RootPid     pgtype.Int8
+	MessageType string
+	Jsonrpc     interface{}
+	Method      interface{}
+	Raw         []byte
+	Params      []byte
+	Result      []byte
+	Error       []byte
+	CorrID      string
+}
+
+type McpStdioEvent struct {
+	ID          pgtype.UUID
+	Host        string
+	Timestamp   pgtype.Timestamptz
+	Pid         int32
+	Tid         int32
+	Uid         int32
+	Gid         int32
+	MessageType string
+	Jsonrpc     pgtype.Text
+	Method      pgtype.Text
+	Params      []byte
+	Result      []byte
+	Error       []byte
+	CorrID      pgtype.Text
+}
+
 type ProcessHttpEvent struct {
 	Host       string
 	HttpID     pgtype.UUID

@@ -3,9 +3,10 @@ package ingest
 import "reflect"
 
 var (
-	httpRequestCols  = mustColumnsFromStruct[HTTPRequestEvent]()
-	httpResponseCols = mustColumnsFromStruct[HTTPResponseEvent]()
-	execEventCols    = mustColumnsFromStruct[ExecEvent]()
+	httpRequestCols   = mustColumnsFromStruct[HTTPRequestEvent]()
+	httpResponseCols  = mustColumnsFromStruct[HTTPResponseEvent]()
+	execEventCols     = mustColumnsFromStruct[ExecEvent]()
+	mcpSTDIOEventCols = mustColumnsFromStruct[MCPSTDIOEvent]()
 )
 
 func mustColumnsFromStruct[T any]() []string {

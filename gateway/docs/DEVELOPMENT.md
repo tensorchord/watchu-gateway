@@ -75,7 +75,7 @@ Schema definitions live under `db/migrations` (Atlas migrations) and `db/sqlc/sc
 
 ## Local Testing Tips
 
-- Use the example JSON payloads in `docs/examples` (create as needed) to POST batches to `/api/v1/ingest/http_request`, `/api/v1/ingest/http_response`, or `/api/v1/ingest/exec_event`.
+- Use the example JSON payloads in `docs/examples` (create as needed) to POST batches to `/api/v1/ingest/http_request`, `/api/v1/ingest/http_response`, `/api/v1/ingest/exec_event`, or `/api/v1/ingest/mcp_stdio` for STDIO MCP traffic.
 - Query analytics endpoints with parameters such as `GET /api/v1/analysis/correlation_summaries?host=node-1&since=2024-01-01T00:00:00Z&until=2024-01-02T00:00:00Z` (omit `until` to default to the current time).
 - Check service health at `/healthz` and API docs at `/swagger/index.html`.
 

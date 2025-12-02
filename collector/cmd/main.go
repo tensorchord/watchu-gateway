@@ -21,6 +21,7 @@ const (
 func main() {
 	collector.SetUpLogger()
 	SSLPath := flag.String("ssl-path", "", "extra user binary path to attach SSL uprobes (optional)")
+	// TODO: rustls gets the encrypted data, we need to decrypt with the session key
 	rustlsPath := flag.String("rustls-path", "", "extra user binary path to attach rustls uprobes (optional)")
 	address := flag.String("gateway", "", "the gateway address, e.g., 'http://localhost:8080'. Leave it empty to disable pushing events to the gateway")
 	tetragonSocket := flag.String("tetragon-socket", "",

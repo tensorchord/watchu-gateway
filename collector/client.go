@@ -251,17 +251,17 @@ type GatewayClient struct {
 }
 
 func NewGatewayClient(ctx context.Context, baseURL string) (*GatewayClient, error) {
+	host := GetHostName()
 	if len(baseURL) > 0 {
 		err := GatewayHealthCheck(ctx, baseURL)
 		if err != nil {
 			return nil, err
 		}
+		log.Debug().Str("host", host).Str("boot_time", bootTime.String()).Msg("init gateway client")
 	} else {
 		log.Info().Msg("gateway URL is empty, will disable pushing events to the gateway")
 	}
 	client := &http.Client{}
-	host := GetHostName()
-	log.Debug().Str("host", host).Str("boot_time", bootTime.String()).Msg("init gateway client")
 	return &GatewayClient{client: client, host: host, baseURL: baseURL}, nil
 }
 

@@ -6,8 +6,10 @@ update_header:
 gen_vmlinux:
 	@bpftool btf dump file /sys/kernel/btf/vmlinux format c > headers/vmlinux.h
 
-build:
+gen_ebpf:
 	@go generate ./...
+
+build: gen_ebpf
 	@go build -o bin/app cmd/main.go
 
 format:

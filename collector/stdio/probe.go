@@ -134,12 +134,23 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 			continue
 		}
 
-		sp.channel <- &collector.RawStdIO{
-			ElapsedNs: event.TimestampNs,
-			PidTid:    event.PidTgid,
-			UidGid:    event.UidGid,
-			Rw:        event.Rw,
-			Data:      bytes.Clone(event.Data[:event.DataLen]),
+		var msgType string
+		switch event.Rw {
+		case STDIO_READ:
+			msgType = "request"
+		case STDIO_WRITE:
+			msgType = "response"
+		}
+		select {
+		case sp.channel <- &collector.RawStdIO{
+			ElapsedNs:   event.TimestampNs,
+			PidTid:      event.PidTgid,
+			UidGid:      event.UidGid,
+			MessageType: msgType,
+			Data:        bytes.Clone(event.Data[:event.DataLen]),
+		}:
+		default:
+			log.Warn().Msg("stdio channel is full, dropping event")
 		}
 		if log.Debug().Enabled() {
 			log.Debug().
@@ -162,11 +173,11 @@ func (sp *StdioProbe) Close() {
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close stdio objects")
 	}
-	close(sp.channel)
 	err = sp.rb.Close()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close stdio ringbuf reader")
 	}
+	close(sp.channel)
 	for i, l := range sp.links {
 		err = l.Close()
 		if err != nil {

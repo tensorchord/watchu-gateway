@@ -27,7 +27,6 @@ import (
 const (
 	sslSpecPath    = "sslsniff/ssl_x86_bpfel.o"
 	rustlsSpecPath = "sslsniff/rustls_x86_bpfel.o"
-	libSSLPathEnv  = "LIBSSL_PATH"
 )
 
 var libSSLCandidates = []string{

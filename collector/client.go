@@ -226,24 +226,14 @@ func (raw RawResponse) ToRecord(host string) any {
 }
 
 type RawStdIO struct {
-	ElapsedNs uint64
-	PidTid    uint64
-	UidGid    uint64
-	Rw        uint8
-	Data      []byte
+	ElapsedNs   uint64
+	PidTid      uint64
+	UidGid      uint64
+	MessageType string
+	Data        []byte
 }
 
 func (raw RawStdIO) ToRecord(host string) any {
-	var messageType string
-	switch raw.Rw {
-	case 4:
-		messageType = "request"
-	case 2:
-		messageType = "response"
-	default:
-		messageType = "unknown"
-		log.Warn().Uint8("rw", raw.Rw).Msg("unknown stdio message type")
-	}
 	var mcp MCP
 	err := json.Unmarshal(raw.Data, &mcp)
 	if err != nil {
@@ -258,7 +248,7 @@ func (raw RawStdIO) ToRecord(host string) any {
 		Uid:         int32(raw.UidGid & 0xFFFFFFFF),
 		Gid:         int32(raw.UidGid >> 32),
 		Host:        host,
-		MessageType: messageType,
+		MessageType: raw.MessageType,
 		JsonRPC:     mcp.JsonRPC,
 		Method:      mcp.Method,
 		Params:      mcp.Params,

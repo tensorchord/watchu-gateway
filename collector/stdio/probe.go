@@ -4,6 +4,7 @@ package stdio
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 
@@ -24,14 +25,14 @@ const (
 )
 
 type MCPRequest struct {
-	JsonRPC string         `json:"jsonrpc"`
+	JSONRPC string         `json:"jsonrpc"`
 	Method  string         `json:"method"`
 	Params  map[string]any `json:"params"`
 	ID      int            `json:"id"`
 }
 
 type MCPResponse struct {
-	JsonRPC string         `json:"jsonrpc"`
+	JSONRPC string         `json:"jsonrpc"`
 	Result  map[string]any `json:"result"`
 	ID      int            `json:"id"`
 }
@@ -78,12 +79,14 @@ func attachStdioProbes(objs stdioObjects, links *[]link.Link) {
 }
 
 type StdioProbe struct {
-	rb    *ringbuf.Reader
-	objs  *stdioObjects
-	links []link.Link
+	rb      *ringbuf.Reader
+	objs    *stdioObjects
+	links   []link.Link
+	client  *collector.GatewayClient
+	channel chan *collector.RawStdIO
 }
 
-func NewStdioProbe() *StdioProbe {
+func NewStdioProbe(client *collector.GatewayClient) *StdioProbe {
 	objs := stdioObjects{}
 	if err := loadStdioObjects(&objs, nil); err != nil {
 		log.Fatal().Err(err).Msg("failed to load ebpf spec")
@@ -98,14 +101,17 @@ func NewStdioProbe() *StdioProbe {
 	}
 
 	return &StdioProbe{
-		rb:    rb,
-		objs:  &objs,
-		links: links,
+		rb:      rb,
+		objs:    &objs,
+		links:   links,
+		client:  client,
+		channel: make(chan *collector.RawStdIO, collector.GatewayChannelSize),
 	}
 }
 
-func (sp *StdioProbe) Start() {
+func (sp *StdioProbe) Start(ctx context.Context) {
 	log.Info().Msg("listening for stdio events...")
+	go sp.client.IngestStdIOEvent(ctx, sp.channel)
 
 	var event stdioEvent
 	for {
@@ -128,6 +134,24 @@ func (sp *StdioProbe) Start() {
 			continue
 		}
 
+		var msgType string
+		switch event.Rw {
+		case STDIO_READ:
+			msgType = "request"
+		case STDIO_WRITE:
+			msgType = "response"
+		}
+		select {
+		case sp.channel <- &collector.RawStdIO{
+			ElapsedNs:   event.TimestampNs,
+			PidTid:      event.PidTgid,
+			UidGid:      event.UidGid,
+			MessageType: msgType,
+			Data:        bytes.Clone(event.Data[:event.DataLen]),
+		}:
+		default:
+			log.Warn().Msg("stdio channel is full, dropping event")
+		}
 		if log.Debug().Enabled() {
 			log.Debug().
 				Uint64("timestamp", event.TimestampNs).
@@ -138,7 +162,7 @@ func (sp *StdioProbe) Start() {
 				Uint64("data_len", event.DataLen).
 				Uint8("rw", event.Rw).
 				Str("comm", collector.CharsToString(event.Comm[:])).
-				Str("data", string(event.Data[:event.DataLen])).
+				Bytes("data", event.Data[:event.DataLen]).
 				Msg("stdio event")
 		}
 	}
@@ -153,6 +177,7 @@ func (sp *StdioProbe) Close() {
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close stdio ringbuf reader")
 	}
+	close(sp.channel)
 	for i, l := range sp.links {
 		err = l.Close()
 		if err != nil {

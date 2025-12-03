@@ -304,7 +304,8 @@ func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
 		record.EndOfStream = false
 		record.LastResp = nil
-		channel <- &collector.RawRequest{
+		select {
+		case channel <- &collector.RawRequest{
 			ElapsedNs:     timestamp,
 			PidTid:        key.PidTgid,
 			UidGid:        key.UidGid,
@@ -316,6 +317,9 @@ func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 			Headers:       headers,
 			Body:          body,
 			Truncated:     truncated,
+		}:
+		default:
+			log.Warn().Msg("request channel is full, dropping event")
 		}
 	}
 }
@@ -391,7 +395,8 @@ func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("")
 				record.EndOfStream = false
 				record.LastResp = nil
-				channel <- &collector.RawResponse{
+				select {
+				case channel <- &collector.RawResponse{
 					ElapsedNs:     timestamp,
 					PidTid:        key.PidTgid,
 					UidGid:        key.UidGid,
@@ -402,6 +407,9 @@ func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 					Headers:       headers,
 					Body:          body,
 					Truncated:     false,
+				}:
+				default:
+					log.Warn().Msg("response channel is full, dropping event")
 				}
 				break
 			}

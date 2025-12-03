@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -21,6 +22,7 @@ const (
 	PathExec       = "exec_event"
 	PathRequest    = "http_request"
 	PathResponse   = "http_response"
+	PathStdIO      = "mcp_stdio"
 
 	requestInterval = time.Second
 	maxBatchSize    = 1024
@@ -91,12 +93,37 @@ type RecordResponse struct {
 	Host          string          `json:"host"`
 }
 
+type MCP struct {
+	JSONRPC string          `json:"jsonrpc"`
+	CorrID  int             `json:"id"`
+	Result  json.RawMessage `json:"result"`
+	Error   json.RawMessage `json:"error"`
+	Params  json.RawMessage `json:"params"`
+	Method  string          `json:"method"`
+}
+
+type RecordStdIO struct {
+	Timestamp   time.Time       `json:"timestamp"`
+	Pid         int32           `json:"pid"`
+	Tid         int32           `json:"tid"`
+	Uid         int32           `json:"uid"`
+	Gid         int32           `json:"gid"`
+	Host        string          `json:"host"`
+	MessageType string          `json:"message_type"` // "request" or "response"
+	JSONRPC     string          `json:"jsonrpc"`
+	Method      string          `json:"method"`
+	Params      json.RawMessage `json:"params"`
+	Result      json.RawMessage `json:"result"`
+	Error       json.RawMessage `json:"error"`
+	CorrID      string          `json:"corr_id"`
+}
+
 type BatchRecord struct {
-	Events []interface{} `json:"events"`
+	Events []any `json:"events"`
 }
 
 type RawRecord interface {
-	ToRecord(host string) interface{}
+	ToRecord(host string) any
 }
 
 type RawExec struct {
@@ -110,7 +137,7 @@ type RawExec struct {
 	Args      string
 }
 
-func (raw RawExec) ToRecord(host string) interface{} {
+func (raw RawExec) ToRecord(host string) any {
 	return RecordExec{
 		Timestamp: raw.Timestamp,
 		Pid:       int32(raw.Pid),
@@ -138,7 +165,7 @@ type RawRequest struct {
 	Truncated     bool
 }
 
-func (raw RawRequest) ToRecord(host string) interface{} {
+func (raw RawRequest) ToRecord(host string) any {
 	headers, err := json.Marshal(raw.Headers)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal req headers")
@@ -175,7 +202,7 @@ type RawResponse struct {
 	Truncated     bool
 }
 
-func (raw RawResponse) ToRecord(host string) interface{} {
+func (raw RawResponse) ToRecord(host string) any {
 	headers, err := json.Marshal(raw.Headers)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal resp headers")
@@ -195,6 +222,39 @@ func (raw RawResponse) ToRecord(host string) interface{} {
 		Body:          raw.Body,
 		Truncated:     raw.Truncated,
 		Host:          host,
+	}
+}
+
+type RawStdIO struct {
+	ElapsedNs   uint64
+	PidTid      uint64
+	UidGid      uint64
+	MessageType string
+	Data        []byte
+}
+
+func (raw RawStdIO) ToRecord(host string) any {
+	var mcp MCP
+	err := json.Unmarshal(raw.Data, &mcp)
+	if err != nil {
+		log.Error().Err(err).Bytes("data", raw.Data).Msg("failed to unmarshal mcp message")
+		return nil
+	}
+
+	return RecordStdIO{
+		Timestamp:   parseElapsedToTimestamp(raw.ElapsedNs),
+		Pid:         int32(raw.PidTid & 0xFFFFFFFF),
+		Tid:         int32(raw.PidTid >> 32),
+		Uid:         int32(raw.UidGid & 0xFFFFFFFF),
+		Gid:         int32(raw.UidGid >> 32),
+		Host:        host,
+		MessageType: raw.MessageType,
+		JSONRPC:     mcp.JSONRPC,
+		Method:      mcp.Method,
+		Params:      mcp.Params,
+		Result:      mcp.Result,
+		Error:       mcp.Error,
+		CorrID:      strconv.Itoa(mcp.CorrID),
 	}
 }
 
@@ -265,7 +325,7 @@ func NewGatewayClient(ctx context.Context, baseURL string) (*GatewayClient, erro
 	return &GatewayClient{client: client, host: host, baseURL: baseURL}, nil
 }
 
-func (gc *GatewayClient) sendEvents(ctx context.Context, endpoint string, events []interface{}) {
+func (gc *GatewayClient) sendEvents(ctx context.Context, endpoint string, events []any) {
 	if len(gc.baseURL) == 0 {
 		return
 	}
@@ -303,7 +363,7 @@ func (gc *GatewayClient) sendEvents(ctx context.Context, endpoint string, events
 	}
 }
 
-func (gc *GatewayClient) ingestEvents(ctx context.Context, endpoint string, producer func() []interface{}) {
+func (gc *GatewayClient) ingestEvents(ctx context.Context, endpoint string, producer func() []any) {
 	ticker := time.NewTicker(requestInterval)
 	defer ticker.Stop()
 	for {
@@ -319,9 +379,9 @@ func (gc *GatewayClient) ingestEvents(ctx context.Context, endpoint string, prod
 	}
 }
 
-func consumeFromChannel[R RawRecord](host string, channel <-chan R) func() []interface{} {
-	return func() []interface{} {
-		events := make([]interface{}, 0, maxBatchSize)
+func consumeFromChannel[R RawRecord](host string, channel <-chan R) func() []any {
+	return func() []any {
+		events := make([]any, 0, maxBatchSize)
 		for len(events) < maxBatchSize {
 			select {
 			case raw := <-channel:
@@ -347,4 +407,8 @@ func (gc *GatewayClient) IngestRequestEvent(ctx context.Context, channel <-chan 
 
 func (gc *GatewayClient) IngestResponseEvent(ctx context.Context, channel <-chan *RawResponse) {
 	gc.ingestEvents(ctx, PathResponse, consumeFromChannel(gc.host, channel))
+}
+
+func (gc *GatewayClient) IngestStdIOEvent(ctx context.Context, channel <-chan *RawStdIO) {
+	gc.ingestEvents(ctx, PathStdIO, consumeFromChannel(gc.host, channel))
 }

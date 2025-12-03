@@ -44,8 +44,8 @@ func main() {
 	sslProbe := sslsniff.NewSSLProbe(SSLPath, rustlsPath, gatewayClient)
 	go sslProbe.Start(ctx)
 
-	stdioProbe := stdio.NewStdioProbe()
-	go stdioProbe.Start()
+	stdioProbe := stdio.NewStdioProbe(gatewayClient)
+	go stdioProbe.Start(ctx)
 
 	if len(*tetragonSocket) > 0 {
 		log.Info().Str("socket", *tetragonSocket).Msg("enable Tetragon integration")

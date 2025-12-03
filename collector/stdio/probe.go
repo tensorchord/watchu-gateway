@@ -25,14 +25,14 @@ const (
 )
 
 type MCPRequest struct {
-	JsonRPC string         `json:"jsonrpc"`
+	JSONRPC string         `json:"jsonrpc"`
 	Method  string         `json:"method"`
 	Params  map[string]any `json:"params"`
 	ID      int            `json:"id"`
 }
 
 type MCPResponse struct {
-	JsonRPC string         `json:"jsonrpc"`
+	JSONRPC string         `json:"jsonrpc"`
 	Result  map[string]any `json:"result"`
 	ID      int            `json:"id"`
 }

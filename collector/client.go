@@ -94,7 +94,7 @@ type RecordResponse struct {
 }
 
 type MCP struct {
-	JsonRPC string          `json:"jsonrpc"`
+	JSONRPC string          `json:"jsonrpc"`
 	CorrID  int             `json:"id"`
 	Result  json.RawMessage `json:"result"`
 	Error   json.RawMessage `json:"error"`
@@ -110,7 +110,7 @@ type RecordStdIO struct {
 	Gid         int32           `json:"gid"`
 	Host        string          `json:"host"`
 	MessageType string          `json:"message_type"` // "request" or "response"
-	JsonRPC     string          `json:"jsonrpc"`
+	JSONRPC     string          `json:"jsonrpc"`
 	Method      string          `json:"method"`
 	Params      json.RawMessage `json:"params"`
 	Result      json.RawMessage `json:"result"`
@@ -249,7 +249,7 @@ func (raw RawStdIO) ToRecord(host string) any {
 		Gid:         int32(raw.UidGid >> 32),
 		Host:        host,
 		MessageType: raw.MessageType,
-		JsonRPC:     mcp.JsonRPC,
+		JSONRPC:     mcp.JSONRPC,
 		Method:      mcp.Method,
 		Params:      mcp.Params,
 		Result:      mcp.Result,

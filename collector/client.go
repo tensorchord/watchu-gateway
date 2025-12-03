@@ -94,12 +94,12 @@ type RecordResponse struct {
 }
 
 type MCP struct {
-	JsonRPC string `json:"jsonrpc"`
-	CorrID  int    `json:"id"`
-	Result  []byte `json:"result"`
-	Error   []byte `json:"error"`
-	Params  []byte `json:"params"`
-	Method  string `json:"method"`
+	JsonRPC string          `json:"jsonrpc"`
+	CorrID  int             `json:"id"`
+	Result  json.RawMessage `json:"result"`
+	Error   json.RawMessage `json:"error"`
+	Params  json.RawMessage `json:"params"`
+	Method  string          `json:"method"`
 }
 
 type RecordStdIO struct {
@@ -247,7 +247,7 @@ func (raw RawStdIO) ToRecord(host string) any {
 	var mcp MCP
 	err := json.Unmarshal(raw.Data, &mcp)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to unmarshal mcp message")
+		log.Error().Err(err).Bytes("data", raw.Data).Msg("failed to unmarshal mcp message")
 		return nil
 	}
 

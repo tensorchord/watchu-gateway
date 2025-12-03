@@ -134,6 +134,13 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 			continue
 		}
 
+		sp.channel <- &collector.RawStdIO{
+			ElapsedNs: event.TimestampNs,
+			PidTid:    event.PidTgid,
+			UidGid:    event.UidGid,
+			Rw:        event.Rw,
+			Data:      bytes.Clone(event.Data[:event.DataLen]),
+		}
 		if log.Debug().Enabled() {
 			log.Debug().
 				Uint64("timestamp", event.TimestampNs).
@@ -144,15 +151,8 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 				Uint64("data_len", event.DataLen).
 				Uint8("rw", event.Rw).
 				Str("comm", collector.CharsToString(event.Comm[:])).
-				Str("data", string(event.Data[:event.DataLen])).
+				Bytes("data", event.Data[:event.DataLen]).
 				Msg("stdio event")
-		}
-		sp.channel <- &collector.RawStdIO{
-			ElapsedNs: event.TimestampNs,
-			PidTid:    event.PidTgid,
-			UidGid:    event.UidGid,
-			Rw:        event.Rw,
-			Data:      event.Data[:event.DataLen],
 		}
 	}
 }

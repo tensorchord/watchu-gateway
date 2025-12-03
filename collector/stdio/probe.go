@@ -4,6 +4,7 @@ package stdio
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 
@@ -78,12 +79,14 @@ func attachStdioProbes(objs stdioObjects, links *[]link.Link) {
 }
 
 type StdioProbe struct {
-	rb    *ringbuf.Reader
-	objs  *stdioObjects
-	links []link.Link
+	rb      *ringbuf.Reader
+	objs    *stdioObjects
+	links   []link.Link
+	client  *collector.GatewayClient
+	channel chan *collector.RawStdIO
 }
 
-func NewStdioProbe() *StdioProbe {
+func NewStdioProbe(client *collector.GatewayClient) *StdioProbe {
 	objs := stdioObjects{}
 	if err := loadStdioObjects(&objs, nil); err != nil {
 		log.Fatal().Err(err).Msg("failed to load ebpf spec")
@@ -98,14 +101,17 @@ func NewStdioProbe() *StdioProbe {
 	}
 
 	return &StdioProbe{
-		rb:    rb,
-		objs:  &objs,
-		links: links,
+		rb:      rb,
+		objs:    &objs,
+		links:   links,
+		client:  client,
+		channel: make(chan *collector.RawStdIO, collector.GatewayChannelSize),
 	}
 }
 
-func (sp *StdioProbe) Start() {
+func (sp *StdioProbe) Start(ctx context.Context) {
 	log.Info().Msg("listening for stdio events...")
+	go sp.client.IngestStdIOEvent(ctx, sp.channel)
 
 	var event stdioEvent
 	for {
@@ -141,6 +147,13 @@ func (sp *StdioProbe) Start() {
 				Str("data", string(event.Data[:event.DataLen])).
 				Msg("stdio event")
 		}
+		sp.channel <- &collector.RawStdIO{
+			ElapsedNs: event.TimestampNs,
+			PidTid:    event.PidTgid,
+			UidGid:    event.UidGid,
+			Rw:        event.Rw,
+			Data:      event.Data[:event.DataLen],
+		}
 	}
 }
 
@@ -149,6 +162,7 @@ func (sp *StdioProbe) Close() {
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close stdio objects")
 	}
+	close(sp.channel)
 	err = sp.rb.Close()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close stdio ringbuf reader")

@@ -50,7 +50,7 @@ func (cr *ContainerResolver) update() {
 		}
 		info, err := d.Info()
 		if err != nil {
-			log.Error().Err(err).Str("dir", d.Name()).Msg("failed to get the info")
+			log.Error().Err(err).Str("dir", d.Name()).Msg("failed to get dir info")
 			return nil
 		}
 		st := info.Sys().(*syscall.Stat_t)

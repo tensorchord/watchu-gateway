@@ -48,7 +48,11 @@ func (cr *ContainerResolver) update() {
 		if matches == nil {
 			return nil
 		}
-		info, _ := d.Info()
+		info, err := d.Info()
+		if err != nil {
+			log.Error().Err(err).Str("dir", d.Name()).Msg("failed to get the info")
+			return nil
+		}
 		st := info.Sys().(*syscall.Stat_t)
 		renew[st.Ino] = matches[1]
 		return nil

@@ -1,4 +1,4 @@
-package collector
+package tool
 
 import (
 	"bytes"

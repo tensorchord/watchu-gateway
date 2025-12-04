@@ -15,6 +15,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/tensorchord/watchu/collector"
+	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 stdio stdio.bpf.c -- -I../headers
@@ -146,6 +147,7 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 			ElapsedNs:   event.TimestampNs,
 			PidTid:      event.PidTgid,
 			UidGid:      event.UidGid,
+			CgroupID:    event.CgroupId,
 			MessageType: msgType,
 			Data:        bytes.Clone(event.Data[:event.DataLen]),
 		}:
@@ -157,11 +159,12 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 				Uint64("timestamp", event.TimestampNs).
 				Uint64("pid_tgid", event.PidTgid).
 				Uint64("uid_gid", event.UidGid).
+				Uint64("cgroup_id", event.CgroupId).
 				Uint64("fd", event.Fd).
 				Uint64("req_len", event.ReqLen).
 				Uint64("data_len", event.DataLen).
 				Uint8("rw", event.Rw).
-				Str("comm", collector.CharsToString(event.Comm[:])).
+				Str("comm", tool.CharsToString(event.Comm[:])).
 				Bytes("data", event.Data[:event.DataLen]).
 				Msg("stdio event")
 		}

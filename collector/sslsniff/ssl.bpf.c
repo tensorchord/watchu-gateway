@@ -84,9 +84,10 @@ int probe_ssl_read_exit(struct pt_regs *ctx) {
     if (ret <= 0)
         goto cleanup;
 
-    u64 now     = bpf_ktime_get_ns();
-    u64 uid_gid = bpf_get_current_uid_gid();
-    void *buf   = (void *)info->buf_addr;
+    u64 now       = bpf_ktime_get_ns();
+    u64 uid_gid   = bpf_get_current_uid_gid();
+    u64 cgroup_id = bpf_get_current_cgroup_id();
+    void *buf     = (void *)info->buf_addr;
 
     bpf_repeat(MAX_LOOP) {
         u32 length = (u32)ret; // Cast is safe: ret > 0 guaranteed by guard above
@@ -104,6 +105,7 @@ int probe_ssl_read_exit(struct pt_regs *ctx) {
         evt->pid_tgid     = key;
         evt->ssl_ptr      = info->ssl_ptr;
         evt->uid_gid      = uid_gid;
+        evt->cgroup_id    = cgroup_id;
         evt->timestamp_ns = now;
         evt->req_len      = info->len;
         evt->data_len     = length;
@@ -135,6 +137,7 @@ int probe_ssl_read_ex_exit(struct pt_regs *ctx) {
     size_t readbytes = 0;
     u64 now          = bpf_ktime_get_ns();
     u64 uid_gid      = bpf_get_current_uid_gid();
+    u64 cgroup_id    = bpf_get_current_cgroup_id();
     bpf_probe_read_user(&readbytes, sizeof(readbytes), (void *)info->consumed_len_ptr);
 
     void *buf = (void *)info->buf_addr;
@@ -155,6 +158,7 @@ int probe_ssl_read_ex_exit(struct pt_regs *ctx) {
         evt->pid_tgid     = key;
         evt->ssl_ptr      = info->ssl_ptr;
         evt->uid_gid      = uid_gid;
+        evt->cgroup_id    = cgroup_id;
         evt->timestamp_ns = now;
         evt->req_len      = info->len;
         evt->data_len     = length;
@@ -183,9 +187,10 @@ int probe_ssl_write_exit(struct pt_regs *ctx) {
     if (ret <= 0)
         goto cleanup;
 
-    u64 now     = bpf_ktime_get_ns();
-    u64 uid_gid = bpf_get_current_uid_gid();
-    void *buf   = (void *)info->buf_addr;
+    u64 now       = bpf_ktime_get_ns();
+    u64 uid_gid   = bpf_get_current_uid_gid();
+    u64 cgroup_id = bpf_get_current_cgroup_id();
+    void *buf     = (void *)info->buf_addr;
 
     bpf_repeat(MAX_LOOP) {
         u32 length = (u32)ret;
@@ -202,6 +207,7 @@ int probe_ssl_write_exit(struct pt_regs *ctx) {
 
         evt->pid_tgid     = key;
         evt->uid_gid      = uid_gid;
+        evt->cgroup_id    = cgroup_id;
         evt->ssl_ptr      = info->ssl_ptr;
         evt->timestamp_ns = now;
         evt->req_len      = info->len;
@@ -233,8 +239,9 @@ int probe_ssl_write_ex_exit(struct pt_regs *ctx) {
 
     size_t written = 0;
     bpf_probe_read_user(&written, sizeof(written), (void *)info->consumed_len_ptr);
-    u64 uid_gid = bpf_get_current_uid_gid();
-    u64 now     = bpf_ktime_get_ns();
+    u64 uid_gid   = bpf_get_current_uid_gid();
+    u64 cgroup_id = bpf_get_current_cgroup_id();
+    u64 now       = bpf_ktime_get_ns();
 
     void *buf = (void *)info->buf_addr;
 
@@ -252,6 +259,7 @@ int probe_ssl_write_ex_exit(struct pt_regs *ctx) {
 
         evt->pid_tgid     = key;
         evt->uid_gid      = uid_gid;
+        evt->cgroup_id    = cgroup_id;
         evt->ssl_ptr      = info->ssl_ptr;
         evt->timestamp_ns = now;
         evt->req_len      = info->len;

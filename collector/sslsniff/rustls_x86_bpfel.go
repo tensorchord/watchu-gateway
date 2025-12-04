@@ -24,6 +24,7 @@ type rustlsEvent struct {
 	TimestampNs uint64
 	PidTgid     uint64
 	UidGid      uint64
+	CgroupId    uint64
 	SslPtr      uint64
 	ReqLen      uint64
 	DataLen     uint64

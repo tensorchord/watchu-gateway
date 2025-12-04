@@ -14,6 +14,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/phuslu/log"
+
+	"github.com/tensorchord/watchu/collector/internal/container"
+	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
 const (
@@ -31,7 +34,8 @@ const (
 )
 
 var (
-	bootTime = getBootTime()
+	bootTime          = getBootTime()
+	containerResolver = container.NewContainerResolver()
 )
 
 func getBootTime() *time.Time {
@@ -49,15 +53,16 @@ func parseElapsedToTimestamp(elapsed uint64) time.Time {
 }
 
 type RecordExec struct {
-	Timestamp time.Time `json:"timestamp"`
-	Pid       int32     `json:"pid"`
-	PPid      int32     `json:"ppid"`
-	ExecId    string    `json:"exec_id"`
-	PExecId   string    `json:"p_exec_id"`
-	Cwd       string    `json:"cwd"`
-	Comm      string    `json:"comm"`
-	Args      string    `json:"args"`
-	Host      string    `json:"host"`
+	Timestamp   time.Time `json:"timestamp"`
+	Pid         int32     `json:"pid"`
+	PPid        int32     `json:"ppid"`
+	ExecId      string    `json:"exec_id"`
+	PExecId     string    `json:"p_exec_id"`
+	Cwd         string    `json:"cwd"`
+	Comm        string    `json:"comm"`
+	Args        string    `json:"args"`
+	Host        string    `json:"host"`
+	ContainerID string    `json:"container_id"`
 }
 
 type RecordRequest struct {
@@ -75,6 +80,7 @@ type RecordRequest struct {
 	Body          []byte          `json:"body"`
 	Truncated     bool            `json:"truncated"`
 	Host          string          `json:"host"`
+	ContainerID   string          `json:"container_id"`
 }
 
 type RecordResponse struct {
@@ -91,6 +97,7 @@ type RecordResponse struct {
 	Body          []byte          `json:"body"`
 	Truncated     bool            `json:"truncated"`
 	Host          string          `json:"host"`
+	ContainerID   string          `json:"container_id"`
 }
 
 type MCP struct {
@@ -109,6 +116,7 @@ type RecordStdIO struct {
 	Uid         int32           `json:"uid"`
 	Gid         int32           `json:"gid"`
 	Host        string          `json:"host"`
+	ContainerID string          `json:"container_id"`
 	MessageType string          `json:"message_type"` // "request" or "response"
 	JSONRPC     string          `json:"jsonrpc"`
 	Method      string          `json:"method"`
@@ -135,19 +143,21 @@ type RawExec struct {
 	Cwd       string
 	Comm      string
 	Args      string
+	Docker    string
 }
 
 func (raw RawExec) ToRecord(host string) any {
 	return RecordExec{
-		Timestamp: raw.Timestamp,
-		Pid:       int32(raw.Pid),
-		PPid:      int32(raw.PPid),
-		ExecId:    raw.ExecId,
-		PExecId:   raw.PExecId,
-		Cwd:       raw.Cwd,
-		Comm:      raw.Comm,
-		Args:      raw.Args,
-		Host:      host,
+		Timestamp:   raw.Timestamp,
+		Pid:         int32(raw.Pid),
+		PPid:        int32(raw.PPid),
+		ExecId:      raw.ExecId,
+		PExecId:     raw.PExecId,
+		Cwd:         raw.Cwd,
+		Comm:        raw.Comm,
+		Args:        raw.Args,
+		Host:        host,
+		ContainerID: raw.Docker,
 	}
 }
 
@@ -155,6 +165,7 @@ type RawRequest struct {
 	ElapsedNs     uint64
 	PidTid        uint64
 	UidGid        uint64
+	CgroupID      uint64
 	Comm          string
 	Method        string
 	URL           string
@@ -171,6 +182,7 @@ func (raw RawRequest) ToRecord(host string) any {
 		log.Error().Err(err).Msg("failed to marshal req headers")
 		return nil
 	}
+
 	return RecordRequest{
 		Timestamp:     parseElapsedToTimestamp(raw.ElapsedNs),
 		Pid:           int32(raw.PidTid & 0xFFFFFFFF),
@@ -186,6 +198,7 @@ func (raw RawRequest) ToRecord(host string) any {
 		Body:          raw.Body,
 		Truncated:     raw.Truncated,
 		Host:          host,
+		ContainerID:   containerResolver.Resolve(raw.CgroupID),
 	}
 }
 
@@ -193,6 +206,7 @@ type RawResponse struct {
 	ElapsedNs     uint64
 	PidTid        uint64
 	UidGid        uint64
+	CgroupID      uint64
 	Comm          string
 	StatusCode    int
 	Protocol      string
@@ -222,6 +236,7 @@ func (raw RawResponse) ToRecord(host string) any {
 		Body:          raw.Body,
 		Truncated:     raw.Truncated,
 		Host:          host,
+		ContainerID:   containerResolver.Resolve(raw.CgroupID),
 	}
 }
 
@@ -229,6 +244,7 @@ type RawStdIO struct {
 	ElapsedNs   uint64
 	PidTid      uint64
 	UidGid      uint64
+	CgroupID    uint64
 	MessageType string
 	Data        []byte
 }
@@ -247,6 +263,7 @@ func (raw RawStdIO) ToRecord(host string) any {
 		Tid:         int32(raw.PidTid >> 32),
 		Uid:         int32(raw.UidGid & 0xFFFFFFFF),
 		Gid:         int32(raw.UidGid >> 32),
+		ContainerID: containerResolver.Resolve(raw.CgroupID),
 		Host:        host,
 		MessageType: raw.MessageType,
 		JSONRPC:     mcp.JSONRPC,
@@ -351,7 +368,7 @@ func (gc *GatewayClient) sendEvents(ctx context.Context, endpoint string, events
 		log.Error().Err(err).Msg("failed to send HTTP request")
 		return
 	}
-	respMessage, err := ReadCloserToBytes(resp.Body)
+	respMessage, err := tool.ReadCloserToBytes(resp.Body)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to read error response body")
 		respMessage = []byte("unknown error")

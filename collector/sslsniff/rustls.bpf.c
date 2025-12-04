@@ -52,10 +52,11 @@ int probe_rustls_tokio_poll_read_exit(struct pt_regs *ctx) {
     if (info == NULL)
         return 0;
 
-    u64 now      = bpf_ktime_get_ns();
-    u64 uid_gid  = bpf_get_current_uid_gid();
-    u64 buf_addr = 0;
-    u64 filled   = 0;
+    u64 now       = bpf_ktime_get_ns();
+    u64 uid_gid   = bpf_get_current_uid_gid();
+    u64 cgroup_id = bpf_get_current_cgroup_id();
+    u64 buf_addr  = 0;
+    u64 filled    = 0;
 
     if (bpf_probe_read_user(&buf_addr, sizeof(buf_addr), (void *)info->buf_addr) != 0)
         goto cleanup;
@@ -80,6 +81,7 @@ int probe_rustls_tokio_poll_read_exit(struct pt_regs *ctx) {
 
         evt->pid_tgid     = key;
         evt->uid_gid      = uid_gid;
+        evt->cgroup_id    = cgroup_id;
         evt->ssl_ptr      = info->ssl_ptr;
         evt->timestamp_ns = now;
         evt->req_len      = total_len;
@@ -110,6 +112,7 @@ int probe_rustls_tokio_poll_write_entry(struct pt_regs *ctx) {
     u64 total_len = len;
     u64 pid_tgid  = bpf_get_current_pid_tgid();
     u64 uid_gid   = bpf_get_current_uid_gid();
+    u64 cgroup_id = bpf_get_current_cgroup_id();
     u64 now       = bpf_ktime_get_ns();
     void *buf     = (void *)buf_addr;
 
@@ -128,6 +131,7 @@ int probe_rustls_tokio_poll_write_entry(struct pt_regs *ctx) {
 
         evt->pid_tgid     = pid_tgid;
         evt->uid_gid      = uid_gid;
+        evt->cgroup_id    = cgroup_id;
         evt->ssl_ptr      = ssl_ptr;
         evt->timestamp_ns = now;
         evt->req_len      = total_len;

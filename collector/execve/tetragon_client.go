@@ -1,4 +1,4 @@
-package collector
+package execve
 
 import (
 	"context"
@@ -13,16 +13,18 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+
+	"github.com/tensorchord/watchu/collector"
 )
 
 type TetragonClient struct {
 	conn          *grpc.ClientConn
 	client        tetragon.FineGuidanceSensorsClient
-	gatewayClient *GatewayClient
-	channel       chan *RawExec
+	gatewayClient *collector.GatewayClient
+	channel       chan *collector.RawExec
 }
 
-func NewTetragonClient(socketPath string, gatewayClient *GatewayClient) (*TetragonClient, error) {
+func NewTetragonClient(socketPath string, gatewayClient *collector.GatewayClient) (*TetragonClient, error) {
 	conn, err := grpc.NewClient(socketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial: %w", err)
@@ -34,7 +36,7 @@ func NewTetragonClient(socketPath string, gatewayClient *GatewayClient) (*Tetrag
 		conn:          conn,
 		client:        client,
 		gatewayClient: gatewayClient,
-		channel:       make(chan *RawExec, GatewayChannelSize),
+		channel:       make(chan *collector.RawExec, collector.GatewayChannelSize),
 	}, nil
 }
 
@@ -95,7 +97,7 @@ func (tc *TetragonClient) Run(ctx context.Context) {
 				if pp != nil && pp.Pid != nil {
 					ppid = pp.Pid.Value
 				}
-				tc.channel <- &RawExec{
+				tc.channel <- &collector.RawExec{
 					Timestamp: exec.Process.StartTime.AsTime(),
 					Pid:       exec.Process.Pid.Value,
 					PPid:      ppid,
@@ -104,6 +106,7 @@ func (tc *TetragonClient) Run(ctx context.Context) {
 					Cwd:       exec.Process.Cwd,
 					Comm:      exec.Process.Binary,
 					Args:      exec.Process.Arguments,
+					Docker:    exec.Process.Docker,
 				}
 			}
 		}

@@ -58,6 +58,7 @@ struct event {
     u64 pid_tgid;
     u64 uid_gid;
     u64 req_len;
+    u64 cgroup_id;
     u64 data_len;
     u64 fd;
     u8 rw; // rwx: 4 read, 2 write
@@ -143,6 +144,7 @@ int tracepoint_exit_read(struct exit_ctx *ctx) {
     evt->timestamp_ns = bpf_ktime_get_ns();
     evt->pid_tgid     = pid_tgid;
     evt->uid_gid      = bpf_get_current_uid_gid();
+    evt->cgroup_id    = bpf_get_current_cgroup_id();
     evt->req_len      = read->count;
     evt->data_len     = length;
     evt->fd           = read->fd;
@@ -182,6 +184,7 @@ int tracepoint_enter_write(struct enter_ctx *ctx) {
     evt->timestamp_ns = bpf_ktime_get_ns();
     evt->pid_tgid     = pid_tgid;
     evt->uid_gid      = bpf_get_current_uid_gid();
+    evt->cgroup_id    = bpf_get_current_cgroup_id();
     evt->req_len      = ctx->count;
     evt->data_len     = length;
     evt->fd           = ctx->fd;

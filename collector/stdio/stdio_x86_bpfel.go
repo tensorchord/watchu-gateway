@@ -19,6 +19,7 @@ type stdioEvent struct {
 	PidTgid     uint64
 	UidGid      uint64
 	ReqLen      uint64
+	CgroupId    uint64
 	DataLen     uint64
 	Fd          uint64
 	Rw          uint8

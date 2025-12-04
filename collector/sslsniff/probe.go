@@ -19,6 +19,7 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/tensorchord/watchu/collector"
+	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 ssl ssl.bpf.c -- -I../headers
@@ -288,10 +289,11 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 						Uint64("req_len", event.ReqLen).
 						Uint64("pid_tgid", event.PidTgid).
 						Uint64("uid_gid", event.UidGid).
+						Uint64("cgroup_id", event.CgroupId).
 						Uint64("*SSL", event.SslPtr).
 						Uint64("data_len", event.DataLen).
 						Uint8("rw", event.Rw).
-						Str("comm", collector.CharsToString(event.Comm[:])).
+						Str("comm", tool.CharsToString(event.Comm[:])).
 						Str("data", data).
 						Str("protocol", protocol).
 						Msg("HTTP event")
@@ -313,14 +315,14 @@ func (sp *SSLProbe) Close() {
 			log.Error().Err(err).Msg("failed to close rustls objects")
 		}
 	}
-	close(sp.reqChan)
-	close(sp.respChan)
 	for i, rb := range sp.rbs {
 		err = rb.Close()
 		if err != nil {
 			log.Error().Int("index", i).Err(err).Msg("failed to close ssl ringbuf reader")
 		}
 	}
+	close(sp.reqChan)
+	close(sp.respChan)
 	for i, l := range sp.links {
 		err = l.Close()
 		if err != nil {

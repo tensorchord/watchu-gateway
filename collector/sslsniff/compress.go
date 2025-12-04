@@ -8,7 +8,7 @@ import (
 
 	"github.com/phuslu/log"
 
-	"github.com/tensorchord/watchu/collector"
+	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
 const (
@@ -18,7 +18,7 @@ const (
 
 func readDecodeBytes(body io.ReadCloser, encoding string) ([]byte, error) {
 	if len(encoding) == 0 {
-		return collector.ReadCloserToBytes(body)
+		return tool.ReadCloserToBytes(body)
 	}
 	var reader io.ReadCloser
 	var err error
@@ -41,5 +41,5 @@ func readDecodeBytes(body io.ReadCloser, encoding string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return collector.ReadCloserToBytes(reader)
+	return tool.ReadCloserToBytes(reader)
 }

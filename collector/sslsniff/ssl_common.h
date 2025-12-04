@@ -10,6 +10,7 @@ struct event {
     u64 timestamp_ns;
     u64 pid_tgid;
     u64 uid_gid;
+    u64 cgroup_id;
     u64 ssl_ptr;
     u64 req_len;
     u64 data_len;

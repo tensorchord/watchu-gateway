@@ -24,6 +24,7 @@ import (
 	"golang.org/x/net/http2/hpack"
 
 	"github.com/tensorchord/watchu/collector"
+	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
 const (
@@ -155,9 +156,10 @@ func isHTTP2Protocol(buf []uint8) bool {
 }
 
 type SSLKey struct {
-	PidTgid uint64
-	UidGid  uint64
-	SslPtr  uint64
+	PidTgid  uint64
+	UidGid   uint64
+	SSLPtr   uint64
+	CgroupID uint64
 }
 
 type EventInfo struct {
@@ -200,9 +202,10 @@ func NewSSLStore() *SSLStore {
 
 func (s *SSLStore) Add(event *sslEvent) {
 	key := SSLKey{
-		PidTgid: event.PidTgid,
-		UidGid:  event.UidGid,
-		SslPtr:  event.SslPtr,
+		PidTgid:  event.PidTgid,
+		UidGid:   event.UidGid,
+		SSLPtr:   event.SslPtr,
+		CgroupID: event.CgroupId,
 	}
 	info := &EventInfo{
 		TimestampNs: event.TimestampNs,
@@ -258,7 +261,7 @@ func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 		truncated := false
 		if consumed == len(record.Stream) {
 			timestamp = record.Info[len(record.Info)-1].TimestampNs
-			comm = collector.CharsToString(record.Info[len(record.Info)-1].Comm[:])
+			comm = tool.CharsToString(record.Info[len(record.Info)-1].Comm[:])
 			delete(s.Request, key)
 		} else {
 			if consumed >= SSL_MAX_DATA_SIZE {
@@ -284,7 +287,7 @@ func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 				}
 			}
 			timestamp = record.Info[last].TimestampNs
-			comm = collector.CharsToString(record.Info[last].Comm[:])
+			comm = tool.CharsToString(record.Info[last].Comm[:])
 			// keep the unparsed info
 			record.Info = record.Info[index:]
 		}
@@ -309,6 +312,7 @@ func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 			ElapsedNs:     timestamp,
 			PidTid:        key.PidTgid,
 			UidGid:        key.UidGid,
+			CgroupID:      key.CgroupID,
 			Comm:          comm,
 			Method:        request.Method,
 			URL:           url,
@@ -349,7 +353,7 @@ func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 			var comm string
 			if consumed == len(record.Stream) && record.EndOfStream {
 				timestamp = record.Info[len(record.Info)-1].TimestampNs
-				comm = collector.CharsToString(record.Info[len(record.Info)-1].Comm[:])
+				comm = tool.CharsToString(record.Info[len(record.Info)-1].Comm[:])
 				delete(s.Response, key)
 			} else {
 				// response won't exceed the max size, see github issue #17
@@ -378,7 +382,7 @@ func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 					}
 				}
 				timestamp = record.Info[last].TimestampNs
-				comm = collector.CharsToString(record.Info[last].Comm[:])
+				comm = tool.CharsToString(record.Info[last].Comm[:])
 				// keep the unparsed info
 				record.Info = record.Info[index:]
 			}
@@ -400,6 +404,7 @@ func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 					ElapsedNs:     timestamp,
 					PidTid:        key.PidTgid,
 					UidGid:        key.UidGid,
+					CgroupID:      key.CgroupID,
 					Comm:          comm,
 					StatusCode:    response.StatusCode,
 					ContentLength: response.ContentLength,

@@ -84,6 +84,21 @@ WITH stdio_enriched AS (
       ON l.host = s.host
      AND l.pid = s.pid
      AND s.timestamp BETWEEN l.start_ts AND (l.end_ts + analyze_idle_timeout())
+),
+http_enriched AS (
+    SELECT
+        phe.host,
+        phe.timestamp,
+        phe.pid,
+        phe.exec_id,
+        phe.root_exec_id,
+        phe.root_pid,
+        phe.http_type,
+        phe.headers,
+        phe.http_id,
+        safe_json_from_bytea(phe.body) AS body_json
+    FROM process_http_events phe
+    WHERE phe.is_mcp_http
 )
 SELECT
     'http' AS transport,
@@ -94,15 +109,14 @@ SELECT
     root_exec_id,
     root_pid,
     CASE WHEN http_type = 'request' THEN 'request' ELSE 'response' END AS message_type,
-    headers->>'jsonrpc' AS jsonrpc,
-    COALESCE(headers->>'method', headers->>':method') AS method,
+    COALESCE(body_json->>'jsonrpc', headers->>'jsonrpc') AS jsonrpc,
+    COALESCE(body_json->>'method', headers->>'method', headers->>':method') AS method,
     headers AS raw,
-    NULL::jsonb AS params,
-    NULL::jsonb AS result,
-    NULL::jsonb AS error,
-    http_id::text AS corr_id
-FROM process_http_events
-WHERE is_mcp_http
+    body_json->'params' AS params,
+    body_json->'result' AS result,
+    body_json->'error' AS error,
+    COALESCE(body_json->>'id', headers->>'x-mcp-id', http_id::text) AS corr_id
+FROM http_enriched
 UNION ALL
 SELECT
     'stdio' AS transport,

@@ -137,10 +137,16 @@ func (s *Scheduler) runAnalysis(ctx context.Context, host string) error {
 	if err := s.populateProcessHTTP(ctx, tx, host, windowSince, until); err != nil {
 		return err
 	}
+	if err := s.populateLLMHTTP(ctx, tx, host, windowSince, until); err != nil {
+		return err
+	}
 	if err := s.populateCorrelationSummary(ctx, tx, host, windowSince, until); err != nil {
 		return err
 	}
 	if err := s.populateHeuristicAlerts(ctx, tx, host, windowSince, until); err != nil {
+		return err
+	}
+	if err := s.populateAgentHierarchy(ctx, tx, host, windowSince, until); err != nil {
 		return err
 	}
 
@@ -325,6 +331,11 @@ func (s *Scheduler) refreshProcessLifecycle(ctx context.Context, tx pgx.Tx, host
 	return err
 }
 
+func (s *Scheduler) populateLLMHTTP(ctx context.Context, tx pgx.Tx, host string, since, until time.Time) error {
+	_, err := tx.Exec(ctx, `SELECT populate_llm_http_events($1, $2, $3)`, host, since, until)
+	return err
+}
+
 func (s *Scheduler) populateCorrelationSummary(ctx context.Context, tx pgx.Tx, host string, since, until time.Time) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO correlation_summary (
@@ -412,6 +423,11 @@ func (s *Scheduler) populateHeuristicAlerts(ctx context.Context, tx pgx.Tx, host
 			root_pid = EXCLUDED.root_pid,
 			details = EXCLUDED.details;
 	`, host, since, until)
+	return err
+}
+
+func (s *Scheduler) populateAgentHierarchy(ctx context.Context, tx pgx.Tx, host string, since, until time.Time) error {
+	_, err := tx.Exec(ctx, `SELECT upsert_agent_hierarchy($1, $2, $3)`, host, since, until)
 	return err
 }
 

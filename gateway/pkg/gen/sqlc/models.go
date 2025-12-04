@@ -114,10 +114,10 @@ type McpEventsNormalized struct {
 	Jsonrpc     interface{}
 	Method      interface{}
 	Raw         []byte
-	Params      []byte
-	Result      []byte
-	Error       []byte
-	CorrID      string
+	Params      interface{}
+	Result      interface{}
+	Error       interface{}
+	CorrID      interface{}
 }
 
 type McpStdioEvent struct {

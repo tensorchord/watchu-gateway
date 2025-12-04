@@ -33,6 +33,28 @@ The service stores raw telemetry and analysis results in PostgreSQL. Core tables
 - `http_request` / `http_response`: HTTP lineage captured from agents. UUIDv7 primary keys, JSONB headers, optional body payloads.
 - `exec_events`: Process execution lineage with UUIDv7 identifiers.
 - `process_http_events`, `correlation_summaries`, `heuristic_alerts`: Analysis outputs materialized by the incremental scheduler.
+- `mcp_stdio_event` + `mcp_events_normalized`: Unified MCP capture (HTTP + STDIO) that feeds trace derivations.
+- `llm_http_event` + `llm_tool_call_event`: Provider-agnostic cache of normalized LLM calls (keyed by `http_response_id` and the matched `http_request_id`) and any nested tool invocations lifted out of HTTP responses.
+
+The SQL helper `populate_llm_http_events(host, since, until)` decodes Gemini and Claude-style JSON payloads out of `response_lineage`, attaches the originating `http_request_id`, writes the normalized rows above, and ensures any embedded usage counters (token counts, durations, etc.) are preserved for downstream trace generation.
+
+### Agent & Trace Hierarchy
+
+Version 0.3.0 introduces end-to-end storage for higher-level Agent observability:
+
+- `agent_run`: Anchors each root process tree (`host + root_exec_id`) with provider hints and lifecycle timestamps.
+- `trace`: Represents derived work units (`llm_call`, `tool_use`, `mcp_call`, `command_exec`, etc.) linked to an `agent_run` with optional parent/child relationships. Rows now include a `phase` (`default`, `request`, `response`) so request/response pairs for the same `external_id` can coexist instead of overwriting one another.
+- `resource_usage`: Key/value style metrics (tokens, duration, tool counts) associated with individual traces.
+
+The database ships with `upsert_agent_hierarchy(host, since, until)` which merges new exec + MCP evidence into the hierarchy. LLM calls and tool invocations are stitched in by correlating `llm_http_event` / `llm_tool_call_event` rows against the owning `agent_run`, emitting additional `trace(trace_type='llm_call')` and `trace(trace_type='tool_use')` records plus `resource_usage` metrics (input/output/total tokens) whenever providers report usage.
+
+The incremental scheduler now runs the following order every tick:
+
+1. `populate_process_http_events`
+2. `populate_llm_http_events` (new)
+3. `populate_correlation_summary`
+4. `populate_heuristic_alerts`
+5. `upsert_agent_hierarchy`
 
 Schema definitions live under `db/migrations` (Atlas migrations) and `db/sqlc/schema`. Queries used by handlers live in `db/sqlc/queries`.
 

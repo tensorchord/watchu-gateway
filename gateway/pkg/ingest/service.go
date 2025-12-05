@@ -101,5 +101,34 @@ func (s *Service) IngestExecEvents(ctx context.Context, events []ExecEvent) erro
 	return err
 }
 
+// IngestMCPSTDIOEvents copies STDIO-based MCP JSON-RPC events into storage.
+func (s *Service) IngestMCPSTDIOEvents(ctx context.Context, events []MCPSTDIOEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	rows := make([][]any, len(events))
+	for i, event := range events {
+		rows[i] = []any{
+			event.Timestamp,
+			event.PID,
+			event.TID,
+			event.UID,
+			event.GID,
+			event.Host,
+			event.MessageType,
+			event.JsonRPC,
+			event.Method,
+			event.Params,
+			event.Result,
+			event.Error,
+			event.CorrID,
+		}
+	}
+
+	_, err := s.pool.CopyFrom(ctx, pgx.Identifier{"mcp_stdio_event"}, mcpSTDIOEventCols, pgx.CopyFromRows(rows))
+	return err
+}
+
 // ContentLength is now a value type (int64); unknown length should be
 // represented by -1 following net/http semantics and stored as such.

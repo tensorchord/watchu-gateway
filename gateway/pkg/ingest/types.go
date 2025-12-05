@@ -52,3 +52,20 @@ type ExecEvent struct {
 	Args      string    `json:"args" binding:"required" db:"args"`
 	Host      string    `json:"host" binding:"required" db:"host"`
 }
+
+// MCPSTDIOEvent captures MCP JSON-RPC traffic emitted over STDIO transports.
+type MCPSTDIOEvent struct {
+	Timestamp   time.Time       `json:"timestamp" binding:"required" db:"timestamp"`
+	PID         int32           `json:"pid" binding:"required" db:"pid"`
+	TID         int32           `json:"tid" binding:"required" db:"tid"`
+	UID         int32           `json:"uid" binding:"required" db:"uid"`
+	GID         int32           `json:"gid" binding:"required" db:"gid"`
+	Host        string          `json:"host" binding:"required" db:"host"`
+	MessageType string          `json:"message_type" binding:"required,oneof=request response notification" db:"message_type"`
+	JsonRPC     string          `json:"jsonrpc" db:"jsonrpc"`
+	Method      string          `json:"method" db:"method"`
+	Params      json.RawMessage `json:"params" db:"params"`
+	Result      json.RawMessage `json:"result" db:"result"`
+	Error       json.RawMessage `json:"error" db:"error"`
+	CorrID      string          `json:"corr_id" db:"corr_id"`
+}

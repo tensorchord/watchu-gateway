@@ -117,7 +117,7 @@ func (s *Service) IngestMCPSTDIOEvents(ctx context.Context, events []MCPSTDIOEve
 			event.GID,
 			event.Host,
 			event.MessageType,
-			event.JsonRPC,
+			event.JSONRPC,
 			event.Method,
 			event.Params,
 			event.Result,

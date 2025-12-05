@@ -21,9 +21,15 @@ services:
     build: .
     environment:
       DATABASE_URL: postgres://watchu:watchu@db:5432/watchu?sslmode=disable
-      PROMPT_INJECTION_ENABLED: false
+      PROMPT_INJECTION_ENABLED: true
+      PROMPT_INJECTION_API_BASE: ${PROMPT_INJECTION_API_BASE} 
+      PROMPT_INJECTION_API_KEY: ${PROMPT_INJECTION_API_KEY} 
+      PROMPT_INJECTION_MODEL: ${PROMPT_INJECTION_MODEL} 
+      PROMPT_INJECTION_MODE: ${PROMPT_INJECTION_MODE} 
     ports:
       - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy

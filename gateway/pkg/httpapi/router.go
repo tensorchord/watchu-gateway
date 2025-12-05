@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -21,6 +22,12 @@ type Dependencies struct {
 	Ingest  *ingest.Service
 	Queries *sqlc.Queries
 	Pool    *pgxpool.Pool
+	Prompt  PromptReadiness
+}
+
+// PromptReadiness exposes readiness for prompt injection integrations.
+type PromptReadiness interface {
+	Ready(ctx context.Context) error
 }
 
 // NewRouter returns a Gin engine with registered routes based on dependencies.
@@ -39,7 +46,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	engine.Use(cors.New(corsConfig))
 
 	docs.SwaggerInfo.BasePath = "/"
-	registerHealth(engine, deps.Pool)
+	registerHealth(engine, deps.Pool, deps.Prompt)
 	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	swaggerHandler := ginSwagger.WrapHandler(swaggerFiles.Handler)
 	engine.GET("/swagger/*any", func(c *gin.Context) {

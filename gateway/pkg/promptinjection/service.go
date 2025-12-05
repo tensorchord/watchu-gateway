@@ -125,6 +125,14 @@ func (s *Service) Enabled() bool {
 	return s != nil && s.opts.Enabled && s.client != nil && s.queries != nil
 }
 
+// Ready reports whether downstream dependencies (like the LLM endpoint) are reachable.
+func (s *Service) Ready(ctx context.Context) error {
+	if s == nil || !s.Enabled() {
+		return nil
+	}
+	return s.client.Ping(ctx)
+}
+
 // Run evaluates prompts for the requested host within the supplied window.
 func (s *Service) Run(ctx context.Context, host string, since, until time.Time) error {
 	if !s.Enabled() {

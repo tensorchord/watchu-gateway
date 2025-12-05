@@ -1,19 +1,31 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func registerHealth(engine *gin.Engine, pool *pgxpool.Pool) {
+const promptReadyTimeout = 5 * time.Second
+
+func registerHealth(engine *gin.Engine, pool *pgxpool.Pool, prompt PromptReadiness) {
 	engine.GET("/healthz", health)
 	// ready depends on external deps; check DB if available.
 	engine.GET("/readyz", func(c *gin.Context) {
 		if pool != nil {
 			if err := pool.Ping(c.Request.Context()); err != nil {
 				c.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "database not ready"})
+				return
+			}
+		}
+		if prompt != nil {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), promptReadyTimeout)
+			defer cancel()
+			if err := prompt.Ready(ctx); err != nil {
+				c.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "prompt detection not ready"})
 				return
 			}
 		}

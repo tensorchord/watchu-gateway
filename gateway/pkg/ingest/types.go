@@ -62,7 +62,7 @@ type MCPSTDIOEvent struct {
 	GID         int32           `json:"gid" binding:"required" db:"gid"`
 	Host        string          `json:"host" binding:"required" db:"host"`
 	MessageType string          `json:"message_type" binding:"required,oneof=request response notification" db:"message_type"`
-	JsonRPC     string          `json:"jsonrpc" db:"jsonrpc"`
+	JSONRPC     string          `json:"jsonrpc" db:"jsonrpc"`
 	Method      string          `json:"method" db:"method"`
 	Params      json.RawMessage `json:"params" db:"params"`
 	Result      json.RawMessage `json:"result" db:"result"`

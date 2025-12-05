@@ -55,7 +55,7 @@ func Load() (Config, error) {
 		PromptInjectionEnabled:      parseBoolEnv("PROMPT_INJECTION_ENABLED", true),
 		PromptInjectionAPIBase:      getEnv("PROMPT_INJECTION_API_BASE", "https://api.openai.com/v1"),
 		PromptInjectionAPIKey:       os.Getenv("PROMPT_INJECTION_API_KEY"),
-		PromptInjectionModel:        getEnv("PROMPT_INJECTION_MODEL", "gpt-4o-mini"),
+		PromptInjectionModel:        getEnv("PROMPT_INJECTION_MODEL", "gpt-4o"),
 		PromptInjectionMode:         strings.ToLower(getEnv("PROMPT_INJECTION_MODE", "prompt_based")),
 		PromptInjectionTimeout:      parseDurationEnv("PROMPT_INJECTION_TIMEOUT", 15*time.Second),
 		PromptInjectionBatchSize:    parseIntEnv("PROMPT_INJECTION_BATCH_SIZE", 10),

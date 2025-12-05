@@ -59,6 +59,7 @@ func main() {
 		Ingest:  ingestService,
 		Queries: queries,
 		Pool:    pool,
+		Prompt:  promptSvc,
 	})
 	srv := server.New(cfg.Address, router)
 

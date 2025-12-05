@@ -90,7 +90,10 @@ Schema definitions live under `db/migrations` (Atlas migrations) and `db/sqlc/sc
        make compose-up
        ```
        Stop with `make compose-down`.
-    - When running under Docker, PostgreSQL 18+ stores data under `/var/lib/postgresql`; remove existing `pgdata` volumes if you previously mounted `/var/lib/postgresql/data`. The schema bootstraps from `db/migrations` via `/docker-entrypoint-initdb.d`, so drop the volume (`docker compose down -v`) whenever you change migrations.
+    - After editing migrations, reapply them against your local database with Atlas instead of remounting volumes:
+       ```bash
+       atlas migrate apply --dir "file://db/migrations" --url "postgres://watchu:watchu@localhost:5432/watchu?sslmode=disable"
+       ```
 
 6. **Analysis Scheduler**
    Configure via environment variables (`ANALYSIS_*`). Disable by leaving `ANALYSIS_ENABLED` unset or `false`.

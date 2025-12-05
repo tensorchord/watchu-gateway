@@ -88,6 +88,29 @@ func (c *Client) Detect(ctx context.Context, model, prompt string) (string, erro
 	return parsed.Choices[0].Message.Content, nil
 }
 
+// Ping verifies the chat API endpoint is reachable.
+func (c *Client) Ping(ctx context.Context) error {
+	if c == nil {
+		return fmt.Errorf("prompt injection client not configured")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.baseURL, nil)
+	if err != nil {
+		return err
+	}
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= http.StatusInternalServerError {
+		return fmt.Errorf("prompt injection API ping failed: %d", resp.StatusCode)
+	}
+	return nil
+}
+
 type chatRequest struct {
 	Model       string        `json:"model"`
 	Messages    []chatMessage `json:"messages"`

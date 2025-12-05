@@ -1,5 +1,11 @@
 -- Agent hierarchy schema, LLM normalization, and upsert routine.
 
+-- Ensure container metadata columns exist on ingest tables.
+ALTER TABLE http_request ADD COLUMN IF NOT EXISTS container_id TEXT;
+ALTER TABLE http_response ADD COLUMN IF NOT EXISTS container_id TEXT;
+ALTER TABLE exec_events ADD COLUMN IF NOT EXISTS container_id TEXT;
+ALTER TABLE mcp_stdio_event ADD COLUMN IF NOT EXISTS container_id TEXT;
+
 CREATE OR REPLACE FUNCTION safe_text_from_bytea(p_body BYTEA)
 RETURNS TEXT LANGUAGE plpgsql IMMUTABLE AS $$
 DECLARE

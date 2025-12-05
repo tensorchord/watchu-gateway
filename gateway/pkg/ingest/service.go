@@ -40,6 +40,7 @@ func (s *Service) IngestHTTPRequests(ctx context.Context, events []HTTPRequestEv
 			event.Body,
 			event.Truncated,
 			event.Host,
+			event.ContainerID,
 		}
 	}
 
@@ -69,6 +70,7 @@ func (s *Service) IngestHTTPResponses(ctx context.Context, events []HTTPResponse
 			event.Body,
 			event.Truncated,
 			event.Host,
+			event.ContainerID,
 		}
 	}
 
@@ -94,6 +96,7 @@ func (s *Service) IngestExecEvents(ctx context.Context, events []ExecEvent) erro
 			event.Comm,
 			event.Args,
 			event.Host,
+			event.ContainerID,
 		}
 	}
 
@@ -123,6 +126,7 @@ func (s *Service) IngestMCPSTDIOEvents(ctx context.Context, events []MCPSTDIOEve
 			event.Result,
 			event.Error,
 			event.CorrID,
+			event.ContainerID,
 		}
 	}
 

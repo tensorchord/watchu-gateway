@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS http_request (
     headers JSONB,
     body BYTEA,
     truncated BOOLEAN NOT NULL,
-    host TEXT NOT NULL
+    host TEXT NOT NULL,
+    container_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS http_response (
@@ -30,7 +31,8 @@ CREATE TABLE IF NOT EXISTS http_response (
     headers JSONB,
     body BYTEA,
     truncated BOOLEAN NOT NULL,
-    host TEXT NOT NULL
+    host TEXT NOT NULL,
+    container_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS exec_events (
@@ -43,7 +45,8 @@ CREATE TABLE IF NOT EXISTS exec_events (
     cwd TEXT NOT NULL,
     comm TEXT NOT NULL,
     args TEXT NOT NULL,
-    host TEXT NOT NULL
+    host TEXT NOT NULL,
+    container_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS mcp_stdio_event (
@@ -60,7 +63,8 @@ CREATE TABLE IF NOT EXISTS mcp_stdio_event (
     params JSONB,
     result JSONB,
     error JSONB,
-    corr_id TEXT
+    corr_id TEXT,
+    container_id TEXT
 );
 
 CREATE VIEW mcp_events_normalized AS

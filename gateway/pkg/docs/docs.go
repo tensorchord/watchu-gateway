@@ -815,6 +815,9 @@ const docTemplate = `{
                 "comm": {
                     "type": "string"
                 },
+                "container_id": {
+                    "type": "string"
+                },
                 "cwd": {
                     "type": "string"
                 },
@@ -860,6 +863,9 @@ const docTemplate = `{
                     }
                 },
                 "comm": {
+                    "type": "string"
+                },
+                "container_id": {
                     "type": "string"
                 },
                 "content_length": {
@@ -926,6 +932,9 @@ const docTemplate = `{
                 "comm": {
                     "type": "string"
                 },
+                "container_id": {
+                    "type": "string"
+                },
                 "content_length": {
                     "type": "integer"
                 },
@@ -976,6 +985,9 @@ const docTemplate = `{
                 "uid"
             ],
             "properties": {
+                "container_id": {
+                    "type": "string"
+                },
                 "corr_id": {
                     "type": "string"
                 },

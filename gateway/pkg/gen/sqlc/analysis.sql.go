@@ -38,9 +38,27 @@ type GetHTTPRequestByHostAndIDParams struct {
 	ID   pgtype.UUID
 }
 
-func (q *Queries) GetHTTPRequestByHostAndID(ctx context.Context, arg GetHTTPRequestByHostAndIDParams) (HttpRequest, error) {
+type GetHTTPRequestByHostAndIDRow struct {
+	ID            pgtype.UUID
+	Timestamp     pgtype.Timestamptz
+	Pid           int32
+	Tid           int32
+	Uid           int32
+	Gid           int32
+	Comm          string
+	Method        string
+	ContentLength pgtype.Int8
+	Url           string
+	Protocol      string
+	Headers       []byte
+	Body          []byte
+	Truncated     bool
+	Host          string
+}
+
+func (q *Queries) GetHTTPRequestByHostAndID(ctx context.Context, arg GetHTTPRequestByHostAndIDParams) (GetHTTPRequestByHostAndIDRow, error) {
 	row := q.db.QueryRow(ctx, getHTTPRequestByHostAndID, arg.Host, arg.ID)
-	var i HttpRequest
+	var i GetHTTPRequestByHostAndIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.Timestamp,

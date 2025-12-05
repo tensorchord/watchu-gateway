@@ -5,6 +5,8 @@ definitions:
         type: string
       comm:
         type: string
+      container_id:
+        type: string
       cwd:
         type: string
       exec_id:
@@ -37,6 +39,8 @@ definitions:
           type: integer
         type: array
       comm:
+        type: string
+      container_id:
         type: string
       content_length:
         type: integer
@@ -84,6 +88,8 @@ definitions:
         type: array
       comm:
         type: string
+      container_id:
+        type: string
       content_length:
         type: integer
       gid:
@@ -121,6 +127,8 @@ definitions:
     type: object
   github_com_tensorchord_watchu_gateway_pkg_ingest.MCPSTDIOEvent:
     properties:
+      container_id:
+        type: string
       corr_id:
         type: string
       error:

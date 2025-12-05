@@ -45,16 +45,17 @@ type CorrelationSummary struct {
 }
 
 type ExecEvent struct {
-	ID        pgtype.UUID
-	Timestamp pgtype.Timestamptz
-	Pid       int32
-	Ppid      int32
-	ExecID    string
-	PExecID   string
-	Cwd       string
-	Comm      string
-	Args      string
-	Host      string
+	ID          pgtype.UUID
+	Timestamp   pgtype.Timestamptz
+	Pid         int32
+	Ppid        int32
+	ExecID      string
+	PExecID     string
+	Cwd         string
+	Comm        string
+	Args        string
+	Host        string
+	ContainerID pgtype.Text
 }
 
 type HeuristicAlert struct {
@@ -86,6 +87,7 @@ type HttpRequest struct {
 	Body          []byte
 	Truncated     bool
 	Host          string
+	ContainerID   pgtype.Text
 }
 
 type HttpResponse struct {
@@ -103,6 +105,7 @@ type HttpResponse struct {
 	Body          []byte
 	Truncated     bool
 	Host          string
+	ContainerID   pgtype.Text
 }
 
 type LlmHttpEvent struct {
@@ -183,6 +186,7 @@ type McpStdioEvent struct {
 	Result      []byte
 	Error       []byte
 	CorrID      pgtype.Text
+	ContainerID pgtype.Text
 }
 
 type ProcessHttpEvent struct {

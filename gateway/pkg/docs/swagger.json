@@ -804,6 +804,9 @@
                 "comm": {
                     "type": "string"
                 },
+                "container_id": {
+                    "type": "string"
+                },
                 "cwd": {
                     "type": "string"
                 },
@@ -849,6 +852,9 @@
                     }
                 },
                 "comm": {
+                    "type": "string"
+                },
+                "container_id": {
                     "type": "string"
                 },
                 "content_length": {
@@ -915,6 +921,9 @@
                 "comm": {
                     "type": "string"
                 },
+                "container_id": {
+                    "type": "string"
+                },
                 "content_length": {
                     "type": "integer"
                 },
@@ -965,6 +974,9 @@
                 "uid"
             ],
             "properties": {
+                "container_id": {
+                    "type": "string"
+                },
                 "corr_id": {
                     "type": "string"
                 },

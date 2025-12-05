@@ -77,6 +77,76 @@ CREATE TABLE IF NOT EXISTS process_lifecycle (
 );
 
 
+CREATE TABLE IF NOT EXISTS agent_run (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    host TEXT NOT NULL,
+    root_exec_id TEXT,
+    root_pid BIGINT,
+    provider TEXT,
+    started_at TIMESTAMPTZ NOT NULL,
+    ended_at TIMESTAMPTZ,
+    UNIQUE (host, root_exec_id)
+);
+
+CREATE TABLE IF NOT EXISTS trace (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    agent_run_id UUID NOT NULL REFERENCES agent_run(id) ON DELETE CASCADE,
+    parent_trace_id UUID REFERENCES trace(id) ON DELETE SET NULL,
+    trace_type TEXT NOT NULL,
+    source_table TEXT,
+    source_id UUID,
+    external_id TEXT,
+    model TEXT,
+    model_version TEXT,
+    started_at TIMESTAMPTZ,
+    ended_at TIMESTAMPTZ,
+    phase TEXT NOT NULL DEFAULT 'default',
+    UNIQUE (agent_run_id, trace_type, external_id, phase)
+);
+
+CREATE TABLE IF NOT EXISTS resource_usage (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    trace_id UUID NOT NULL REFERENCES trace(id) ON DELETE CASCADE,
+    metric TEXT NOT NULL,
+    value NUMERIC,
+    unit TEXT,
+    UNIQUE (trace_id, metric)
+);
+
+CREATE TABLE IF NOT EXISTS llm_http_event (
+    host TEXT NOT NULL,
+    http_response_id UUID NOT NULL,
+    http_request_id UUID,
+    response_key TEXT,
+    provider TEXT,
+    model TEXT,
+    model_version TEXT,
+    status TEXT,
+    corr_id TEXT,
+    prompt JSONB,
+    response JSONB,
+    usage JSONB,
+    raw_request TEXT,
+    raw_response TEXT,
+    started_at TIMESTAMPTZ,
+    ended_at TIMESTAMPTZ,
+    exec_id TEXT,
+    root_exec_id TEXT,
+    root_pid BIGINT,
+    PRIMARY KEY (host, http_response_id)
+);
+
+CREATE TABLE IF NOT EXISTS llm_tool_call_event (
+    host TEXT NOT NULL,
+    response_key TEXT NOT NULL,
+    tool_call_id TEXT NOT NULL,
+    name TEXT,
+    arguments JSONB,
+    provider TEXT,
+    PRIMARY KEY (host, response_key, tool_call_id)
+);
+
+
 
 CREATE TABLE IF NOT EXISTS security_analysis_results (
     id UUID PRIMARY KEY,
@@ -94,8 +164,29 @@ CREATE TABLE IF NOT EXISTS security_analysis_results (
 );
 
 CREATE TABLE IF NOT EXISTS llm_prompt_injection_results (
-    request_id UUID,
-    host VARCHAR,
-    severity_level VARCHAR,
-    categories VARCHAR
+    request_id UUID NOT NULL,
+    host TEXT NOT NULL,
+    severity_level TEXT NOT NULL,
+    categories TEXT,
+    trace_id UUID REFERENCES trace(id) ON DELETE SET NULL,
+    agent_run_id UUID REFERENCES agent_run(id) ON DELETE SET NULL,
+    prompt_hash TEXT,
+    score DOUBLE PRECISION,
+    model TEXT,
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    metadata JSONB,
+    PRIMARY KEY (host, request_id)
+);
+
+CREATE INDEX IF NOT EXISTS llm_prompt_injection_results_hash_idx
+    ON llm_prompt_injection_results(prompt_hash)
+    WHERE prompt_hash IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS prompt_injection_errors (
+    host TEXT NOT NULL,
+    request_id UUID NOT NULL,
+    last_error TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (host, request_id)
 );

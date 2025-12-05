@@ -16,6 +16,13 @@ func stringPtrFromText(v pgtype.Text) *string {
 	return &s
 }
 
+func stringPtr(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
 func int32PtrFromInt4(v pgtype.Int4) *int32 {
 	if !v.Valid {
 		return nil

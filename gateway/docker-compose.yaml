@@ -21,6 +21,7 @@ services:
     build: .
     environment:
       DATABASE_URL: postgres://watchu:watchu@db:5432/watchu?sslmode=disable
+      PROMPT_INJECTION_ENABLED: false
     ports:
       - "8080:8080"
     depends_on:

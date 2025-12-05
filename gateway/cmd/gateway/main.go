@@ -16,6 +16,7 @@ import (
 	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
 	"github.com/tensorchord/watchu/gateway/pkg/httpapi"
 	"github.com/tensorchord/watchu/gateway/pkg/ingest"
+	"github.com/tensorchord/watchu/gateway/pkg/promptinjection"
 	"github.com/tensorchord/watchu/gateway/pkg/server"
 )
 
@@ -39,6 +40,20 @@ func main() {
 
 	ingestService := ingest.NewService(pool)
 	queries := sqlc.New(pool)
+	promptSvc := promptinjection.NewService(queries, promptinjection.Options{
+		Enabled:         cfg.PromptInjectionEnabled,
+		APIBase:         cfg.PromptInjectionAPIBase,
+		APIKey:          cfg.PromptInjectionAPIKey,
+		Model:           cfg.PromptInjectionModel,
+		Mode:            cfg.PromptInjectionMode,
+		Timeout:         cfg.PromptInjectionTimeout,
+		BatchSize:       cfg.PromptInjectionBatchSize,
+		MaxRetries:      cfg.PromptInjectionMaxRetries,
+		SampleRate:      cfg.PromptInjectionSampleRate,
+		MaxQPS:          cfg.PromptInjectionMaxQPS,
+		MaxPromptLength: cfg.PromptInjectionMaxPromptLen,
+		StripToolCalls:  cfg.PromptInjectionStripTools,
+	}, slog.Default())
 
 	router := httpapi.NewRouter(httpapi.Dependencies{
 		Ingest:  ingestService,
@@ -51,7 +66,7 @@ func main() {
 	defer stop()
 
 	if cfg.AnalysisEnabled {
-		scheduler := analysis.NewScheduler(pool, cfg.AnalysisTickInterval, cfg.AnalysisLookback, cfg.AnalysisHorizon, cfg.AnalysisLag, slog.Default())
+		scheduler := analysis.NewScheduler(pool, cfg.AnalysisTickInterval, cfg.AnalysisLookback, cfg.AnalysisHorizon, cfg.AnalysisLag, promptSvc, slog.Default())
 		go scheduler.Run(ctx)
 	}
 

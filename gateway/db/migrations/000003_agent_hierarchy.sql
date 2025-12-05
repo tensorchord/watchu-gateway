@@ -242,6 +242,43 @@ CREATE TABLE IF NOT EXISTS llm_tool_call_event (
     PRIMARY KEY (host, response_key, tool_call_id)
 );
 
+-- Prompt injection schema extensions
+ALTER TABLE llm_prompt_injection_results
+    ADD COLUMN IF NOT EXISTS trace_id UUID REFERENCES trace(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS agent_run_id UUID REFERENCES agent_run(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS prompt_hash TEXT,
+    ADD COLUMN IF NOT EXISTS score DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS model TEXT,
+    ADD COLUMN IF NOT EXISTS detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS metadata JSONB;
+
+ALTER TABLE llm_prompt_injection_results
+    ALTER COLUMN request_id SET NOT NULL,
+    ALTER COLUMN host SET NOT NULL,
+    ALTER COLUMN severity_level SET NOT NULL;
+
+DO $$
+BEGIN
+    ALTER TABLE llm_prompt_injection_results
+        ADD CONSTRAINT llm_prompt_injection_results_pkey PRIMARY KEY (host, request_id);
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS llm_prompt_injection_results_hash_idx
+    ON llm_prompt_injection_results (prompt_hash)
+    WHERE prompt_hash IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS prompt_injection_errors (
+    host TEXT NOT NULL,
+    request_id UUID NOT NULL,
+    last_error TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (host, request_id)
+);
+
 CREATE OR REPLACE FUNCTION upsert_agent_hierarchy(
     p_host  TEXT,
     p_since TIMESTAMPTZ,
@@ -347,18 +384,39 @@ BEGIN
             ended_at,
             phase
         )
-        SELECT
-            r.agent_run_id,
-            'mcp_call',
-            'mcp_events_normalized',
-            NULL,
-            r.corr_id,
-            NULL,
-            NULL,
-            r.started_at,
-            r.ended_at,
-            'default'
-        FROM resolved r
+        SELECT *
+        FROM (
+            SELECT
+                r.agent_run_id,
+                'mcp_call'::text,
+                'mcp_events_normalized'::text,
+                NULL::uuid,
+                r.corr_id::text,
+                NULL::text,
+                NULL::text,
+                r.started_at,
+                r.started_at,
+                COALESCE(NULLIF(r.method, ''), 'default')
+            FROM resolved r
+            WHERE r.has_request
+            UNION ALL
+            SELECT
+                r.agent_run_id,
+                'mcp_call'::text,
+                'mcp_events_normalized'::text,
+                NULL::uuid,
+                r.corr_id::text,
+                NULL::text,
+                NULL::text,
+                r.ended_at,
+                r.ended_at,
+                CASE
+                    WHEN r.method IS NULL OR r.method = '' THEN 'default/response'
+                    ELSE r.method || '/response'
+                END
+            FROM resolved r
+            WHERE r.has_response
+        ) rows
         ON CONFLICT (agent_run_id, trace_type, external_id, phase) DO UPDATE
         SET started_at = LEAST(trace.started_at, EXCLUDED.started_at),
             ended_at = CASE
@@ -459,7 +517,7 @@ BEGIN
     ),
     llm_trace_requests AS (
         SELECT * FROM llm_trace_request_inserts
-        UNION ALL
+        UNION
         SELECT * FROM llm_trace_request_updates
     ),
     llm_trace_response_inserts AS (
@@ -512,7 +570,7 @@ BEGIN
     ),
     llm_trace_responses AS (
         SELECT * FROM llm_trace_response_inserts
-        UNION ALL
+        UNION
         SELECT * FROM llm_trace_response_updates
     ),
     llm_trace_join AS (
@@ -529,20 +587,28 @@ BEGIN
          AND lr.response_key = lt.response_key
     ),
     usage_rows AS (
-        SELECT
-            lt.id AS trace_id,
+        SELECT DISTINCT ON (trace_id, metric)
+            trace_id,
             metric,
             value,
             unit
-        FROM llm_trace_join lt
-        CROSS JOIN LATERAL (
-            VALUES
-                ('input_tokens', safe_numeric(COALESCE(lt.usage->>'promptTokenCount', lt.usage->>'input_tokens', lt.usage->>'prompt_tokens')), 'tokens'),
-                ('output_tokens', safe_numeric(COALESCE(lt.usage->>'candidatesTokenCount', lt.usage->>'output_tokens', lt.usage->>'completion_tokens')), 'tokens'),
-                ('total_tokens', safe_numeric(COALESCE(lt.usage->>'totalTokenCount', lt.usage->>'total_tokens')), 'tokens'),
-                ('cache_tokens', safe_numeric(COALESCE(lt.usage->>'cachedContentTokenCount', lt.usage->>'cache_read_input_tokens')), 'tokens')
-        ) AS u(metric, value, unit)
-        WHERE u.value IS NOT NULL
+        FROM (
+            SELECT
+                lt.id AS trace_id,
+                metric,
+                value,
+                unit
+            FROM llm_trace_join lt
+            CROSS JOIN LATERAL (
+                VALUES
+                    ('input_tokens', safe_numeric(COALESCE(lt.usage->>'promptTokenCount', lt.usage->>'input_tokens', lt.usage->>'prompt_tokens')), 'tokens'),
+                    ('output_tokens', safe_numeric(COALESCE(lt.usage->>'candidatesTokenCount', lt.usage->>'output_tokens', lt.usage->>'completion_tokens')), 'tokens'),
+                    ('total_tokens', safe_numeric(COALESCE(lt.usage->>'totalTokenCount', lt.usage->>'total_tokens')), 'tokens'),
+                    ('cached_input_tokens', safe_numeric(COALESCE(lt.usage->>'cachedContentTokenCount', lt.usage->>'cache_read_input_tokens')), 'tokens')
+            ) AS u(metric, value, unit)
+            WHERE u.value IS NOT NULL
+        ) dedup
+        ORDER BY trace_id, metric
     ),
     usage_upsert AS (
         INSERT INTO resource_usage(trace_id, metric, value, unit)
@@ -585,7 +651,22 @@ BEGIN
         JOIN llm_trace_responses lt
           ON lt.response_key = tc.response_key
     ),
-    tool_trace_inserts AS (
+    tool_resolved_dedup AS (
+        SELECT DISTINCT ON (tr.agent_run_id, tr.tool_call_id)
+            tr.*
+        FROM tool_resolved tr
+        ORDER BY tr.agent_run_id, tr.tool_call_id, tr.started_at DESC NULLS LAST
+    ),
+    tool_cleanup AS (
+        DELETE FROM trace t
+        USING tool_resolved_dedup tr
+        WHERE t.agent_run_id = tr.agent_run_id
+          AND t.trace_type = 'tool_use'
+          AND t.external_id = tr.tool_call_id
+          AND t.phase = 'default'
+        RETURNING 1
+    ),
+    tool_trace_start AS (
         INSERT INTO trace (
             agent_run_id,
             parent_trace_id,
@@ -609,41 +690,47 @@ BEGIN
             NULL,
             NULL,
             tr.started_at,
+            tr.started_at,
+            'start'
+        FROM tool_resolved_dedup tr
+        ON CONFLICT (agent_run_id, trace_type, external_id, phase) DO UPDATE
+        SET parent_trace_id = COALESCE(trace.parent_trace_id, EXCLUDED.parent_trace_id),
+            started_at = LEAST(COALESCE(trace.started_at, EXCLUDED.started_at), EXCLUDED.started_at),
+            ended_at = GREATEST(COALESCE(trace.ended_at, EXCLUDED.ended_at), EXCLUDED.ended_at)
+        RETURNING 1
+    ),
+    tool_trace_end AS (
+        INSERT INTO trace (
+            agent_run_id,
+            parent_trace_id,
+            trace_type,
+            source_table,
+            source_id,
+            external_id,
+            model,
+            model_version,
+            started_at,
+            ended_at,
+            phase
+        )
+        SELECT
+            tr.agent_run_id,
+            tr.parent_trace_id,
+            'tool_use',
+            'llm_tool_call_event',
+            NULL,
+            tr.tool_call_id,
+            NULL,
+            NULL,
             tr.ended_at,
-            'default'
-        FROM tool_resolved tr
-        ON CONFLICT (agent_run_id, trace_type, external_id, phase) DO NOTHING
-        RETURNING id
-    ),
-    tool_trace_updates AS (
-        UPDATE trace t
-        SET parent_trace_id = COALESCE(t.parent_trace_id, tr.parent_trace_id),
-            started_at     = LEAST(COALESCE(t.started_at, tr.started_at), tr.started_at),
-            ended_at       = GREATEST(COALESCE(t.ended_at, tr.ended_at), tr.ended_at)
-        FROM tool_resolved tr
-        WHERE t.agent_run_id = tr.agent_run_id
-          AND t.trace_type = 'tool_use'
-          AND t.external_id = tr.tool_call_id
-          AND t.phase = 'default'
-          AND NOT EXISTS (
-                SELECT 1
-                FROM tool_trace_inserts ins
-                WHERE ins.id = t.id
-            )
-        RETURNING t.id
-    ),
-    tool_trace_upserts AS (
-        SELECT * FROM tool_trace_inserts
-        UNION ALL
-        SELECT * FROM tool_trace_updates
-    ),
-    tool_trace_finalize AS (
-        UPDATE trace t
-                SET ended_at = GREATEST(COALESCE(t.ended_at, tr.ended_at), tr.ended_at)
-        FROM tool_resolved tr
-        WHERE t.agent_run_id = tr.agent_run_id
-          AND t.trace_type = 'tool_use'
-          AND t.external_id = tr.tool_call_id
+            tr.ended_at,
+            'end'
+        FROM tool_resolved_dedup tr
+        WHERE tr.ended_at IS NOT NULL
+        ON CONFLICT (agent_run_id, trace_type, external_id, phase) DO UPDATE
+        SET parent_trace_id = COALESCE(trace.parent_trace_id, EXCLUDED.parent_trace_id),
+            started_at = LEAST(COALESCE(trace.started_at, EXCLUDED.started_at), EXCLUDED.started_at),
+            ended_at = GREATEST(COALESCE(trace.ended_at, EXCLUDED.ended_at), EXCLUDED.ended_at)
         RETURNING 1
     ),
     llm_trace_request_count AS (

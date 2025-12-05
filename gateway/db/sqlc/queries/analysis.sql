@@ -100,12 +100,22 @@ SELECT
     res.host,
     res.severity_level,
     res.categories,
-    req.timestamp AS observed_at
+    res.score,
+    res.model,
+    res.detected_at,
+    res.trace_id,
+    res.agent_run_id,
+    res.prompt_hash,
+    res.metadata,
+    COALESCE(e.started_at, req.timestamp) AS observed_at
 FROM llm_prompt_injection_results AS res
+LEFT JOIN llm_http_event AS e
+  ON e.host = res.host
+ AND e.http_request_id = res.request_id
 LEFT JOIN http_request AS req
   ON req.id = res.request_id
 WHERE res.host = $1
-ORDER BY req.timestamp DESC NULLS LAST, res.request_id
+ORDER BY COALESCE(e.started_at, req.timestamp) DESC NULLS LAST, res.request_id
 LIMIT $2;
 
 -- name: GetHTTPRequestByHostAndID :one

@@ -11,30 +11,37 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type PromptEvaluator interface {
+	Enabled() bool
+	Run(ctx context.Context, host string, since, until time.Time) error
+}
+
 // Scheduler periodically drives incremental analysis in the database.
 type Scheduler struct {
-	pool     *pgxpool.Pool
-	interval time.Duration
-	lookback time.Duration
-	horizon  time.Duration
-	lag      time.Duration
-	logger   *slog.Logger
-	now      func() time.Time
+	pool       *pgxpool.Pool
+	interval   time.Duration
+	lookback   time.Duration
+	horizon    time.Duration
+	lag        time.Duration
+	logger     *slog.Logger
+	now        func() time.Time
+	promptEval PromptEvaluator
 }
 
 // NewScheduler wires scheduler configuration with dependencies.
-func NewScheduler(pool *pgxpool.Pool, interval, lookback, horizon, lag time.Duration, logger *slog.Logger) *Scheduler {
+func NewScheduler(pool *pgxpool.Pool, interval, lookback, horizon, lag time.Duration, promptEval PromptEvaluator, logger *slog.Logger) *Scheduler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Scheduler{
-		pool:     pool,
-		interval: interval,
-		lookback: lookback,
-		horizon:  horizon,
-		lag:      lag,
-		logger:   logger,
-		now:      time.Now,
+		pool:       pool,
+		interval:   interval,
+		lookback:   lookback,
+		horizon:    horizon,
+		lag:        lag,
+		logger:     logger,
+		now:        time.Now,
+		promptEval: promptEval,
 	}
 }
 
@@ -122,11 +129,14 @@ func (s *Scheduler) runAnalysis(ctx context.Context, host string) error {
 	if err != nil {
 		return err
 	}
+	promptSince := windowSince
+	promptUntil := until
 
 	if !windowSince.Before(until) {
 		if err := tx.Commit(ctx); err != nil {
 			return err
 		}
+		s.runPromptInjection(ctx, host, promptSince, promptUntil)
 		return nil
 	}
 
@@ -154,7 +164,20 @@ func (s *Scheduler) runAnalysis(ctx context.Context, host string) error {
 		return err
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.runPromptInjection(ctx, host, promptSince, promptUntil)
+	return nil
+}
+
+func (s *Scheduler) runPromptInjection(ctx context.Context, host string, since, until time.Time) {
+	if s.promptEval == nil || !s.promptEval.Enabled() {
+		return
+	}
+	if err := s.promptEval.Run(ctx, host, since, until); err != nil {
+		s.logger.Warn("prompt injection run failed", slog.String("host", host), slog.String("error", err.Error()))
+	}
 }
 
 func (s *Scheduler) ensureWatermark(ctx context.Context, tx pgx.Tx, host string, until time.Time) (time.Time, time.Time, error) {

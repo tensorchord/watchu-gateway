@@ -423,7 +423,7 @@ func (h analyticsHandlers) getSecurityLLMAnalysis(c *gin.Context) {
 	}
 
 	promptRows, err := h.queries.ListPromptInjectionsByHost(ctx, sqlc.ListPromptInjectionsByHostParams{
-		Host:  textParam(host),
+		Host:  host,
 		Limit: promptLimit,
 	})
 	if err != nil {
@@ -451,7 +451,7 @@ func (h analyticsHandlers) getSecurityLLMAnalysis(c *gin.Context) {
 	for _, row := range promptRows {
 		prompts = append(prompts, PromptInjectionRecord{
 			RequestID:  uuidPtrFromUUID(row.RequestID),
-			Severity:   stringPtrFromText(row.SeverityLevel),
+			Severity:   stringPtr(row.SeverityLevel),
 			Categories: parseCategories(row.Categories),
 			ObservedAt: timePtrFromTimestamptz(row.ObservedAt),
 		})

@@ -8,6 +8,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AgentRun struct {
+	ID         pgtype.UUID
+	Host       string
+	RootExecID pgtype.Text
+	RootPid    pgtype.Int8
+	Provider   pgtype.Text
+	StartedAt  pgtype.Timestamptz
+	EndedAt    pgtype.Timestamptz
+}
+
 type CorrelationSummary struct {
 	Host                  string
 	ResponseID            pgtype.UUID
@@ -95,11 +105,49 @@ type HttpResponse struct {
 	Host          string
 }
 
+type LlmHttpEvent struct {
+	Host           string
+	HttpResponseID pgtype.UUID
+	HttpRequestID  pgtype.UUID
+	ResponseKey    pgtype.Text
+	Provider       pgtype.Text
+	Model          pgtype.Text
+	ModelVersion   pgtype.Text
+	Status         pgtype.Text
+	CorrID         pgtype.Text
+	Prompt         []byte
+	Response       []byte
+	Usage          []byte
+	RawRequest     pgtype.Text
+	RawResponse    pgtype.Text
+	StartedAt      pgtype.Timestamptz
+	EndedAt        pgtype.Timestamptz
+	ExecID         pgtype.Text
+	RootExecID     pgtype.Text
+	RootPid        pgtype.Int8
+}
+
 type LlmPromptInjectionResult struct {
 	RequestID     pgtype.UUID
-	Host          pgtype.Text
-	SeverityLevel pgtype.Text
+	Host          string
+	SeverityLevel string
 	Categories    pgtype.Text
+	TraceID       pgtype.UUID
+	AgentRunID    pgtype.UUID
+	PromptHash    pgtype.Text
+	Score         pgtype.Float8
+	Model         pgtype.Text
+	DetectedAt    pgtype.Timestamptz
+	Metadata      []byte
+}
+
+type LlmToolCallEvent struct {
+	Host        string
+	ResponseKey string
+	ToolCallID  string
+	Name        pgtype.Text
+	Arguments   []byte
+	Provider    pgtype.Text
 }
 
 type McpEventsNormalized struct {
@@ -174,6 +222,22 @@ type ProcessLifecycle struct {
 	Args       pgtype.Text
 }
 
+type PromptInjectionError struct {
+	Host       string
+	RequestID  pgtype.UUID
+	LastError  pgtype.Text
+	RetryCount int32
+	UpdatedAt  pgtype.Timestamptz
+}
+
+type ResourceUsage struct {
+	ID      pgtype.UUID
+	TraceID pgtype.UUID
+	Metric  string
+	Value   pgtype.Numeric
+	Unit    pgtype.Text
+}
+
 type SecurityAnalysisResult struct {
 	ID              pgtype.UUID
 	AnalyzedAt      pgtype.Timestamptz
@@ -187,4 +251,19 @@ type SecurityAnalysisResult struct {
 	Recommendations []byte
 	Evidence        []byte
 	RawJson         []byte
+}
+
+type Trace struct {
+	ID            pgtype.UUID
+	AgentRunID    pgtype.UUID
+	ParentTraceID pgtype.UUID
+	TraceType     string
+	SourceTable   pgtype.Text
+	SourceID      pgtype.UUID
+	ExternalID    pgtype.Text
+	Model         pgtype.Text
+	ModelVersion  pgtype.Text
+	StartedAt     pgtype.Timestamptz
+	EndedAt       pgtype.Timestamptz
+	Phase         string
 }

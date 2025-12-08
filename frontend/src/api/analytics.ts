@@ -9,7 +9,9 @@ import {
     ProcessHTTPEventResponse,
     ProcessSummaryResponse,
     ProcessTreeNodeResponse,
-    SecurityLLMAnalysisResponse
+    SecurityLLMAnalysisResponse,
+    AgentRunResponse,
+    TraceGraphResponse
 } from "../types/api";
 
 function toQueryTimestamp(value: Dayjs): string {
@@ -187,4 +189,23 @@ export async function fetchHosts(limit = 200) {
         params: { limit }
     });
     return ensureStringArray(data);
+}
+
+export async function fetchAgentRuns(host: string, since: Dayjs, until: Dayjs, limit: number) {
+    const { data } = await apiClient.get<AgentRunResponse[]>("/analysis/agent_runs", {
+        params: {
+            host,
+            since: toQueryTimestamp(since),
+            until: toQueryTimestamp(until),
+            limit
+        }
+    });
+    return data;
+}
+
+export async function fetchTraceGraph(host: string, agentRunId: string) {
+    const { data } = await apiClient.get<TraceGraphResponse>(`/analysis/agent_runs/${agentRunId}/traces`, {
+        params: { host }
+    });
+    return data;
 }

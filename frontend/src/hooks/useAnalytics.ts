@@ -1,5 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
+import type { UseQueryResult } from "@tanstack/react-query";
 import { Dayjs } from "dayjs";
+
+import type { AgentRunResponse, TraceGraphResponse } from "../types/api";
 
 import {
     fetchCorrelationSummaries,
@@ -10,6 +13,8 @@ import {
     fetchProcessSummary,
     fetchProcessTree,
     fetchSecurityLLMAnalysis,
+    fetchAgentRuns,
+    fetchTraceGraph,
     ProcessTreeParams
 } from "../api/analytics";
 
@@ -87,5 +92,26 @@ export function useHosts(limit = 200) {
     return useQuery({
         queryKey: ["hosts", limit],
         queryFn: () => fetchHosts(limit)
+    });
+}
+
+export function useAgentRuns(host: string, since: Dayjs, until: Dayjs, limit: number): UseQueryResult<AgentRunResponse[]> {
+    return useQuery<AgentRunResponse[]>({
+        queryKey: ["agent-runs", host, since.toISOString(), until.toISOString(), limit],
+        queryFn: () => fetchAgentRuns(host, since, until, limit),
+        enabled: Boolean(host)
+    });
+}
+
+export function useTraceGraph(host: string, agentRunId?: string): UseQueryResult<TraceGraphResponse> {
+    return useQuery<TraceGraphResponse>({
+        queryKey: ["trace-graph", host, agentRunId],
+        queryFn: () => {
+            if (!agentRunId) {
+                throw new Error("agentRunId is required");
+            }
+            return fetchTraceGraph(host, agentRunId);
+        },
+        enabled: Boolean(host) && Boolean(agentRunId)
     });
 }

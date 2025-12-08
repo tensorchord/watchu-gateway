@@ -5,6 +5,7 @@ import dayjs from "dayjs";
 import { useSettings } from "../context/SettingsContext";
 import { useHeuristicAlerts } from "../hooks/useAnalytics";
 import { HeuristicAlertResponse } from "../types/api";
+import { getSeverityColor, getSeverityLabel } from "../utils/severity";
 
 const columns: ColumnsType<HeuristicAlertResponse> = [
     {
@@ -21,7 +22,10 @@ const columns: ColumnsType<HeuristicAlertResponse> = [
         title: "Severity",
         dataIndex: "severity",
         key: "severity",
-        render: (value: string | undefined) => <Tag color={(value ?? "").toLowerCase() === "critical" ? "red" : "orange"}>{value ?? "--"}</Tag>
+        render: (value: string | undefined) => {
+            const label = getSeverityLabel(value ?? "--");
+            return <Tag color={getSeverityColor(value)}>{label}</Tag>;
+        }
     },
     {
         title: "Score",

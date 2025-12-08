@@ -78,6 +78,7 @@ END;
 $$;
 
 DROP VIEW IF EXISTS mcp_events_normalized;
+
 CREATE VIEW mcp_events_normalized AS
 WITH stdio_enriched AS (
     SELECT
@@ -114,42 +115,118 @@ http_enriched AS (
         safe_json_from_bytea(phe.body) AS body_json
     FROM process_http_events phe
     WHERE phe.is_mcp_http
+),
+base_events AS (
+    SELECT
+        'http' AS transport,
+        host,
+        timestamp,
+        pid,
+        exec_id,
+        root_exec_id,
+        root_pid,
+        CASE WHEN http_type = 'request' THEN 'request' ELSE 'response' END AS message_type,
+        COALESCE(body_json->>'jsonrpc', headers->>'jsonrpc') AS jsonrpc,
+        COALESCE(body_json->>'method', headers->>'method', headers->>':method') AS method,
+        headers AS raw,
+        body_json->'params' AS params,
+        body_json->'result' AS result,
+        body_json->'error' AS error,
+        COALESCE(body_json->>'id', headers->>'x-mcp-id', http_id::text) AS corr_id
+    FROM http_enriched
+    UNION ALL
+    SELECT
+        'stdio' AS transport,
+        host,
+        timestamp,
+        pid,
+        exec_id,
+        root_exec_id,
+        root_pid,
+        message_type,
+        jsonrpc,
+        method,
+        NULL::jsonb AS raw,
+        params,
+        result,
+        error,
+        corr_id
+    FROM stdio_enriched
+),
+serverinfo_by_corr AS (
+    SELECT DISTINCT ON (host, corr_id)
+        host,
+        corr_id,
+        result->'serverInfo'->>'name' AS server_name,
+        timestamp
+    FROM base_events
+    WHERE result ? 'serverInfo'
+    ORDER BY host, corr_id, timestamp DESC
+),
+serverinfo_by_pid AS (
+    SELECT DISTINCT ON (host, pid)
+        host,
+        pid,
+        result->'serverInfo'->>'name' AS server_name,
+        timestamp
+    FROM base_events
+    WHERE result ? 'serverInfo'
+    ORDER BY host, pid, timestamp DESC
+),
+corr_pidset AS (
+    SELECT
+        host,
+        corr_id,
+        ARRAY(SELECT DISTINCT pid FROM base_events c2 WHERE c2.host = c.host AND c2.corr_id = c.corr_id) AS pids
+    FROM base_events c
+    GROUP BY host, corr_id
+),
+serverinfo_by_corr_pidset AS (
+    SELECT DISTINCT ON (ps.host, ps.corr_id)
+        ps.host,
+        ps.corr_id,
+        se.result->'serverInfo'->>'name' AS server_name,
+        se.timestamp
+    FROM corr_pidset ps
+    JOIN base_events se
+      ON se.host = ps.host
+     AND se.pid = ANY(ps.pids)
+     AND se.result ? 'serverInfo'
+    ORDER BY ps.host, ps.corr_id, se.timestamp DESC
 )
 SELECT
-    'http' AS transport,
-    host,
-    timestamp,
-    pid,
-    exec_id,
-    root_exec_id,
-    root_pid,
-    CASE WHEN http_type = 'request' THEN 'request' ELSE 'response' END AS message_type,
-    COALESCE(body_json->>'jsonrpc', headers->>'jsonrpc') AS jsonrpc,
-    COALESCE(body_json->>'method', headers->>'method', headers->>':method') AS method,
-    headers AS raw,
-    body_json->'params' AS params,
-    body_json->'result' AS result,
-    body_json->'error' AS error,
-    COALESCE(body_json->>'id', headers->>'x-mcp-id', http_id::text) AS corr_id
-FROM http_enriched
-UNION ALL
-SELECT
-    'stdio' AS transport,
-    host,
-    timestamp,
-    pid,
-    exec_id,
-    root_exec_id,
-    root_pid,
-    message_type,
-    jsonrpc,
-    method,
-    NULL::jsonb AS raw,
-    params,
-    result,
-    error,
-    corr_id
-FROM stdio_enriched;
+    b.transport,
+    b.host,
+    b.timestamp,
+    b.pid,
+    b.exec_id,
+    b.root_exec_id,
+    b.root_pid,
+    b.message_type,
+    b.jsonrpc,
+    b.method,
+    b.raw,
+    b.params,
+    b.result,
+    b.error,
+    b.corr_id,
+    COALESCE(
+        (SELECT value FROM jsonb_each_text(b.raw) WHERE lower(key) IN ('x-mcp-server','x-mcp-server-name','x-mcp-name') LIMIT 1),
+        b.raw->>'x-mcp-server',
+        b.raw->>'x-mcp-server-name',
+        b.raw->>'x-mcp-name',
+        b.raw->'serverInfo'->>'name',
+        b.raw->>'host',
+        COALESCE(b.result->'serverInfo'->>'name', b.params->'serverInfo'->>'name'),
+        (SELECT server_name FROM serverinfo_by_corr sc WHERE sc.host = b.host AND sc.corr_id = b.corr_id),
+        (SELECT server_name FROM serverinfo_by_pid sp WHERE sp.host = b.host AND sp.pid = b.pid),
+        (SELECT server_name FROM serverinfo_by_corr_pidset scp WHERE scp.host = b.host AND scp.corr_id = b.corr_id)
+    ) AS server,
+    COALESCE(
+        b.params->>'name',
+        b.params->>'tool_name'
+    ) AS tool
+FROM base_events b;
 
 CREATE OR REPLACE FUNCTION safe_numeric(p_text TEXT)
 RETURNS NUMERIC LANGUAGE plpgsql IMMUTABLE AS $$

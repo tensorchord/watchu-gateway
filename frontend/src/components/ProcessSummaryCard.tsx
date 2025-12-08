@@ -2,6 +2,7 @@ import { Card, Descriptions, Space, Tag, Typography } from "antd";
 import dayjs from "dayjs";
 
 import { ProcessSummaryResponse } from "../types/api";
+import { getSeverityColor, getSeverityLabel } from "../utils/severity";
 
 interface ProcessSummaryCardProps {
     summary?: ProcessSummaryResponse;
@@ -11,10 +12,7 @@ interface ProcessSummaryCardProps {
 const { Text } = Typography;
 
 function renderAlertSeverity(severity?: string) {
-    if (!severity) {
-        return <Tag>Unknown</Tag>;
-    }
-    return <Tag color={severity.toLowerCase() === "critical" ? "red" : "orange"}>{severity}</Tag>;
+    return <Tag color={getSeverityColor(severity)}>{getSeverityLabel(severity)}</Tag>;
 }
 
 export default function ProcessSummaryCard({ summary, loading = false }: ProcessSummaryCardProps) {

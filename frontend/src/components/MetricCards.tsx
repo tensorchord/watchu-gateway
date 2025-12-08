@@ -57,12 +57,12 @@ const SEVERITY_META: Record<AlertSeverityTag, {
     },
     info: {
         label: "Low Risk",
-        surface: "#eff6ff",
-        border: "#bfdbfe",
-        accent: "#3b82f6",
-        iconBackground: "#dbeafe",
-        text: "#1e3a8a",
-        icon: <InfoCircleFilled style={{ color: "#1d4ed8" }} />
+        surface: "#ecfdf5",
+        border: "#a7f3d0",
+        accent: "#10b981",
+        iconBackground: "#d1fae5",
+        text: "#065f46",
+        icon: <InfoCircleFilled style={{ color: "#047857" }} />
     }
 };
 

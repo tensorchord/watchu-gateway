@@ -25,7 +25,9 @@ import { fetchPromptInjectionDetails } from "../api/analytics";
 import { useSettings } from "../context/SettingsContext";
 import type { HTTPRequestDetailResponse, SecurityLLMAnalysisResponse } from "../types";
 import { formatTimestamp } from "../utils/time";
+import { getSeverityColor, getSeverityLabel } from "../utils/severity";
 import CommandBlock from "./CommandBlock";
+import { decodePayload, preparePayloadContent } from "./processTimeline/helpers";
 
 const { Text, Title, Paragraph, Link } = Typography;
 
@@ -72,31 +74,6 @@ const THREAT_LEVEL_META: Record<number, { label: string; color: string }> = {
     2: { label: "Guarded", color: "gold" },
     1: { label: "Low", color: "green" }
 };
-
-const PROMPT_SEVERITY_COLOR: Record<string, string> = {
-    unsafe: "red",
-    suspicious: "orange",
-    controversial: "orange",
-    warning: "volcano",
-    safe: "green"
-};
-
-function decodePayload(value: unknown): string | null {
-    if (value == null) {
-        return null;
-    }
-    if (typeof value === "string") {
-        return value;
-    }
-    if (Array.isArray(value) && value.every((item) => typeof item === "number")) {
-        try {
-            return new TextDecoder().decode(Uint8Array.from(value));
-        } catch {
-            return null;
-        }
-    }
-    return null;
-}
 
 function parseRecommendations(value: unknown): string[] {
     const decoded = decodePayload(value);
@@ -360,10 +337,9 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
             {
                 title: "Severity",
                 dataIndex: "severity",
-                render: (_: string, row) => {
-                    const color = PROMPT_SEVERITY_COLOR[row.severityKey] ?? "default";
-                    return <Tag color={color}>{row.severity}</Tag>;
-                }
+                render: (_: string, row) => (
+                    <Tag color={getSeverityColor(row.severity)}>{getSeverityLabel(row.severity)}</Tag>
+                )
             },
             {
                 title: "Categories",
@@ -560,14 +536,16 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
 
     const tabs: TabsProps["items"] = useMemo(
         () => [
-            { key: "semantic", label: "Semantic Threats", children: semanticContent },
-            { key: "prompts", label: "Prompt Analysis", children: promptContent }
+            { key: "prompts", label: "Prompt Analysis", children: promptContent },
+            { key: "semantic", label: "Semantic Threats", children: semanticContent }
         ],
         [promptContent, semanticContent]
     );
 
     const decodedHeaders = decodePayload(requestDetails?.headers);
     const decodedBody = decodePayload(requestDetails?.body);
+    const headersContent = useMemo(() => preparePayloadContent(decodedHeaders), [decodedHeaders]);
+    const bodyContent = useMemo(() => preparePayloadContent(decodedBody), [decodedBody]);
 
     return (
         <Card
@@ -590,7 +568,7 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
                 {loading ? (
                     <Skeleton active paragraph={{ rows: 6 }} />
                 ) : (
-                    <Tabs defaultActiveKey="semantic" destroyInactiveTabPane items={tabs} />
+                    <Tabs defaultActiveKey="prompts" destroyInactiveTabPane items={tabs} />
                 )}
             </Space>
             <Modal
@@ -653,13 +631,21 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
                             {decodedHeaders ? (
                                 <Space direction="vertical" size={6} style={{ width: "100%" }}>
                                     <Text strong>Headers</Text>
-                                    <CommandBlock text={decodedHeaders} size="small" />
+                                    {headersContent ? (
+                                        <div dangerouslySetInnerHTML={{ __html: headersContent }} />
+                                    ) : (
+                                        <CommandBlock text={decodedHeaders} size="small" />
+                                    )}
                                 </Space>
                             ) : null}
                             {decodedBody ? (
                                 <Space direction="vertical" size={6} style={{ width: "100%" }}>
                                     <Text strong>Body</Text>
-                                    <CommandBlock text={decodedBody} size="small" />
+                                    {bodyContent ? (
+                                        <div dangerouslySetInnerHTML={{ __html: bodyContent }} />
+                                    ) : (
+                                        <CommandBlock text={decodedBody} size="small" />
+                                    )}
                                 </Space>
                             ) : null}
                             {requestDetails.truncated ? <Alert type="warning" message="Body truncated for transmission" showIcon /> : null}

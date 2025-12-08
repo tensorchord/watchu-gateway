@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -177,6 +178,94 @@ type ProcessSummaryResponse struct {
 	Alerts []HeuristicAlertResponse `json:"alerts"`
 }
 
+// AgentRunResponse captures the lifecycle metadata for a single agent run.
+type AgentRunResponse struct {
+	ID         string     `json:"id"`
+	Host       string     `json:"host"`
+	RootExecID *string    `json:"root_exec_id,omitempty"`
+	RootPID    *int64     `json:"root_pid,omitempty"`
+	Provider   *string    `json:"provider,omitempty"`
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	EndedAt    *time.Time `json:"ended_at,omitempty"`
+}
+
+// TraceGraphResponse bundles the agent run along with all trace nodes for rendering.
+type TraceGraphResponse struct {
+	AgentRun AgentRunResponse    `json:"agent_run"`
+	Traces   []TraceNodeResponse `json:"traces"`
+}
+
+// TraceNodeResponse represents a single trace row enriched with contextual payloads.
+type TraceNodeResponse struct {
+	ID              string                        `json:"id"`
+	AgentRunID      string                        `json:"agent_run_id"`
+	ParentTraceID   *string                       `json:"parent_trace_id,omitempty"`
+	TraceType       string                        `json:"trace_type"`
+	Phase           string                        `json:"phase"`
+	SourceTable     *string                       `json:"source_table,omitempty"`
+	SourceID        *string                       `json:"source_id,omitempty"`
+	ExternalID      *string                       `json:"external_id,omitempty"`
+	Model           *string                       `json:"model,omitempty"`
+	ModelVersion    *string                       `json:"model_version,omitempty"`
+	StartedAt       *time.Time                    `json:"started_at,omitempty"`
+	EndedAt         *time.Time                    `json:"ended_at,omitempty"`
+	PromptPreview   *string                       `json:"prompt_preview,omitempty"`
+	ResponsePreview *string                       `json:"response_preview,omitempty"`
+	ResourceUsage   map[string]ResourceUsageEntry `json:"resource_usage,omitempty"`
+	LLM             *LLMTraceDetails              `json:"llm,omitempty"`
+	Tool            *ToolTraceDetails             `json:"tool,omitempty"`
+	MCP             *MCPTraceDetails              `json:"mcp,omitempty"`
+}
+
+// ResourceUsageEntry exposes numeric resource metrics keyed by trace metric name.
+type ResourceUsageEntry struct {
+	Value *float64 `json:"value,omitempty"`
+	Unit  *string  `json:"unit,omitempty"`
+}
+
+// LLMTraceDetails includes normalized prompt/response payloads for llm_call traces.
+type LLMTraceDetails struct {
+	ResponseKey  string          `json:"response_key"`
+	Provider     *string         `json:"provider,omitempty"`
+	Model        *string         `json:"model,omitempty"`
+	ModelVersion *string         `json:"model_version,omitempty"`
+	Prompt       json.RawMessage `json:"prompt,omitempty"`
+	Response     json.RawMessage `json:"response,omitempty"`
+	Usage        json.RawMessage `json:"usage,omitempty"`
+	Status       *string         `json:"status,omitempty"`
+	RawRequest   *string         `json:"raw_request,omitempty"`
+	RawResponse  *string         `json:"raw_response,omitempty"`
+	ExecID       *string         `json:"exec_id,omitempty"`
+	RootExecID   *string         `json:"root_exec_id,omitempty"`
+}
+
+// ToolTraceDetails captures tool call arguments associated with tool_use traces.
+type ToolTraceDetails struct {
+	ToolCallID  string          `json:"tool_call_id"`
+	ResponseKey string          `json:"response_key"`
+	Name        *string         `json:"name,omitempty"`
+	Arguments   json.RawMessage `json:"arguments,omitempty"`
+}
+
+// MCPTraceDetails aggregates MCP JSON-RPC messages for mcp_call traces.
+type MCPTraceDetails struct {
+	CorrID  string       `json:"corr_id"`
+	Method  *string      `json:"method,omitempty"`
+	Server  *string      `json:"server,omitempty"`
+	Tool    *string      `json:"tool,omitempty"`
+	Entries []MCPMessage `json:"entries,omitempty"`
+}
+
+// MCPMessage records a single MCP request/response/notification payload.
+type MCPMessage struct {
+	MessageType string          `json:"message_type"`
+	Timestamp   *time.Time      `json:"timestamp,omitempty"`
+	Server      *string         `json:"server,omitempty"`
+	Params      json.RawMessage `json:"params,omitempty"`
+	Result      json.RawMessage `json:"result,omitempty"`
+	Error       json.RawMessage `json:"error,omitempty"`
+}
+
 type treeNode struct {
 	data      ProcessTreeNodeResponse
 	parentKey string
@@ -199,6 +288,8 @@ func registerAnalyticsRoutes(group *gin.RouterGroup, queries *sqlc.Queries) {
 	group.GET("/process_events", h.getProcessEvents)
 	group.GET("/process_tree", h.getProcessTree)
 	group.GET("/process_summary/:root_pid", h.getProcessSummary)
+	group.GET("/agent_runs", h.getAgentRuns)
+	group.GET("/agent_runs/:agent_run_id/traces", h.getTraceGraph)
 }
 
 // getCorrelations godoc
@@ -859,6 +950,332 @@ func (h analyticsHandlers) getProcessSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// getAgentRuns godoc
+// @Summary      List agent runs
+// @Description  Returns agent runs detected for a host within the requested window.
+// @Tags         analytics
+// @Produce      json
+// @Param        host  query     string true  "Target host"
+// @Param        since query     string true  "RFC3339 timestamp lower bound"
+// @Param        until query     string false "RFC3339 timestamp upper bound (defaults to now)"
+// @Param        limit query     int    false "Maximum number of records" minimum(1) maximum(1000)
+// @Success      200   {array}   AgentRunResponse
+// @Failure      400   {object}  ErrorResponse
+// @Failure      500   {object}  ErrorResponse
+// @Router       /api/v1/analysis/agent_runs [get]
+func (h analyticsHandlers) getAgentRuns(c *gin.Context) {
+	host, since, until, limit, ok := parseRangeParams(c)
+	if !ok {
+		return
+	}
+
+	rows, err := h.queries.ListAgentRunsByHostRange(c.Request.Context(), sqlc.ListAgentRunsByHostRangeParams{
+		Host:  host,
+		Until: pgtype.Timestamptz{Time: until, Valid: true},
+		Since: pgtype.Timestamptz{Time: since, Valid: true},
+		Limit: limit,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	resp := make([]AgentRunResponse, 0, len(rows))
+	for _, row := range rows {
+		resp = append(resp, convertAgentRun(row))
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+// getTraceGraph godoc
+// @Summary      Retrieve traces for an agent run
+// @Description  Returns trace nodes plus contextual payloads for a specific agent run.
+// @Tags         analytics
+// @Produce      json
+// @Param        host          query string true  "Target host"
+// @Param        agent_run_id path  string true  "Agent run ID"
+// @Success      200   {object} TraceGraphResponse
+// @Failure      400   {object} ErrorResponse
+// @Failure      404   {object} ErrorResponse
+// @Failure      500   {object} ErrorResponse
+// @Router       /api/v1/analysis/agent_runs/{agent_run_id}/traces [get]
+func (h analyticsHandlers) getTraceGraph(c *gin.Context) {
+	host := strings.TrimSpace(c.Query("host"))
+	if host == "" {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "host is required"})
+		return
+	}
+
+	agentRunParam := strings.TrimSpace(c.Param("agent_run_id"))
+	if agentRunParam == "" {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "agent_run_id is required"})
+		return
+	}
+	agentRunUUID, err := uuid.Parse(agentRunParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "agent_run_id must be a valid UUID"})
+		return
+	}
+	runID := pgtype.UUID{Bytes: agentRunUUID, Valid: true}
+
+	ctx := c.Request.Context()
+	run, err := h.queries.GetAgentRunByID(ctx, runID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, ErrorResponse{Error: "agent run not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	if !strings.EqualFold(run.Host, host) {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "agent run not found"})
+		return
+	}
+
+	traces, err := h.queries.ListTracesByAgentRun(ctx, runID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	traceResponses, err := h.buildTraceResponses(ctx, host, traces)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, TraceGraphResponse{
+		AgentRun: convertAgentRun(run),
+		Traces:   traceResponses,
+	})
+}
+
+func (h analyticsHandlers) buildTraceResponses(ctx context.Context, host string, traces []sqlc.Trace) ([]TraceNodeResponse, error) {
+	if len(traces) == 0 {
+		return []TraceNodeResponse{}, nil
+	}
+
+	traceIDs := make([]pgtype.UUID, 0, len(traces))
+	llmKeys := make([]string, 0, len(traces))
+	toolIDs := make([]string, 0, len(traces))
+	mcpIDs := make([]string, 0, len(traces))
+	llmSeen := make(map[string]struct{})
+	toolSeen := make(map[string]struct{})
+	mcpSeen := make(map[string]struct{})
+
+	for _, trace := range traces {
+		if trace.ID.Valid {
+			traceIDs = append(traceIDs, trace.ID)
+		}
+		extID := ""
+		if trace.ExternalID.Valid {
+			extID = strings.TrimSpace(trace.ExternalID.String)
+		}
+		if extID == "" {
+			continue
+		}
+		switch trace.TraceType {
+		case "llm_call":
+			if _, ok := llmSeen[extID]; !ok {
+				llmSeen[extID] = struct{}{}
+				llmKeys = append(llmKeys, extID)
+			}
+		case "tool_use":
+			if _, ok := toolSeen[extID]; !ok {
+				toolSeen[extID] = struct{}{}
+				toolIDs = append(toolIDs, extID)
+			}
+		case "mcp_call":
+			if _, ok := mcpSeen[extID]; !ok {
+				mcpSeen[extID] = struct{}{}
+				mcpIDs = append(mcpIDs, extID)
+			}
+		}
+	}
+
+	usageByTrace := make(map[string]map[string]ResourceUsageEntry)
+	if len(traceIDs) > 0 {
+		usageRows, err := h.queries.ListResourceUsageByTraceIDs(ctx, traceIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range usageRows {
+			traceID := uuidStringFromUUID(row.TraceID)
+			if traceID == "" {
+				continue
+			}
+			metric := strings.TrimSpace(row.Metric)
+			if metric == "" {
+				continue
+			}
+			value := float64PtrFromNumeric(row.Value)
+			unit := stringPtrFromText(row.Unit)
+			if value == nil && unit == nil {
+				continue
+			}
+			if _, ok := usageByTrace[traceID]; !ok {
+				usageByTrace[traceID] = make(map[string]ResourceUsageEntry)
+			}
+			usageByTrace[traceID][metric] = ResourceUsageEntry{Value: value, Unit: unit}
+		}
+	}
+
+	llmContext := make(map[string]*LLMTraceDetails)
+	if len(llmKeys) > 0 {
+		rows, err := h.queries.ListLLMEventsByResponseKeys(ctx, sqlc.ListLLMEventsByResponseKeysParams{
+			Host:    host,
+			Column2: llmKeys,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if !row.ResponseKey.Valid {
+				continue
+			}
+			key := strings.TrimSpace(row.ResponseKey.String)
+			if key == "" {
+				continue
+			}
+			llmContext[key] = &LLMTraceDetails{
+				ResponseKey:  key,
+				Provider:     stringPtrFromText(row.Provider),
+				Model:        stringPtrFromText(row.Model),
+				ModelVersion: stringPtrFromText(row.ModelVersion),
+				Prompt:       jsonInterface(row.Prompt),
+				Response:     jsonInterface(row.Response),
+				Usage:        jsonInterface(row.Usage),
+				Status:       stringPtrFromText(row.Status),
+				RawRequest:   stringPtrFromText(row.RawRequest),
+				RawResponse:  stringPtrFromText(row.RawResponse),
+				ExecID:       stringPtrFromText(row.ExecID),
+				RootExecID:   stringPtrFromText(row.RootExecID),
+			}
+		}
+	}
+
+	toolContext := make(map[string]*ToolTraceDetails)
+	if len(toolIDs) > 0 {
+		rows, err := h.queries.ListToolCallsByIDs(ctx, sqlc.ListToolCallsByIDsParams{
+			Host:    host,
+			Column2: toolIDs,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			id := strings.TrimSpace(row.ToolCallID)
+			if id == "" {
+				continue
+			}
+			respKey := strings.TrimSpace(row.ResponseKey)
+			toolContext[id] = &ToolTraceDetails{
+				ToolCallID:  id,
+				ResponseKey: respKey,
+				Name:        stringPtrFromText(row.Name),
+				Arguments:   jsonInterface(row.Arguments),
+			}
+		}
+	}
+
+	mcpContext := make(map[string]*MCPTraceDetails)
+	if len(mcpIDs) > 0 {
+		rows, err := h.queries.ListMcpEventsByCorrIDs(ctx, sqlc.ListMcpEventsByCorrIDsParams{
+			Host:    host,
+			Column2: mcpIDs,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			corr := strings.TrimSpace(stringFromAny(row.CorrID))
+			if corr == "" {
+				continue
+			}
+			method := strings.TrimSpace(stringFromAny(row.Method))
+			server := strings.TrimSpace(stringFromAny(row.Server))
+			tool := strings.TrimSpace(stringFromAny(row.Tool))
+			detail, ok := mcpContext[corr]
+			if !ok {
+				detail = &MCPTraceDetails{
+					CorrID: corr,
+					Method: stringPtrIfNotEmpty(method),
+					Server: stringPtrIfNotEmpty(server),
+					Tool:   stringPtrIfNotEmpty(tool),
+				}
+				mcpContext[corr] = detail
+			} else {
+				if detail.Method == nil {
+					detail.Method = stringPtrIfNotEmpty(method)
+				}
+				// Keep the first server seen (usually from request which has method)
+				if detail.Server == nil {
+					detail.Server = stringPtrIfNotEmpty(server)
+				}
+				if detail.Tool == nil {
+					detail.Tool = stringPtrIfNotEmpty(tool)
+				}
+			}
+			detail.Entries = append(detail.Entries, MCPMessage{
+				MessageType: row.MessageType,
+				Timestamp:   timePtrFromTimestamptz(row.Timestamp),
+				Server:      stringPtrIfNotEmpty(server),
+				Params:      jsonFromAny(row.Params),
+				Result:      jsonFromAny(row.Result),
+				Error:       jsonFromAny(row.Error),
+			})
+		}
+	}
+
+	responses := make([]TraceNodeResponse, 0, len(traces))
+	for _, trace := range traces {
+		traceID := uuidStringFromUUID(trace.ID)
+		if traceID == "" {
+			continue
+		}
+		resp := TraceNodeResponse{
+			ID:            traceID,
+			AgentRunID:    uuidStringFromUUID(trace.AgentRunID),
+			ParentTraceID: uuidPtrFromUUID(trace.ParentTraceID),
+			TraceType:     trace.TraceType,
+			Phase:         trace.Phase,
+			SourceTable:   stringPtrFromText(trace.SourceTable),
+			SourceID:      uuidPtrFromUUID(trace.SourceID),
+			ExternalID:    stringPtrFromText(trace.ExternalID),
+			Model:         stringPtrFromText(trace.Model),
+			ModelVersion:  stringPtrFromText(trace.ModelVersion),
+			StartedAt:     timePtrFromTimestamptz(trace.StartedAt),
+			EndedAt:       timePtrFromTimestamptz(trace.EndedAt),
+		}
+		if usage, ok := usageByTrace[traceID]; ok {
+			resp.ResourceUsage = usage
+		}
+		extID := zeroIfNil(resp.ExternalID)
+		switch trace.TraceType {
+		case "llm_call":
+			if ctx, ok := llmContext[extID]; ok {
+				resp.LLM = ctx
+				resp.PromptPreview = previewFromJSON(ctx.Prompt, 200)
+				resp.ResponsePreview = previewFromJSON(ctx.Response, 200)
+			}
+		case "tool_use":
+			if ctx, ok := toolContext[extID]; ok {
+				resp.Tool = ctx
+			}
+		case "mcp_call":
+			if ctx, ok := mcpContext[extID]; ok {
+				resp.MCP = ctx
+			}
+		}
+		responses = append(responses, resp)
+	}
+
+	return responses, nil
+}
+
 func parseOptionalBounds(c *gin.Context) (pgtype.Timestamptz, pgtype.Timestamptz, bool) {
 	var since pgtype.Timestamptz
 	var until pgtype.Timestamptz
@@ -1056,6 +1473,18 @@ func convertHeuristicAlert(row sqlc.HeuristicAlert) HeuristicAlertResponse {
 	}
 }
 
+func convertAgentRun(row sqlc.AgentRun) AgentRunResponse {
+	return AgentRunResponse{
+		ID:         uuidStringFromUUID(row.ID),
+		Host:       row.Host,
+		RootExecID: stringPtrFromText(row.RootExecID),
+		RootPID:    int64PtrFromInt8(row.RootPid),
+		Provider:   stringPtrFromText(row.Provider),
+		StartedAt:  timePtrFromTimestamptz(row.StartedAt),
+		EndedAt:    timePtrFromTimestamptz(row.EndedAt),
+	}
+}
+
 func parseCategories(v pgtype.Text) []string {
 	if !v.Valid {
 		return nil
@@ -1113,4 +1542,55 @@ func jsonInterface(b []byte) json.RawMessage {
 		return nil
 	}
 	return jsonRaw(b)
+}
+
+func jsonFromAny(value interface{}) json.RawMessage {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case json.RawMessage:
+		return jsonRaw(v)
+	case []byte:
+		return jsonInterface(v)
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return nil
+		}
+		return jsonRaw([]byte(trimmed))
+	default:
+		b, err := json.Marshal(v)
+		if err != nil || len(b) == 0 {
+			return nil
+		}
+		return jsonRaw(b)
+	}
+}
+
+func previewFromJSON(raw json.RawMessage, limit int) *string {
+	if len(raw) == 0 || limit <= 0 {
+		return nil
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return nil
+	}
+	runes := []rune(trimmed)
+	if len(runes) > limit {
+		trimmed = string(runes[:limit]) + "..."
+	}
+	return &trimmed
+}
+
+func stringFromAny(value interface{}) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		return fmt.Sprint(v)
+	}
 }

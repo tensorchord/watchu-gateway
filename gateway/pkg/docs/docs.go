@@ -15,6 +15,125 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/analysis/agent_runs": {
+            "get": {
+                "description": "Returns agent runs detected for a host within the requested window.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "analytics"
+                ],
+                "summary": "List agent runs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Target host",
+                        "name": "host",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 timestamp lower bound",
+                        "name": "since",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 timestamp upper bound (defaults to now)",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Maximum number of records",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/pkg_httpapi.AgentRunResponse"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/analysis/agent_runs/{agent_run_id}/traces": {
+            "get": {
+                "description": "Returns trace nodes plus contextual payloads for a specific agent run.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "analytics"
+                ],
+                "summary": "Retrieve traces for an agent run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Target host",
+                        "name": "host",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent run ID",
+                        "name": "agent_run_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.TraceGraphResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/analysis/correlation_summaries": {
             "get": {
                 "description": "Returns correlation summaries for a host since the provided timestamp.",
@@ -1043,6 +1162,32 @@ const docTemplate = `{
                 }
             }
         },
+        "pkg_httpapi.AgentRunResponse": {
+            "type": "object",
+            "properties": {
+                "ended_at": {
+                    "type": "string"
+                },
+                "host": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "root_exec_id": {
+                    "type": "string"
+                },
+                "root_pid": {
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                }
+            }
+        },
         "pkg_httpapi.CorrelationSummaryResponse": {
             "type": "object",
             "properties": {
@@ -1266,6 +1411,85 @@ const docTemplate = `{
                 }
             }
         },
+        "pkg_httpapi.LLMTraceDetails": {
+            "type": "object",
+            "properties": {
+                "exec_id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "model_version": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "raw_request": {
+                    "type": "string"
+                },
+                "raw_response": {
+                    "type": "string"
+                },
+                "response": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "response_key": {
+                    "type": "string"
+                },
+                "root_exec_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "usage": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "pkg_httpapi.MCPMessage": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "message_type": {
+                    "type": "string"
+                },
+                "params": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "result": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
         "pkg_httpapi.MCPSTDIOBatch": {
             "type": "object",
             "properties": {
@@ -1274,6 +1498,29 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/github_com_tensorchord_watchu_gateway_pkg_ingest.MCPSTDIOEvent"
                     }
+                }
+            }
+        },
+        "pkg_httpapi.MCPTraceDetails": {
+            "type": "object",
+            "properties": {
+                "corr_id": {
+                    "type": "string"
+                },
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pkg_httpapi.MCPMessage"
+                    }
+                },
+                "method": {
+                    "type": "string"
+                },
+                "server": {
+                    "type": "string"
+                },
+                "tool": {
+                    "type": "string"
                 }
             }
         },
@@ -1490,6 +1737,17 @@ const docTemplate = `{
                 }
             }
         },
+        "pkg_httpapi.ResourceUsageEntry": {
+            "type": "object",
+            "properties": {
+                "unit": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            }
+        },
         "pkg_httpapi.SecurityLLMAnalysisResponse": {
             "type": "object",
             "properties": {
@@ -1544,6 +1802,102 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "threat_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.ToolTraceDetails": {
+            "type": "object",
+            "properties": {
+                "arguments": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "response_key": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.TraceGraphResponse": {
+            "type": "object",
+            "properties": {
+                "agent_run": {
+                    "$ref": "#/definitions/pkg_httpapi.AgentRunResponse"
+                },
+                "traces": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pkg_httpapi.TraceNodeResponse"
+                    }
+                }
+            }
+        },
+        "pkg_httpapi.TraceNodeResponse": {
+            "type": "object",
+            "properties": {
+                "agent_run_id": {
+                    "type": "string"
+                },
+                "ended_at": {
+                    "type": "string"
+                },
+                "external_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "llm": {
+                    "$ref": "#/definitions/pkg_httpapi.LLMTraceDetails"
+                },
+                "mcp": {
+                    "$ref": "#/definitions/pkg_httpapi.MCPTraceDetails"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "model_version": {
+                    "type": "string"
+                },
+                "parent_trace_id": {
+                    "type": "string"
+                },
+                "phase": {
+                    "type": "string"
+                },
+                "prompt_preview": {
+                    "type": "string"
+                },
+                "resource_usage": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/pkg_httpapi.ResourceUsageEntry"
+                    }
+                },
+                "response_preview": {
+                    "type": "string"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_table": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "tool": {
+                    "$ref": "#/definitions/pkg_httpapi.ToolTraceDetails"
+                },
+                "trace_type": {
                     "type": "string"
                 }
             }

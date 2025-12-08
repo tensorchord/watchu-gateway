@@ -23,3 +23,23 @@ body {
 .ant-layout {
   min-height: 100vh;
 }
+
+/* Force G2Plot legend text to be visible */
+.g2-legend-item-name,
+.g2-legend-item-name text,
+.g2-legend-item-name-text,
+.g2-html-annotation,
+.g2-legend-item-value {
+  fill: #262626 !important;
+  color: #262626 !important;
+  opacity: 1 !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  visibility: visible !important;
+}
+
+/* Ensure legend items are visible */
+.g2-legend-item {
+  opacity: 1 !important;
+  visibility: visible !important;
+}

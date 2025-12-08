@@ -24,6 +24,7 @@ import type {
 
 const utf8Decoder = typeof TextDecoder !== "undefined" ? new TextDecoder("utf-8") : null;
 const BASE64_ALLOWED_CHARS = /^[A-Za-z0-9+/=_-]+$/;
+const HEX_ALLOWED_CHARS = /^[0-9a-fA-F]+$/;
 
 type BufferLike = {
     from(input: string, encoding: string): { toString(encoding: string): string };
@@ -110,7 +111,7 @@ export function decodePayload(value: unknown): string | null {
     }
     const primitive = toPrimitiveString(value);
     if (primitive != null) {
-        return primitive;
+        return maybeDecodeHex(primitive) ?? primitive;
     }
     if (value instanceof ArrayBuffer) {
         return utf8Decoder?.decode(new Uint8Array(value)) ?? null;
@@ -180,6 +181,45 @@ export function maybeDecodeBase64(value: string): string | null {
         return null;
     }
     return null;
+}
+
+function maybeDecodeHex(value: string): string | null {
+    const trimmed = value.trim();
+    if (trimmed.length < 4) {
+        return null;
+    }
+    const sanitized = trimmed.startsWith("0x") || trimmed.startsWith("0X") ? trimmed.slice(2) : trimmed;
+    if (!sanitized || sanitized.length % 2 !== 0 || !HEX_ALLOWED_CHARS.test(sanitized)) {
+        return null;
+    }
+    try {
+        const bytes = new Uint8Array(sanitized.length / 2);
+        for (let index = 0; index < sanitized.length; index += 2) {
+            const segment = sanitized.slice(index, index + 2);
+            const parsed = Number.parseInt(segment, 16);
+            if (Number.isNaN(parsed)) {
+                return null;
+            }
+            bytes[index / 2] = parsed;
+        }
+        let decoded = utf8Decoder?.decode(bytes) ?? null;
+        if (!decoded) {
+            const bufferFactory = (globalThis as unknown as { Buffer?: BufferLike }).Buffer;
+            if (bufferFactory) {
+                decoded = bufferFactory.from(sanitized, "hex").toString("utf-8");
+            }
+        }
+        if (!decoded) {
+            let manual = "";
+            for (let index = 0; index < bytes.length; index += 1) {
+                manual += String.fromCharCode(bytes[index]);
+            }
+            decoded = manual;
+        }
+        return decoded && isLikelyPrintable(decoded) ? decoded : null;
+    } catch {
+        return null;
+    }
 }
 
 function renderPreBlock(content: string): string {

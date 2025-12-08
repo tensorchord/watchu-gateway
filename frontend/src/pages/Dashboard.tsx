@@ -1,25 +1,44 @@
-import { Card, Col, Result, Row, Skeleton, Tabs, message } from "antd";
+import { Card, Col, Result, Row, Skeleton, Typography, message } from "antd";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import ProcessTimeline from "../components/ProcessTimeline";
 import SecurityLLMAnalysis from "../components/SecurityLLMAnalysis";
+import TraceExplorer from "../components/TraceExplorer";
 import { useSettings } from "../context/SettingsContext";
 import { useProcessEvents, useProcessHttpEvents, useSecurityAnalysis } from "../hooks/useAnalytics";
 
-const TAB_ITEMS = [
-    { key: "timeline", label: "HTTP Timeline" },
-    { key: "security", label: "Security Analysis" }
-];
+type DashboardView = "timeline" | "trace" | "security";
 
-export default function Dashboard() {
+const VIEW_METADATA: Record<DashboardView, { title: string; description: string }> = {
+    timeline: {
+        title: "Timeline",
+        description: "Correlate HTTP, MCP, and process activity for the selected host."
+    },
+    trace: {
+        title: "Agent Trace Explorer",
+        description: "Inspect normalized agent runs and nested traces."
+    },
+    security: {
+        title: "Security Analysis",
+        description: "Review heuristic and LLM-based security insights."
+    }
+};
+
+interface DashboardProps {
+    view?: DashboardView;
+}
+
+export default function Dashboard({ view = "timeline" }: DashboardProps) {
     const { host, since, until, limit } = useSettings();
     const httpEventsQuery = useProcessHttpEvents(host, since, until, limit);
     const processEventsQuery = useProcessEvents(host, since, until, limit);
     const securityQuery = useSecurityAnalysis(host, 20, 20);
 
-    const [activeTab, setActiveTab] = useState<string>("timeline");
     const [focusRootExecId, setFocusRootExecId] = useState<string | null>(null);
     const lastWarningRef = useRef<string | null>(null);
+    const navigate = useNavigate();
+    const activeView: DashboardView = view;
 
     const hasError =
         httpEventsQuery.error || securityQuery.error || processEventsQuery.error;
@@ -49,10 +68,13 @@ export default function Dashboard() {
         setFocusRootExecId(null);
     }, []);
 
-    const handleNavigateToRootExec = useCallback((rootExecId: string) => {
-        setFocusRootExecId(rootExecId);
-        setActiveTab("timeline");
-    }, []);
+    const handleNavigateToRootExec = useCallback(
+        (rootExecId: string) => {
+            setFocusRootExecId(rootExecId);
+            navigate("/timeline");
+        },
+        [navigate]
+    );
 
     const timelineContent = useMemo(() => {
         if (httpEventsQuery.isLoading || processEventsQuery.isLoading) {
@@ -94,6 +116,18 @@ export default function Dashboard() {
         );
     }, [handleNavigateToRootExec, securityQuery.data, securityQuery.isFetching, securityQuery.isLoading]);
 
+    const renderContent = useMemo(() => {
+        switch (activeView) {
+            case "trace":
+                return <TraceExplorer />;
+            case "security":
+                return securityContent;
+            case "timeline":
+            default:
+                return timelineContent;
+        }
+    }, [activeView, securityContent, timelineContent]);
+
     if (hasError) {
         return (
             <Result
@@ -109,19 +143,19 @@ export default function Dashboard() {
         );
     }
 
+    const meta = VIEW_METADATA[activeView];
+
     return (
         <Row gutter={[24, 24]}>
             <Col span={24}>
-                <Card bordered={false}>
-                    <Tabs
-                        activeKey={activeTab}
-                        onChange={(key) => setActiveTab(key)}
-                        items={TAB_ITEMS.map((tab) => ({
-                            key: tab.key,
-                            label: tab.label,
-                            children: tab.key === "timeline" ? timelineContent : securityContent
-                        }))}
-                    />
+                <Card bordered={false} bodyStyle={{ paddingTop: 16 }}>
+                    <Typography.Title level={4} style={{ marginBottom: 4 }}>
+                        {meta.title}
+                    </Typography.Title>
+                    <Typography.Paragraph type="secondary" style={{ marginBottom: 24 }}>
+                        {meta.description}
+                    </Typography.Paragraph>
+                    {renderContent}
                 </Card>
             </Col>
         </Row>

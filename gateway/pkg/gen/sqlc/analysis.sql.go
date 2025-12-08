@@ -11,6 +11,34 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getAgentRunByID = `-- name: GetAgentRunByID :one
+SELECT
+    id,
+    host,
+    root_exec_id,
+    root_pid,
+    provider,
+    started_at,
+    ended_at
+FROM agent_run
+WHERE id = $1
+`
+
+func (q *Queries) GetAgentRunByID(ctx context.Context, id pgtype.UUID) (AgentRun, error) {
+	row := q.db.QueryRow(ctx, getAgentRunByID, id)
+	var i AgentRun
+	err := row.Scan(
+		&i.ID,
+		&i.Host,
+		&i.RootExecID,
+		&i.RootPid,
+		&i.Provider,
+		&i.StartedAt,
+		&i.EndedAt,
+	)
+	return i, err
+}
+
 const getHTTPRequestByHostAndID = `-- name: GetHTTPRequestByHostAndID :one
 SELECT
     id,
@@ -120,6 +148,63 @@ func (q *Queries) GetProcessMetaByHostRoot(ctx context.Context, arg GetProcessMe
 		&i.EventCount,
 	)
 	return i, err
+}
+
+const listAgentRunsByHostRange = `-- name: ListAgentRunsByHostRange :many
+SELECT
+    id,
+    host,
+    root_exec_id,
+    root_pid,
+    provider,
+    started_at,
+    ended_at
+FROM agent_run
+WHERE host = $1
+  AND started_at <= $2
+  AND COALESCE(ended_at, $2) >= $3
+ORDER BY started_at DESC NULLS LAST
+LIMIT $4
+`
+
+type ListAgentRunsByHostRangeParams struct {
+	Host  string
+	Until pgtype.Timestamptz
+	Since pgtype.Timestamptz
+	Limit int32
+}
+
+func (q *Queries) ListAgentRunsByHostRange(ctx context.Context, arg ListAgentRunsByHostRangeParams) ([]AgentRun, error) {
+	rows, err := q.db.Query(ctx, listAgentRunsByHostRange,
+		arg.Host,
+		arg.Until,
+		arg.Since,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentRun
+	for rows.Next() {
+		var i AgentRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.Host,
+			&i.RootExecID,
+			&i.RootPid,
+			&i.Provider,
+			&i.StartedAt,
+			&i.EndedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listCorrelationsByHostRange = `-- name: ListCorrelationsByHostRange :many
@@ -358,6 +443,148 @@ func (q *Queries) ListHosts(ctx context.Context, limit int32) ([]string, error) 
 			return nil, err
 		}
 		items = append(items, host)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLLMEventsByResponseKeys = `-- name: ListLLMEventsByResponseKeys :many
+SELECT
+    host,
+    response_key,
+    provider,
+    model,
+    model_version,
+    prompt,
+    response,
+    usage,
+    raw_request,
+    raw_response,
+    status,
+    exec_id,
+    root_exec_id
+FROM llm_http_event
+WHERE host = $1
+  AND response_key = ANY($2::text[])
+`
+
+type ListLLMEventsByResponseKeysParams struct {
+	Host    string
+	Column2 []string
+}
+
+type ListLLMEventsByResponseKeysRow struct {
+	Host         string
+	ResponseKey  pgtype.Text
+	Provider     pgtype.Text
+	Model        pgtype.Text
+	ModelVersion pgtype.Text
+	Prompt       []byte
+	Response     []byte
+	Usage        []byte
+	RawRequest   pgtype.Text
+	RawResponse  pgtype.Text
+	Status       pgtype.Text
+	ExecID       pgtype.Text
+	RootExecID   pgtype.Text
+}
+
+func (q *Queries) ListLLMEventsByResponseKeys(ctx context.Context, arg ListLLMEventsByResponseKeysParams) ([]ListLLMEventsByResponseKeysRow, error) {
+	rows, err := q.db.Query(ctx, listLLMEventsByResponseKeys, arg.Host, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLLMEventsByResponseKeysRow
+	for rows.Next() {
+		var i ListLLMEventsByResponseKeysRow
+		if err := rows.Scan(
+			&i.Host,
+			&i.ResponseKey,
+			&i.Provider,
+			&i.Model,
+			&i.ModelVersion,
+			&i.Prompt,
+			&i.Response,
+			&i.Usage,
+			&i.RawRequest,
+			&i.RawResponse,
+			&i.Status,
+			&i.ExecID,
+			&i.RootExecID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMcpEventsByCorrIDs = `-- name: ListMcpEventsByCorrIDs :many
+SELECT
+  m.host,
+  m.corr_id,
+  m.message_type,
+  m.method,
+  m.params,
+  m.result,
+  m.error,
+  m.timestamp,
+  m.server,
+  m.tool
+FROM mcp_events_normalized m
+WHERE m.host = $1
+  AND m.corr_id = ANY($2::text[])
+ORDER BY m.corr_id, m.timestamp
+`
+
+type ListMcpEventsByCorrIDsParams struct {
+	Host    string
+	Column2 []string
+}
+
+type ListMcpEventsByCorrIDsRow struct {
+	Host        string
+	CorrID      interface{}
+	MessageType string
+	Method      interface{}
+	Params      interface{}
+	Result      interface{}
+	Error       interface{}
+	Timestamp   pgtype.Timestamptz
+	Server      interface{}
+	Tool        interface{}
+}
+
+func (q *Queries) ListMcpEventsByCorrIDs(ctx context.Context, arg ListMcpEventsByCorrIDsParams) ([]ListMcpEventsByCorrIDsRow, error) {
+	rows, err := q.db.Query(ctx, listMcpEventsByCorrIDs, arg.Host, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMcpEventsByCorrIDsRow
+	for rows.Next() {
+		var i ListMcpEventsByCorrIDsRow
+		if err := rows.Scan(
+			&i.Host,
+			&i.CorrID,
+			&i.MessageType,
+			&i.Method,
+			&i.Params,
+			&i.Result,
+			&i.Error,
+			&i.Timestamp,
+			&i.Server,
+			&i.Tool,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -762,6 +989,48 @@ func (q *Queries) ListPromptInjectionsByHost(ctx context.Context, arg ListPrompt
 	return items, nil
 }
 
+const listResourceUsageByTraceIDs = `-- name: ListResourceUsageByTraceIDs :many
+SELECT
+    trace_id,
+    metric,
+    value,
+    unit
+FROM resource_usage
+WHERE trace_id = ANY($1::uuid[])
+`
+
+type ListResourceUsageByTraceIDsRow struct {
+	TraceID pgtype.UUID
+	Metric  string
+	Value   pgtype.Numeric
+	Unit    pgtype.Text
+}
+
+func (q *Queries) ListResourceUsageByTraceIDs(ctx context.Context, traceIds []pgtype.UUID) ([]ListResourceUsageByTraceIDsRow, error) {
+	rows, err := q.db.Query(ctx, listResourceUsageByTraceIDs, traceIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListResourceUsageByTraceIDsRow
+	for rows.Next() {
+		var i ListResourceUsageByTraceIDsRow
+		if err := rows.Scan(
+			&i.TraceID,
+			&i.Metric,
+			&i.Value,
+			&i.Unit,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSecurityAnalysisByHost = `-- name: ListSecurityAnalysisByHost :many
 SELECT
     id,
@@ -821,6 +1090,109 @@ func (q *Queries) ListSecurityAnalysisByHost(ctx context.Context, arg ListSecuri
 			&i.Details,
 			&i.Recommendations,
 			&i.Evidence,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listToolCallsByIDs = `-- name: ListToolCallsByIDs :many
+SELECT
+    host,
+    response_key,
+    tool_call_id,
+    name,
+    arguments
+FROM llm_tool_call_event
+WHERE host = $1
+  AND tool_call_id = ANY($2::text[])
+`
+
+type ListToolCallsByIDsParams struct {
+	Host    string
+	Column2 []string
+}
+
+type ListToolCallsByIDsRow struct {
+	Host        string
+	ResponseKey string
+	ToolCallID  string
+	Name        pgtype.Text
+	Arguments   []byte
+}
+
+func (q *Queries) ListToolCallsByIDs(ctx context.Context, arg ListToolCallsByIDsParams) ([]ListToolCallsByIDsRow, error) {
+	rows, err := q.db.Query(ctx, listToolCallsByIDs, arg.Host, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListToolCallsByIDsRow
+	for rows.Next() {
+		var i ListToolCallsByIDsRow
+		if err := rows.Scan(
+			&i.Host,
+			&i.ResponseKey,
+			&i.ToolCallID,
+			&i.Name,
+			&i.Arguments,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTracesByAgentRun = `-- name: ListTracesByAgentRun :many
+SELECT
+    id,
+    agent_run_id,
+    parent_trace_id,
+    trace_type,
+    source_table,
+    source_id,
+    external_id,
+    model,
+    model_version,
+    started_at,
+    ended_at,
+    phase
+FROM trace
+WHERE agent_run_id = $1
+ORDER BY COALESCE(started_at, ended_at) ASC NULLS LAST, id
+`
+
+func (q *Queries) ListTracesByAgentRun(ctx context.Context, agentRunID pgtype.UUID) ([]Trace, error) {
+	rows, err := q.db.Query(ctx, listTracesByAgentRun, agentRunID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Trace
+	for rows.Next() {
+		var i Trace
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentRunID,
+			&i.ParentTraceID,
+			&i.TraceType,
+			&i.SourceTable,
+			&i.SourceID,
+			&i.ExternalID,
+			&i.Model,
+			&i.ModelVersion,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.Phase,
 		); err != nil {
 			return nil, err
 		}

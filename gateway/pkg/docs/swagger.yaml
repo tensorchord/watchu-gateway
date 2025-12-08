@@ -174,6 +174,23 @@ definitions:
     - timestamp
     - uid
     type: object
+  pkg_httpapi.AgentRunResponse:
+    properties:
+      ended_at:
+        type: string
+      host:
+        type: string
+      id:
+        type: string
+      provider:
+        type: string
+      root_exec_id:
+        type: string
+      root_pid:
+        type: integer
+      started_at:
+        type: string
+    type: object
   pkg_httpapi.CorrelationSummaryResponse:
     properties:
       best_argument_match_flag:
@@ -320,12 +337,79 @@ definitions:
       start_ts:
         type: string
     type: object
+  pkg_httpapi.LLMTraceDetails:
+    properties:
+      exec_id:
+        type: string
+      model:
+        type: string
+      model_version:
+        type: string
+      prompt:
+        items:
+          type: integer
+        type: array
+      provider:
+        type: string
+      raw_request:
+        type: string
+      raw_response:
+        type: string
+      response:
+        items:
+          type: integer
+        type: array
+      response_key:
+        type: string
+      root_exec_id:
+        type: string
+      status:
+        type: string
+      usage:
+        items:
+          type: integer
+        type: array
+    type: object
+  pkg_httpapi.MCPMessage:
+    properties:
+      error:
+        items:
+          type: integer
+        type: array
+      message_type:
+        type: string
+      params:
+        items:
+          type: integer
+        type: array
+      result:
+        items:
+          type: integer
+        type: array
+      timestamp:
+        type: string
+    type: object
   pkg_httpapi.MCPSTDIOBatch:
     properties:
       events:
         items:
           $ref: '#/definitions/github_com_tensorchord_watchu_gateway_pkg_ingest.MCPSTDIOEvent'
         type: array
+    type: object
+  pkg_httpapi.MCPTraceDetails:
+    properties:
+      corr_id:
+        type: string
+      entries:
+        items:
+          $ref: '#/definitions/pkg_httpapi.MCPMessage'
+        type: array
+      method:
+        type: string
+      server:
+        type: string
+      tool:
+        type: string
     type: object
   pkg_httpapi.ProcessEventResponse:
     properties:
@@ -467,6 +551,13 @@ definitions:
       severity:
         type: string
     type: object
+  pkg_httpapi.ResourceUsageEntry:
+    properties:
+      unit:
+        type: string
+      value:
+        type: number
+    type: object
   pkg_httpapi.SecurityLLMAnalysisResponse:
     properties:
       prompt_injections:
@@ -505,9 +596,153 @@ definitions:
       threat_type:
         type: string
     type: object
+  pkg_httpapi.ToolTraceDetails:
+    properties:
+      arguments:
+        items:
+          type: integer
+        type: array
+      name:
+        type: string
+      response_key:
+        type: string
+      tool_call_id:
+        type: string
+    type: object
+  pkg_httpapi.TraceGraphResponse:
+    properties:
+      agent_run:
+        $ref: '#/definitions/pkg_httpapi.AgentRunResponse'
+      traces:
+        items:
+          $ref: '#/definitions/pkg_httpapi.TraceNodeResponse'
+        type: array
+    type: object
+  pkg_httpapi.TraceNodeResponse:
+    properties:
+      agent_run_id:
+        type: string
+      ended_at:
+        type: string
+      external_id:
+        type: string
+      id:
+        type: string
+      llm:
+        $ref: '#/definitions/pkg_httpapi.LLMTraceDetails'
+      mcp:
+        $ref: '#/definitions/pkg_httpapi.MCPTraceDetails'
+      model:
+        type: string
+      model_version:
+        type: string
+      parent_trace_id:
+        type: string
+      phase:
+        type: string
+      prompt_preview:
+        type: string
+      resource_usage:
+        additionalProperties:
+          $ref: '#/definitions/pkg_httpapi.ResourceUsageEntry'
+        type: object
+      response_preview:
+        type: string
+      source_id:
+        type: string
+      source_table:
+        type: string
+      started_at:
+        type: string
+      tool:
+        $ref: '#/definitions/pkg_httpapi.ToolTraceDetails'
+      trace_type:
+        type: string
+    type: object
 info:
   contact: {}
 paths:
+  /api/v1/analysis/agent_runs:
+    get:
+      description: Returns agent runs detected for a host within the requested window.
+      parameters:
+      - description: Target host
+        in: query
+        name: host
+        required: true
+        type: string
+      - description: RFC3339 timestamp lower bound
+        in: query
+        name: since
+        required: true
+        type: string
+      - description: RFC3339 timestamp upper bound (defaults to now)
+        in: query
+        name: until
+        type: string
+      - description: Maximum number of records
+        in: query
+        maximum: 1000
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/pkg_httpapi.AgentRunResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_httpapi.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_httpapi.ErrorResponse'
+      summary: List agent runs
+      tags:
+      - analytics
+  /api/v1/analysis/agent_runs/{agent_run_id}/traces:
+    get:
+      description: Returns trace nodes plus contextual payloads for a specific agent
+        run.
+      parameters:
+      - description: Target host
+        in: query
+        name: host
+        required: true
+        type: string
+      - description: Agent run ID
+        in: path
+        name: agent_run_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_httpapi.TraceGraphResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_httpapi.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_httpapi.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_httpapi.ErrorResponse'
+      summary: Retrieve traces for an agent run
+      tags:
+      - analytics
   /api/v1/analysis/correlation_summaries:
     get:
       description: Returns correlation summaries for a host since the provided timestamp.

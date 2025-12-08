@@ -92,6 +92,13 @@ func uuidPtrFromUUID(v pgtype.UUID) *string {
 	return &uid
 }
 
+func uuidStringFromUUID(v pgtype.UUID) string {
+	if !v.Valid {
+		return ""
+	}
+	return uuid.UUID(v.Bytes).String()
+}
+
 func jsonRaw(b []byte) json.RawMessage {
 	if len(b) == 0 {
 		return nil

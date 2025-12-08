@@ -10,6 +10,7 @@ import ProcessTreePanel from "../components/ProcessTreePanel";
 import { useSettings } from "../context/SettingsContext";
 import { useProcessEvents, useProcessHttpEvents, useProcessSummary, useProcessTree } from "../hooks/useAnalytics";
 import { HeuristicAlertResponse, ProcessEventResponse, ProcessHTTPEventResponse, ProcessSummaryMeta } from "../types/api";
+import { getSeverityColor, getSeverityLabel } from "../utils/severity";
 
 const { Title, Text } = Typography;
 
@@ -35,17 +36,7 @@ const COLUMN_STACK_STYLE: CSSProperties = {
 };
 
 function renderSeverityTag(severity?: string) {
-    if (!severity) {
-        return <Tag>Unknown</Tag>;
-    }
-    const tone = severity.toLowerCase();
-    if (tone === "critical" || tone === "high") {
-        return <Tag color="red">{severity}</Tag>;
-    }
-    if (tone === "medium") {
-        return <Tag color="orange">{severity}</Tag>;
-    }
-    return <Tag color="blue">{severity}</Tag>;
+    return <Tag color={getSeverityColor(severity)}>{getSeverityLabel(severity)}</Tag>;
 }
 
 function renderProcessMetadata(meta?: ProcessSummaryMeta, loading?: boolean) {

@@ -77,7 +77,10 @@ export default function GlobalFilters() {
             />
             <Tooltip title="Select a custom time range">
                 <RangePicker
-                    showTime
+                    showTime={{
+                        format: "HH:mm:ss",
+                        defaultValue: [dayjs().subtract(1, "hour"), dayjs()]
+                    }}
                     value={[since, until]}
                     allowClear={false}
                     onChange={(dates) => {

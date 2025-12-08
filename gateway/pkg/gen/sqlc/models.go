@@ -169,6 +169,8 @@ type McpEventsNormalized struct {
 	Result      interface{}
 	Error       interface{}
 	CorrID      interface{}
+	Server      interface{}
+	Tool        interface{}
 }
 
 type McpStdioEvent struct {

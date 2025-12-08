@@ -252,3 +252,105 @@ FROM process_lifecycle
 WHERE host IS NOT NULL AND host <> ''
 ORDER BY host ASC
 LIMIT $1;
+
+-- name: ListAgentRunsByHostRange :many
+SELECT
+    id,
+    host,
+    root_exec_id,
+    root_pid,
+    provider,
+    started_at,
+    ended_at
+FROM agent_run
+WHERE host = sqlc.arg('host')
+  AND started_at <= sqlc.arg('until')
+  AND COALESCE(ended_at, sqlc.arg('until')) >= sqlc.arg('since')
+ORDER BY started_at DESC NULLS LAST
+LIMIT sqlc.arg('limit');
+
+-- name: GetAgentRunByID :one
+SELECT
+    id,
+    host,
+    root_exec_id,
+    root_pid,
+    provider,
+    started_at,
+    ended_at
+FROM agent_run
+WHERE id = $1;
+
+-- name: ListTracesByAgentRun :many
+SELECT
+    id,
+    agent_run_id,
+    parent_trace_id,
+    trace_type,
+    source_table,
+    source_id,
+    external_id,
+    model,
+    model_version,
+    started_at,
+    ended_at,
+    phase
+FROM trace
+WHERE agent_run_id = $1
+ORDER BY COALESCE(started_at, ended_at) ASC NULLS LAST, id;
+
+-- name: ListResourceUsageByTraceIDs :many
+SELECT
+    trace_id,
+    metric,
+    value,
+    unit
+FROM resource_usage
+WHERE trace_id = ANY(sqlc.arg('trace_ids')::uuid[]);
+
+-- name: ListLLMEventsByResponseKeys :many
+SELECT
+    host,
+    response_key,
+    provider,
+    model,
+    model_version,
+    prompt,
+    response,
+    usage,
+    raw_request,
+    raw_response,
+    status,
+    exec_id,
+    root_exec_id
+FROM llm_http_event
+WHERE host = $1
+  AND response_key = ANY($2::text[]);
+
+-- name: ListToolCallsByIDs :many
+SELECT
+    host,
+    response_key,
+    tool_call_id,
+    name,
+    arguments
+FROM llm_tool_call_event
+WHERE host = $1
+  AND tool_call_id = ANY($2::text[]);
+
+-- name: ListMcpEventsByCorrIDs :many
+SELECT
+  m.host,
+  m.corr_id,
+  m.message_type,
+  m.method,
+  m.params,
+  m.result,
+  m.error,
+  m.timestamp,
+  m.server,
+  m.tool
+FROM mcp_events_normalized m
+WHERE m.host = $1
+  AND m.corr_id = ANY($2::text[])
+ORDER BY m.corr_id, m.timestamp;

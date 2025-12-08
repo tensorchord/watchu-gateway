@@ -79,9 +79,14 @@ export default function HighRiskAlertMonitor() {
             message: `${severityLabel} heuristic alert detected`,
             description: (
                 <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                    <Typography.Text>
+                    <Typography.Text strong>
                         {primary.alert_type ?? "Heuristic alert"} near root PID {primary.root_pid ?? "unknown"} at {primary.start_ts ?? "recent"}.
                     </Typography.Text>
+                    {primary.reason ? (
+                        <Typography.Text style={{ fontSize: "13px", color: "#d32f2f" }}>
+                            {primary.reason}
+                        </Typography.Text>
+                    ) : null}
                     {additional > 0 ? (
                         <Typography.Text type="secondary">+{additional} additional high severity alerts in this window</Typography.Text>
                     ) : null}

@@ -1394,6 +1394,9 @@ const docTemplate = `{
                 "host": {
                     "type": "string"
                 },
+                "reason": {
+                    "type": "string"
+                },
                 "root_exec_id": {
                     "type": "string"
                 },
@@ -1484,6 +1487,9 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
+                },
+                "server": {
+                    "type": "string"
                 },
                 "timestamp": {
                     "type": "string"
@@ -1727,6 +1733,9 @@ const docTemplate = `{
                     }
                 },
                 "observed_at": {
+                    "type": "string"
+                },
+                "reason": {
                     "type": "string"
                 },
                 "request_id": {

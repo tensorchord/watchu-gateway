@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS heuristic_alerts (
     end_ts TIMESTAMPTZ,
     root_exec_id VARCHAR,
     root_pid BIGINT,
-    details JSONB
+    details JSONB,
+    reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS process_http_events (
@@ -175,6 +176,7 @@ CREATE TABLE IF NOT EXISTS llm_prompt_injection_results (
     model TEXT,
     detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     metadata JSONB,
+    reason TEXT,
     PRIMARY KEY (host, request_id)
 );
 

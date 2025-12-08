@@ -1383,6 +1383,9 @@
                 "host": {
                     "type": "string"
                 },
+                "reason": {
+                    "type": "string"
+                },
                 "root_exec_id": {
                     "type": "string"
                 },
@@ -1473,6 +1476,9 @@
                     "items": {
                         "type": "integer"
                     }
+                },
+                "server": {
+                    "type": "string"
                 },
                 "timestamp": {
                     "type": "string"
@@ -1716,6 +1722,9 @@
                     }
                 },
                 "observed_at": {
+                    "type": "string"
+                },
+                "reason": {
                     "type": "string"
                 },
                 "request_id": {

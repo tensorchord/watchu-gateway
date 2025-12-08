@@ -98,7 +98,64 @@ export default function GlobalFilters() {
                         setSince(start);
                         setUntil(end);
                     }}
-                    disabledDate={(current) => !!current && current.endOf("minute").isAfter(dayjs())}
+                    disabledDate={(current) => {
+                        // 只禁用未来的日期（从明天开始）
+                        return !!current && current.startOf('day').isAfter(dayjs().startOf('day'));
+                    }}
+                    disabledTime={(current, type) => {
+                        // 如果是当天，禁用未来的时间
+                        if (!current || !current.isSame(dayjs(), 'day')) {
+                            return {};
+                        }
+
+                        const now = dayjs();
+                        const currentHour = now.hour();
+                        const currentMinute = now.minute();
+                        const currentSecond = now.second();
+
+                        if (type === 'start') {
+                            // start 时间可以选择任何过去的时间
+                            return {};
+                        }
+
+                        // end 时间：禁用未来的小时、分钟、秒
+                        return {
+                            disabledHours: () => {
+                                const hours = [];
+                                for (let i = currentHour + 1; i < 24; i++) {
+                                    hours.push(i);
+                                }
+                                return hours;
+                            },
+                            disabledMinutes: (selectedHour: number) => {
+                                if (selectedHour < currentHour) {
+                                    return [];
+                                }
+                                if (selectedHour === currentHour) {
+                                    const minutes = [];
+                                    for (let i = currentMinute + 1; i < 60; i++) {
+                                        minutes.push(i);
+                                    }
+                                    return minutes;
+                                }
+                                return [];
+                            },
+                            disabledSeconds: (selectedHour: number, selectedMinute: number) => {
+                                if (selectedHour < currentHour ||
+                                    (selectedHour === currentHour && selectedMinute < currentMinute)) {
+                                    return [];
+                                }
+                                if (selectedHour === currentHour && selectedMinute === currentMinute) {
+                                    const seconds = [];
+                                    for (let i = currentSecond + 1; i < 60; i++) {
+                                        seconds.push(i);
+                                    }
+                                    return seconds;
+                                }
+                                return [];
+                            }
+                        };
+                    }}
                 />
             </Tooltip>
         </Space>

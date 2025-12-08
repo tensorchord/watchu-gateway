@@ -57,27 +57,96 @@ LEFT JOIN agent_run AS ar
   ON ar.id = t.agent_run_id
 LEFT JOIN prompt_injection_errors AS err
   ON err.host = e.host AND err.request_id = e.http_request_id
-WHERE e.host = $1
-  AND e.started_at > $2
-  AND e.started_at <= $3
+WHERE e.host = $2
+  AND e.started_at > $3
+  AND e.started_at <= $4
   AND e.http_request_id IS NOT NULL
-  AND (err.retry_count IS NULL OR err.retry_count < $4)
+  AND (err.retry_count IS NULL OR err.retry_count < $5)
   AND NOT EXISTS (
       SELECT 1
       FROM llm_prompt_injection_results AS res
       WHERE res.host = e.host
         AND res.request_id = e.http_request_id
   )
-ORDER BY e.started_at DESC NULLS LAST
-LIMIT $5
+
+UNION ALL
+
+SELECT
+    req.host,
+    req.id AS request_id,
+    resp.id AS response_id,
+    NULL::TEXT AS response_key,
+    -- All non-agent LLM API calls are classified as 'openai-compatible'
+    -- to distinguish them from agent frameworks (gemini/codex/claude-code)
+    'openai-compatible' AS provider,
+    NULL::TEXT AS model,
+    NULL::JSONB AS prompt,
+    CASE 
+        WHEN req.body IS NOT NULL AND NOT req.truncated THEN convert_from(req.body, 'UTF8')
+        ELSE NULL
+    END AS raw_request,
+    CASE 
+        WHEN resp.body IS NOT NULL AND NOT resp.truncated THEN convert_from(resp.body, 'UTF8')
+        ELSE NULL
+    END AS raw_response,
+    req.timestamp AS observed_at,
+    NULL::TEXT AS exec_id,
+    NULL::TEXT AS root_exec_id,
+    NULL::BIGINT AS root_pid,
+    NULL::UUID AS trace_id,
+    NULL::UUID AS agent_run_id,
+    err.retry_count,
+    err.updated_at AS last_retry_at,
+    err.last_error,
+    NULL::TEXT AS agent_root_exec_id,
+    NULL::BIGINT AS agent_root_pid
+FROM http_request req
+INNER JOIN LATERAL (
+    SELECT resp.id, resp.body, resp.truncated
+    FROM http_response resp
+    WHERE resp.host = req.host
+      AND resp.pid = req.pid
+      AND resp.timestamp >= req.timestamp
+    ORDER BY resp.timestamp ASC
+    LIMIT 1
+) AS resp ON TRUE
+LEFT JOIN prompt_injection_errors AS err
+  ON err.host = req.host AND err.request_id = req.id
+WHERE req.host = $2
+  AND req.timestamp > $3
+  AND req.timestamp <= $4
+  AND req.method = 'POST'
+  AND (
+    -- Match common LLM API paths
+    req.url IN ('/v1/chat/completions', '/chat/completions', '/v1/completions')
+    OR req.url LIKE '/v1/messages%'
+    OR req.url LIKE '%:generateContent%'
+    OR req.url LIKE '%/completions'
+  )
+  AND (err.retry_count IS NULL OR err.retry_count < $5)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM llm_prompt_injection_results AS res
+      WHERE res.host = req.host
+        AND res.request_id = req.id
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM llm_http_event AS lhe
+      WHERE lhe.host = req.host
+        AND lhe.http_request_id = req.id
+  )
+
+ORDER BY observed_at DESC NULLS LAST
+LIMIT $1
 `
 
 type ListPromptInjectionCandidatesParams struct {
+	Limit      int32
 	Host       string
 	Since      pgtype.Timestamptz
 	Until      pgtype.Timestamptz
 	MaxRetries int32
-	Limit      int32
 }
 
 type ListPromptInjectionCandidatesRow struct {
@@ -103,13 +172,18 @@ type ListPromptInjectionCandidatesRow struct {
 	AgentRootPid    pgtype.Int8
 }
 
+// This query returns LLM requests that need prompt injection detection
+// It includes both:
+// 1. Traced LLM events (from agent frameworks like gemini/claude-code/codex)
+// 2. Direct LLM API calls (curl, agno, etc) detected from raw HTTP traffic
+// Detect direct LLM API calls from raw HTTP traffic (not tracked by agent frameworks)
 func (q *Queries) ListPromptInjectionCandidates(ctx context.Context, arg ListPromptInjectionCandidatesParams) ([]ListPromptInjectionCandidatesRow, error) {
 	rows, err := q.db.Query(ctx, listPromptInjectionCandidates,
+		arg.Limit,
 		arg.Host,
 		arg.Since,
 		arg.Until,
 		arg.MaxRetries,
-		arg.Limit,
 	)
 	if err != nil {
 		return nil, err
@@ -161,9 +235,10 @@ INSERT INTO heuristic_alerts (
     end_ts,
     root_exec_id,
     root_pid,
-    details
+    details,
+    reason
 ) VALUES (
-    $1, 'prompt_injection', $2, $3, $4, $5, $6, $7, $8, $9
+    $1, 'prompt_injection', $2, $3, $4, $5, $6, $7, $8, $9, $10
 )
 ON CONFLICT (alert_id) DO UPDATE
 SET severity = EXCLUDED.severity,
@@ -172,7 +247,8 @@ SET severity = EXCLUDED.severity,
     end_ts = EXCLUDED.end_ts,
     root_exec_id = EXCLUDED.root_exec_id,
     root_pid = EXCLUDED.root_pid,
-    details = EXCLUDED.details
+    details = EXCLUDED.details,
+    reason = EXCLUDED.reason
 `
 
 type UpsertPromptInjectionAlertParams struct {
@@ -185,6 +261,7 @@ type UpsertPromptInjectionAlertParams struct {
 	RootExecID pgtype.Text
 	RootPid    pgtype.Int8
 	Details    []byte
+	Reason     pgtype.Text
 }
 
 func (q *Queries) UpsertPromptInjectionAlert(ctx context.Context, arg UpsertPromptInjectionAlertParams) error {
@@ -198,6 +275,7 @@ func (q *Queries) UpsertPromptInjectionAlert(ctx context.Context, arg UpsertProm
 		arg.RootExecID,
 		arg.RootPid,
 		arg.Details,
+		arg.Reason,
 	)
 	return err
 }
@@ -251,9 +329,10 @@ INSERT INTO llm_prompt_injection_results (
     score,
     model,
     detected_at,
-    metadata
+    metadata,
+    reason
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 )
 ON CONFLICT (host, request_id) DO UPDATE
 SET severity_level = EXCLUDED.severity_level,
@@ -264,7 +343,8 @@ SET severity_level = EXCLUDED.severity_level,
     score = EXCLUDED.score,
     model = EXCLUDED.model,
     detected_at = EXCLUDED.detected_at,
-    metadata = EXCLUDED.metadata
+    metadata = EXCLUDED.metadata,
+    reason = EXCLUDED.reason
 `
 
 type UpsertPromptInjectionResultParams struct {
@@ -279,6 +359,7 @@ type UpsertPromptInjectionResultParams struct {
 	Model         pgtype.Text
 	DetectedAt    pgtype.Timestamptz
 	Metadata      []byte
+	Reason        pgtype.Text
 }
 
 func (q *Queries) UpsertPromptInjectionResult(ctx context.Context, arg UpsertPromptInjectionResultParams) error {
@@ -294,6 +375,7 @@ func (q *Queries) UpsertPromptInjectionResult(ctx context.Context, arg UpsertPro
 		arg.Model,
 		arg.DetectedAt,
 		arg.Metadata,
+		arg.Reason,
 	)
 	return err
 }

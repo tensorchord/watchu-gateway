@@ -69,6 +69,7 @@ type HeuristicAlert struct {
 	RootExecID pgtype.Text
 	RootPid    pgtype.Int8
 	Details    []byte
+	Reason     pgtype.Text
 }
 
 type HttpRequest struct {
@@ -142,6 +143,7 @@ type LlmPromptInjectionResult struct {
 	Model         pgtype.Text
 	DetectedAt    pgtype.Timestamptz
 	Metadata      []byte
+	Reason        pgtype.Text
 }
 
 type LlmToolCallEvent struct {

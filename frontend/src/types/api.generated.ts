@@ -130,6 +130,7 @@ export interface PkgHttpapiHeuristicAlertResponse {
   score?: number;
   severity?: string;
   start_ts?: string;
+  reason?: string;
 }
 
 export interface PkgHttpapiProcessEventResponse {

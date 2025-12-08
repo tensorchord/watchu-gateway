@@ -262,6 +262,7 @@ type detectionOutcome struct {
 	Severity        string
 	Categories      []string
 	Score           float64
+	Reason          string
 	RawResponse     string
 	Prompt          string
 	PromptTruncated bool
@@ -295,6 +296,7 @@ func deriveOutcome(parsed GuardrailResult) detectionOutcome {
 		Severity:   severity,
 		Categories: parsed.Categories,
 		Score:      score,
+		Reason:     parsed.Reason,
 	}
 }
 
@@ -327,6 +329,7 @@ func (s *Service) persistResult(ctx context.Context, row sqlc.ListPromptInjectio
 		Model:         textParam(pickModel(row.Model, s.opts.Model)),
 		DetectedAt:    timestamptzNow(),
 		Metadata:      metaBytes,
+		Reason:        textParam(outcome.Reason),
 	}
 	return s.queries.UpsertPromptInjectionResult(ctx, params)
 }
@@ -361,6 +364,7 @@ func (s *Service) raiseAlert(ctx context.Context, row sqlc.ListPromptInjectionCa
 		RootExecID: coalesceText(row.AgentRootExecID, row.RootExecID),
 		RootPid:    coalesceInt(row.AgentRootPid, row.RootPid),
 		Details:    detailBytes,
+		Reason:     textParam(outcome.Reason),
 	}
 	return s.queries.UpsertPromptInjectionAlert(ctx, params)
 }

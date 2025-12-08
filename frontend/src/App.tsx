@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Layout, Menu, Typography } from "antd";
-import { ApartmentOutlined, BranchesOutlined, DashboardOutlined, LineChartOutlined, SafetyCertificateOutlined, ShareAltOutlined } from "@ant-design/icons";
+import { ApartmentOutlined, BranchesOutlined, DashboardOutlined, LineChartOutlined, RobotOutlined, SafetyCertificateOutlined, ShareAltOutlined } from "@ant-design/icons";
 import { Link, Route, Routes, useLocation } from "react-router-dom";
 
 import Dashboard from "./pages/Dashboard";
@@ -16,12 +16,20 @@ import styles from "./components/layout.module.css";
 const { Header, Content, Sider } = Layout;
 
 const menuItems = [
-    { key: "/agent-dashboard", icon: <DashboardOutlined />, label: <Link to="/agent-dashboard">Agent Dashboard</Link> },
     { key: "/timeline", icon: <LineChartOutlined />, label: <Link to="/timeline">Timeline</Link> },
-    { key: "/trace", icon: <ShareAltOutlined />, label: <Link to="/trace">Agent Trace Explorer</Link> },
-    { key: "/security", icon: <SafetyCertificateOutlined />, label: <Link to="/security">Security Analysis</Link> },
     { key: "/processes", icon: <ApartmentOutlined />, label: <Link to="/processes">Process Explorer</Link> },
-    { key: "/alerts", icon: <BranchesOutlined />, label: <Link to="/alerts">Heuristic Alerts</Link> }
+    { key: "/security", icon: <SafetyCertificateOutlined />, label: <Link to="/security">Security Analysis</Link> },
+    { key: "/alerts", icon: <BranchesOutlined />, label: <Link to="/alerts">Heuristic Alerts</Link> },
+    {
+        key: "agent-section",
+        icon: <RobotOutlined />,
+        label: "Agent",
+        type: "group",
+        children: [
+            { key: "/trace", icon: <ShareAltOutlined />, label: <Link to="/trace">Agent Trace Explorer</Link> },
+            { key: "/agent-dashboard", icon: <DashboardOutlined />, label: <Link to="/agent-dashboard">Agent Dashboard</Link> }
+        ]
+    }
 ];
 
 function AppShell() {
@@ -33,7 +41,11 @@ function AppShell() {
         if (location.pathname.startsWith("/processes")) {
             return "/processes";
         }
-        return menuItems.find((item) => location.pathname.startsWith(item.key))?.key ?? location.pathname;
+        // Find matching key from flat menu items (including children)
+        const flatItems = menuItems.flatMap(item =>
+            item.children ? item.children : [item]
+        );
+        return flatItems.find((item) => location.pathname.startsWith(item.key))?.key ?? location.pathname;
     }, [location.pathname]);
 
     return (

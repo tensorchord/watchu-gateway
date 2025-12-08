@@ -57,6 +57,7 @@ type HeuristicAlertResponse struct {
 	RootExecID *string         `json:"root_exec_id,omitempty"`
 	RootPID    *int64          `json:"root_pid,omitempty"`
 	Details    json.RawMessage `json:"details,omitempty"`
+	Reason     *string         `json:"reason,omitempty"`
 }
 
 // ProcessHTTPEventResponse represents the JSON payload returned by the HTTP events endpoint.
@@ -101,6 +102,7 @@ type PromptInjectionRecord struct {
 	Severity   *string    `json:"severity,omitempty"`
 	Categories []string   `json:"categories,omitempty"`
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
+	Reason     *string    `json:"reason,omitempty"`
 }
 
 // SecurityLLMAnalysisResponse bundles semantic and prompt analysis payloads.
@@ -545,6 +547,7 @@ func (h analyticsHandlers) getSecurityLLMAnalysis(c *gin.Context) {
 			Severity:   stringPtr(row.SeverityLevel),
 			Categories: parseCategories(row.Categories),
 			ObservedAt: timePtrFromTimestamptz(row.ObservedAt),
+			Reason:     stringPtrFromText(row.Reason),
 		})
 	}
 
@@ -1470,6 +1473,7 @@ func convertHeuristicAlert(row sqlc.HeuristicAlert) HeuristicAlertResponse {
 		RootExecID: stringPtrFromText(row.RootExecID),
 		RootPID:    int64PtrFromInt8(row.RootPid),
 		Details:    jsonInterface(row.Details),
+		Reason:     stringPtrFromText(row.Reason),
 	}
 }
 

@@ -1023,3 +1023,15 @@ BEGIN
     RETURN v_rows;
 END;
 $$;
+
+-- Add reason columns to support LLM-generated explanations for high-risk detections.
+
+-- Add reason column to llm_prompt_injection_results
+ALTER TABLE llm_prompt_injection_results ADD COLUMN IF NOT EXISTS reason TEXT;
+
+-- Add reason column to heuristic_alerts
+ALTER TABLE heuristic_alerts ADD COLUMN IF NOT EXISTS reason TEXT;
+
+-- Add comments to document the purpose
+COMMENT ON COLUMN llm_prompt_injection_results.reason IS 'LLM-generated explanation for why this prompt was classified as unsafe or controversial';
+COMMENT ON COLUMN heuristic_alerts.reason IS 'Explanation for why this alert was triggered';

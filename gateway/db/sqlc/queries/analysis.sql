@@ -41,7 +41,8 @@ SELECT
     end_ts,
     root_exec_id,
     root_pid,
-    details
+    details,
+    reason
 FROM heuristic_alerts
 WHERE host = sqlc.arg('host')
   AND start_ts >= sqlc.arg('since')
@@ -107,6 +108,7 @@ SELECT
     res.agent_run_id,
     res.prompt_hash,
     res.metadata,
+    res.reason,
     COALESCE(e.started_at, req.timestamp) AS observed_at
 FROM llm_prompt_injection_results AS res
 LEFT JOIN llm_http_event AS e
@@ -238,7 +240,8 @@ SELECT
     end_ts,
     root_exec_id,
     root_pid,
-    details
+    details,
+    reason
 FROM heuristic_alerts
 WHERE host = $1
   AND root_pid = $2

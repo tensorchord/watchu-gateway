@@ -12,6 +12,7 @@ const detectionTemplate = `You are a security content classifier. Inspect the US
 Safety: <Safe|Controversial|Unsafe>
 Categories: <comma-separated categories or None>
 Score: <0.00-1.00>
+Reason: <brief explanation why this is unsafe or controversial, or None if safe>
 
 Safety levels:
 - Safe: content generally considered safe in most scenarios.
@@ -30,6 +31,10 @@ Valid categories:
 - Jailbreak
 - None
 
+For Reason field:
+- If Safety is "Unsafe" or "Controversial", provide a brief explanation (1-2 sentences) describing what makes this content risky and what specific behaviors were detected.
+- If Safety is "Safe", use "None".
+
 USER_INPUT: %s`
 
 // RenderDetectionPrompt embeds the user prompt into the guardrail template.
@@ -42,6 +47,7 @@ type GuardrailResult struct {
 	Safety     string
 	Categories []string
 	Score      float64
+	Reason     string
 }
 
 // ParseGuardrailOutput extracts severity metadata from the model output.
@@ -69,6 +75,11 @@ func ParseGuardrailOutput(text string) GuardrailResult {
 			if parsed, err := strconv.ParseFloat(value, 64); err == nil {
 				res.Score = parsed
 			}
+		case strings.HasPrefix(lower, "reason:"):
+			reason := strings.TrimSpace(trimmed[len("Reason:"):])
+			if !strings.EqualFold(reason, "none") && reason != "" {
+				res.Reason = reason
+			}
 		}
 	}
 	return res
@@ -82,12 +93,114 @@ func extractPromptText(promptJSON []byte, fallback string, maxLen int, stripTool
 			return trimmed, truncated, "prompt_json"
 		}
 	}
+
+	// Try to extract from raw HTTP request body (for direct API calls)
+	if fallback != "" {
+		if extracted := extractPromptFromHTTPBody(fallback); extracted != "" {
+			trimmed, truncated := truncateString(extracted, maxLen)
+			return trimmed, truncated, "http_body"
+		}
+	}
+
 	trimmed, truncated := truncateString(fallback, maxLen)
 	source := "raw_request"
 	if fallback == "" {
 		source = "unknown"
 	}
 	return trimmed, truncated, source
+}
+
+// extractPromptFromHTTPBody attempts to extract prompt text from various LLM API request formats
+func extractPromptFromHTTPBody(body string) string {
+	var data map[string]any
+	if err := json.Unmarshal([]byte(body), &data); err != nil {
+		return ""
+	}
+
+	// Try to extract from common LLM API formats
+
+	// 1. OpenAI/Anthropic format: messages array
+	if messages, ok := data["messages"].([]any); ok && len(messages) > 0 {
+		var texts []string
+		for _, msg := range messages {
+			if msgObj, ok := msg.(map[string]any); ok {
+				// Extract role and content
+				role := ""
+				if r, ok := msgObj["role"].(string); ok {
+					role = r
+				}
+
+				content := extractMessageContent(msgObj["content"])
+				if content != "" {
+					if role != "" {
+						texts = append(texts, fmt.Sprintf("[%s] %s", role, content))
+					} else {
+						texts = append(texts, content)
+					}
+				}
+			}
+		}
+		if len(texts) > 0 {
+			return strings.Join(texts, "\n\n")
+		}
+	}
+
+	// 2. Simple prompt field (some APIs)
+	if prompt, ok := data["prompt"].(string); ok && prompt != "" {
+		return prompt
+	}
+
+	// 3. Google Gemini format: contents array
+	if contents, ok := data["contents"].([]any); ok && len(contents) > 0 {
+		var texts []string
+		for _, content := range contents {
+			if contentObj, ok := content.(map[string]any); ok {
+				if parts, ok := contentObj["parts"].([]any); ok {
+					for _, part := range parts {
+						if partObj, ok := part.(map[string]any); ok {
+							if text, ok := partObj["text"].(string); ok && text != "" {
+								texts = append(texts, text)
+							}
+						}
+					}
+				}
+			}
+		}
+		if len(texts) > 0 {
+			return strings.Join(texts, "\n")
+		}
+	}
+
+	return ""
+}
+
+// extractMessageContent extracts text from message content (handles both string and array formats)
+func extractMessageContent(content any) string {
+	if content == nil {
+		return ""
+	}
+
+	// String format
+	if s, ok := content.(string); ok {
+		return s
+	}
+
+	// Array format (Anthropic style)
+	if arr, ok := content.([]any); ok {
+		var texts []string
+		for _, item := range arr {
+			if obj, ok := item.(map[string]any); ok {
+				if typ, _ := obj["type"].(string); typ == "text" {
+					if text, ok := obj["text"].(string); ok && text != "" {
+						texts = append(texts, text)
+					}
+				}
+			}
+		}
+		return strings.Join(texts, "\n")
+	}
+
+	return ""
 }
 
 func flattenPromptJSON(raw []byte, stripToolCalls bool) (string, error) {

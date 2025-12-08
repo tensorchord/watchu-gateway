@@ -307,7 +307,8 @@ SELECT
     end_ts,
     root_exec_id,
     root_pid,
-    details
+    details,
+    reason
 FROM heuristic_alerts
 WHERE host = $1
   AND start_ts >= $2
@@ -348,6 +349,7 @@ func (q *Queries) ListHeuristicAlertsByHostRange(ctx context.Context, arg ListHe
 			&i.RootExecID,
 			&i.RootPid,
 			&i.Details,
+			&i.Reason,
 		); err != nil {
 			return nil, err
 		}
@@ -370,7 +372,8 @@ SELECT
     end_ts,
     root_exec_id,
     root_pid,
-    details
+    details,
+    reason
 FROM heuristic_alerts
 WHERE host = $1
   AND root_pid = $2
@@ -411,6 +414,7 @@ func (q *Queries) ListHeuristicAlertsByRoot(ctx context.Context, arg ListHeurist
 			&i.RootExecID,
 			&i.RootPid,
 			&i.Details,
+			&i.Reason,
 		); err != nil {
 			return nil, err
 		}
@@ -924,6 +928,7 @@ SELECT
     res.agent_run_id,
     res.prompt_hash,
     res.metadata,
+    res.reason,
     COALESCE(e.started_at, req.timestamp) AS observed_at
 FROM llm_prompt_injection_results AS res
 LEFT JOIN llm_http_event AS e
@@ -953,6 +958,7 @@ type ListPromptInjectionsByHostRow struct {
 	AgentRunID    pgtype.UUID
 	PromptHash    pgtype.Text
 	Metadata      []byte
+	Reason        pgtype.Text
 	ObservedAt    pgtype.Timestamptz
 }
 
@@ -977,6 +983,7 @@ func (q *Queries) ListPromptInjectionsByHost(ctx context.Context, arg ListPrompt
 			&i.AgentRunID,
 			&i.PromptHash,
 			&i.Metadata,
+			&i.Reason,
 			&i.ObservedAt,
 		); err != nil {
 			return nil, err

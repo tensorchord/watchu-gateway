@@ -59,6 +59,7 @@ interface PromptTableRow {
     categories: string[];
     observedAtRaw: string | null;
     observedAtDisplay: string;
+    reason: string | null;
 }
 
 interface SecurityLLMAnalysisProps {
@@ -193,6 +194,7 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
             const observedAtRaw = record.observed_at ?? null;
             const observedAtDisplay = formatTimestamp(observedAtRaw) ?? "—";
             const categories = Array.isArray(record.categories) ? record.categories.filter(Boolean) : [];
+            const reason = record.reason ?? null;
             return {
                 key: requestId,
                 requestId,
@@ -200,7 +202,8 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
                 severityKey,
                 categories,
                 observedAtRaw,
-                observedAtDisplay
+                observedAtDisplay,
+                reason
             } satisfies PromptTableRow;
         });
     }, [data?.prompt_injections]);
@@ -357,6 +360,21 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
                         )}
                     </Space>
                 )
+            },
+            {
+                title: "Reason",
+                dataIndex: "reason",
+                render: (value: string | null) => {
+                    if (!value) {
+                        return <Text type="secondary">—</Text>;
+                    }
+                    return (
+                        <Text style={{ fontSize: "13px", lineHeight: "1.5" }} ellipsis={{ tooltip: value }}>
+                            {value}
+                        </Text>
+                    );
+                },
+                width: "30%"
             }
         ],
         [handleOpenRequestDetails]

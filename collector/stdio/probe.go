@@ -68,7 +68,7 @@ func attachStdioProbes(objs stdioObjects, links *[]link.Link) {
 	for _, probe := range probes {
 		tp, err := link.Tracepoint(probe.group, probe.name, probe.prog, nil)
 		if err != nil {
-			log.Error().Err(err).Str("group", probe.group).Str("name", probe.name).Msg("failed to attach tracepoint")
+			log.Error().Err(err).Str("group", probe.group).Str("name", probe.name).Msg("failed to attach stdio tracepoint")
 			failedProbes++
 			continue
 		}
@@ -98,7 +98,7 @@ func NewStdioProbe(client *collector.GatewayClient) *StdioProbe {
 
 	rb, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to open ringbuf reader")
+		log.Fatal().Err(err).Msg("failed to open ringbuf reader for stdio")
 	}
 
 	return &StdioProbe{
@@ -122,7 +122,7 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 				log.Info().Msg("stdio ringbuf closed")
 				return
 			}
-			log.Warn().Err(err).Msg("read from ringbuffer error")
+			log.Warn().Err(err).Msg("failed to read from stdio ringbuf")
 			continue
 		}
 

@@ -341,6 +341,7 @@ export default function ProcessTimeline({
     const option = useMemo<EChartsOption>(
         () => ({
             animation: false,
+            lazyUpdate: true,
             legend: {
                 type: "scroll",
                 top: 0
@@ -351,6 +352,7 @@ export default function ProcessTimeline({
                 confine: true,
                 enterable: true,
                 hideDelay: 80,
+                renderMode: "richText",
                 formatter: (params: unknown) => {
                     const data = extractProcessEventFromTooltip(params as TimelineTooltipParam | TimelineTooltipParam[]);
                     if (!data) {
@@ -600,7 +602,13 @@ export default function ProcessTimeline({
                         <Spin size="large" />
                     </div>
                 ) : totalEvents > 0 ? (
-                    <ReactECharts ref={chartRef} option={option} style={{ height: 380 }} />
+                    <ReactECharts
+                        ref={chartRef}
+                        option={option}
+                        style={{ height: 380 }}
+                        notMerge={true}
+                        lazyUpdate={true}
+                    />
                 ) : (
                     <Empty description="No timeline events" />
                 )}

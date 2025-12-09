@@ -85,6 +85,7 @@ WITH stdio_enriched AS (
         s.host,
         s.timestamp,
         s.pid,
+        s.tid,
         l.exec_id,
         l.root_exec_id,
         l.root_pid,
@@ -106,6 +107,7 @@ http_enriched AS (
         phe.host,
         phe.timestamp,
         phe.pid,
+        phe.tid,
         phe.exec_id,
         phe.root_exec_id,
         phe.root_pid,
@@ -122,6 +124,7 @@ base_events AS (
         host,
         timestamp,
         pid,
+        tid,
         exec_id,
         root_exec_id,
         root_pid,
@@ -140,6 +143,7 @@ base_events AS (
         host,
         timestamp,
         pid,
+        tid,
         exec_id,
         root_exec_id,
         root_pid,
@@ -152,6 +156,16 @@ base_events AS (
         error,
         corr_id
     FROM stdio_enriched
+),
+serverinfo_by_tid AS (
+    SELECT DISTINCT ON (host, tid)
+        host,
+        tid,
+        result->'serverInfo'->>'name' AS server_name,
+        timestamp
+    FROM base_events
+    WHERE result ? 'serverInfo' AND tid IS NOT NULL
+    ORDER BY host, tid, timestamp DESC
 ),
 serverinfo_by_corr AS (
     SELECT DISTINCT ON (host, corr_id)
@@ -218,8 +232,9 @@ SELECT
         b.raw->'serverInfo'->>'name',
         b.raw->>'host',
         COALESCE(b.result->'serverInfo'->>'name', b.params->'serverInfo'->>'name'),
-        (SELECT server_name FROM serverinfo_by_corr sc WHERE sc.host = b.host AND sc.corr_id = b.corr_id),
+        (SELECT server_name FROM serverinfo_by_tid st WHERE st.host = b.host AND st.tid = b.tid AND b.tid IS NOT NULL),
         (SELECT server_name FROM serverinfo_by_pid sp WHERE sp.host = b.host AND sp.pid = b.pid),
+        (SELECT server_name FROM serverinfo_by_corr sc WHERE sc.host = b.host AND sc.corr_id = b.corr_id),
         (SELECT server_name FROM serverinfo_by_corr_pidset scp WHERE scp.host = b.host AND scp.corr_id = b.corr_id)
     ) AS server,
     COALESCE(
@@ -1035,3 +1050,8 @@ ALTER TABLE heuristic_alerts ADD COLUMN IF NOT EXISTS reason TEXT;
 -- Add comments to document the purpose
 COMMENT ON COLUMN llm_prompt_injection_results.reason IS 'LLM-generated explanation for why this prompt was classified as unsafe or controversial';
 COMMENT ON COLUMN heuristic_alerts.reason IS 'Explanation for why this alert was triggered';
+
+-- Performance optimization: Add index for timeline queries
+-- These indexes optimize the common query pattern: WHERE host = X AND timestamp >= Y AND timestamp <= Z ORDER BY timestamp DESC
+CREATE INDEX IF NOT EXISTS idx_pl_host_start_ts_desc ON process_lifecycle(host, start_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_phe_host_ts_desc ON process_http_events(host, timestamp DESC);

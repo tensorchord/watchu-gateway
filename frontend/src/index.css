@@ -43,3 +43,60 @@ body {
   opacity: 1 !important;
   visibility: visible !important;
 }
+
+/* Prompt Injection Events Table Styles */
+.ant-table-tbody > tr.table-row-light {
+  background-color: #fafafa;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background-color: #f0f5ff !important;
+}
+
+.ant-table-thead > tr > th {
+  font-weight: 600;
+  background-color: #fafafa !important;
+  border-bottom: 2px solid #e8e8e8 !important;
+}
+
+.ant-table-cell {
+  padding: 12px 16px !important;
+}
+
+/* Improve tag readability */
+.ant-tag {
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+/* Statistics cards */
+.ant-card {
+  border-radius: 8px;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03), 0 1px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px 0 rgba(0, 0, 0, 0.02);
+  transition: all 0.3s ease;
+}
+
+.ant-card:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.ant-card-head {
+  border-bottom: 1px solid #f0f0f0;
+  padding: 16px 24px;
+}
+
+.ant-card-head-title {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+/* Button improvements */
+.ant-btn-link {
+  transition: all 0.2s ease;
+}
+
+.ant-btn-link:hover {
+  text-decoration: underline;
+  opacity: 0.8;
+}

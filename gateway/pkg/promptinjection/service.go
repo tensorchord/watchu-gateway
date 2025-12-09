@@ -271,27 +271,44 @@ type detectionOutcome struct {
 }
 
 func deriveOutcome(parsed GuardrailResult) detectionOutcome {
-	score := parsed.Score
-	if score <= 0 {
-		switch strings.ToLower(parsed.Safety) {
-		case "unsafe":
-			score = 0.9
-		case "controversial":
-			score = 0.5
-		default:
+	// First check Safety classification (highest priority)
+	safety := strings.ToLower(parsed.Safety)
+
+	var score float64
+	var severity string
+
+	// Map Safety to score and severity
+	switch safety {
+	case "unsafe":
+		score = 0.9
+		severity = "high"
+	case "controversial":
+		score = 0.5
+		severity = "medium"
+	case "safe":
+		score = 0.1
+		severity = "low"
+	default:
+		// If Safety is not explicitly set, fall back to Score
+		score = parsed.Score
+		if score <= 0 {
 			score = 0.1
+			severity = "low"
+		} else if score > 1 {
+			score = 1
+			severity = "high"
+		} else {
+			// Use score thresholds
+			severity = "low"
+			switch {
+			case score >= 0.7:
+				severity = "high"
+			case score >= 0.4:
+				severity = "medium"
+			}
 		}
 	}
-	if score > 1 {
-		score = 1
-	}
-	severity := "low"
-	switch {
-	case score >= 0.7:
-		severity = "high"
-	case score >= 0.4:
-		severity = "medium"
-	}
+
 	return detectionOutcome{
 		Severity:   severity,
 		Categories: parsed.Categories,

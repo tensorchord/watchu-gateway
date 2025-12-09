@@ -320,7 +320,11 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
                 dataIndex: "observedAtDisplay",
                 sorter: (a, b) => toMillis(a.observedAtRaw) - toMillis(b.observedAtRaw),
                 defaultSortOrder: "descend",
-                sortDirections: ["descend", "ascend"]
+                sortDirections: ["descend", "ascend"],
+                render: (value: string) => (
+                    <Text style={{ fontSize: "13px", whiteSpace: "nowrap" }}>{value}</Text>
+                ),
+                width: 180
             },
             {
                 title: "Request ID",
@@ -331,35 +335,75 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
                         onClick={() => {
                             void handleOpenRequestDetails(value);
                         }}
-                        style={{ padding: 0 }}
+                        style={{
+                            padding: 0,
+                            fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                            fontSize: "12px"
+                        }}
                     >
                         {value}
                     </Button>
-                )
+                ),
+                width: 380
             },
             {
                 title: "Severity",
                 dataIndex: "severity",
                 render: (_: string, row) => (
-                    <Tag color={getSeverityColor(row.severity)}>{getSeverityLabel(row.severity)}</Tag>
-                )
+                    <Tag
+                        color={getSeverityColor(row.severity)}
+                        style={{
+                            fontWeight: 600,
+                            fontSize: "12px",
+                            padding: "4px 12px",
+                            borderRadius: "6px"
+                        }}
+                    >
+                        {getSeverityLabel(row.severity)}
+                    </Tag>
+                ),
+                width: 120,
+                filters: [
+                    { text: "High", value: "high" },
+                    { text: "Medium", value: "medium" },
+                    { text: "Low", value: "low" }
+                ],
+                onFilter: (value, record) => record.severityKey === value
             },
             {
                 title: "Categories",
                 dataIndex: "categories",
-                render: (value: string[], row) => (
-                    <Space size={4} wrap>
-                        {value.length ? (
-                            value.map((category, index) => (
-                                <Tag key={`${row.requestId}-${category}-${index}`} color="processing">
-                                    {category}
-                                </Tag>
-                            ))
-                        ) : (
-                            <Tag color="default">Uncategorized</Tag>
-                        )}
-                    </Space>
-                )
+                render: (value: string[], row) => {
+                    const getCategoryColor = (category: string): string => {
+                        const categoryMap: Record<string, string> = {
+                            "Violent": "red",
+                            "Non-violent Illegal Acts": "orange",
+                            "Sexual Content or Sexual Acts": "volcano",
+                            "Personally Identifiable Information": "purple",
+                            "Suicide & Self-Harm": "magenta",
+                            "Unethical Acts": "gold",
+                            "Politically Sensitive Topics": "blue",
+                            "Copyright Violation": "cyan",
+                            "Jailbreak": "red",
+                            "Uncategorized": "default"
+                        };
+                        return categoryMap[category] || "processing";
+                    };
+
+                    return (
+                        <Space size={4} wrap>
+                            {value.length ? (
+                                value.map((category, index) => (
+                                    <Tag key={`${row.requestId}-${category}-${index}`} color={getCategoryColor(category)}>
+                                        {category}
+                                    </Tag>
+                                ))
+                            ) : (
+                                <Tag color="default">Uncategorized</Tag>
+                            )}
+                        </Space>
+                    );
+                }
             },
             {
                 title: "Reason",
@@ -369,12 +413,21 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
                         return <Text type="secondary">—</Text>;
                     }
                     return (
-                        <Text style={{ fontSize: "13px", lineHeight: "1.5" }} ellipsis={{ tooltip: value }}>
-                            {value}
-                        </Text>
+                        <div style={{ maxWidth: "100%" }}>
+                            <Text
+                                style={{
+                                    fontSize: "13px",
+                                    lineHeight: "1.6",
+                                    display: "block",
+                                    wordBreak: "break-word"
+                                }}
+                            >
+                                {value}
+                            </Text>
+                        </div>
                     );
                 },
-                width: "30%"
+                width: "40%"
             }
         ],
         [handleOpenRequestDetails]
@@ -513,8 +566,43 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
         if (!promptRows.length) {
             return <Empty description="No prompt inspections yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
         }
+
+        // Calculate statistics
+        const highCount = unsafePromptRows.filter(row => row.severityKey === 'high').length;
+        const mediumCount = unsafePromptRows.filter(row => row.severityKey === 'medium').length;
+        const lowCount = unsafePromptRows.filter(row => row.severityKey === 'low').length;
+        const totalCategories = new Set(promptRows.flatMap(row => row.categories)).size;
+
         return (
             <Space direction="vertical" size={20} style={{ width: "100%" }}>
+                {/* Statistics Cards */}
+                <Row gutter={[16, 16]}>
+                    <Col xs={12} sm={6}>
+                        <Card bordered={false} style={{ textAlign: "center" }}>
+                            <Text type="secondary" style={{ fontSize: "12px", display: "block" }}>High Risk</Text>
+                            <Title level={3} style={{ margin: "8px 0 0", color: "#cf1322" }}>{highCount}</Title>
+                        </Card>
+                    </Col>
+                    <Col xs={12} sm={6}>
+                        <Card bordered={false} style={{ textAlign: "center" }}>
+                            <Text type="secondary" style={{ fontSize: "12px", display: "block" }}>Medium Risk</Text>
+                            <Title level={3} style={{ margin: "8px 0 0", color: "#fa8c16" }}>{mediumCount}</Title>
+                        </Card>
+                    </Col>
+                    <Col xs={12} sm={6}>
+                        <Card bordered={false} style={{ textAlign: "center" }}>
+                            <Text type="secondary" style={{ fontSize: "12px", display: "block" }}>Low Risk</Text>
+                            <Title level={3} style={{ margin: "8px 0 0", color: "#52c41a" }}>{lowCount}</Title>
+                        </Card>
+                    </Col>
+                    <Col xs={12} sm={6}>
+                        <Card bordered={false} style={{ textAlign: "center" }}>
+                            <Text type="secondary" style={{ fontSize: "12px", display: "block" }}>Categories</Text>
+                            <Title level={3} style={{ margin: "8px 0 0", color: "#1890ff" }}>{totalCategories}</Title>
+                        </Card>
+                    </Col>
+                </Row>
+
                 <Row gutter={[16, 16]}>
                     <Col xs={24} md={12}>
                         {severityChartOption ? (
@@ -543,14 +631,21 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
                     <Table
                         columns={promptColumns}
                         dataSource={unsafePromptRows}
-                        pagination={{ pageSize: 10, showSizeChanger: false }}
-                        scroll={{ x: true }}
+                        pagination={{
+                            pageSize: 10,
+                            showSizeChanger: true,
+                            showTotal: (total) => `Total ${total} events`,
+                            pageSizeOptions: [10, 20, 50]
+                        }}
+                        scroll={{ x: 1200 }}
                         locale={{ emptyText: "No unsafe prompts detected" }}
+                        size="middle"
+                        rowClassName={(_, index) => index % 2 === 0 ? "table-row-light" : ""}
                     />
                 </Card>
             </Space>
         );
-    }, [categoryChartOption, promptColumns, promptRows.length, severityChartOption, unsafePromptRows]);
+    }, [categoryChartOption, promptColumns, promptRows, unsafePromptRows, severityChartOption]);
 
     const tabs: TabsProps["items"] = useMemo(
         () => [

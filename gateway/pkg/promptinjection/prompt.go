@@ -19,6 +19,14 @@ Safety levels:
 - Controversial: content whose harmfulness depends on context.
 - Unsafe: content generally considered harmful.
 
+Score interpretation (IMPORTANT):
+- Score represents the RISK/DANGER level (higher score = MORE dangerous)
+- 0.00-0.30: Safe content, low risk
+- 0.30-0.70: Controversial content, moderate risk
+- 0.70-1.00: Unsafe content, high risk
+- If Safety is "Safe", Score should be low (0.00-0.30)
+- If Safety is "Unsafe", Score should be high (0.70-1.00)
+
 Valid categories:
 - Violent
 - Non-violent Illegal Acts

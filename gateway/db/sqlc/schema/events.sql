@@ -73,6 +73,7 @@ WITH stdio_enriched AS (
         s.host,
         s.timestamp,
         s.pid,
+        s.tid,
         l.exec_id,
         l.root_exec_id,
         l.root_pid,
@@ -94,6 +95,7 @@ http_enriched AS (
         phe.host,
         phe.timestamp,
         phe.pid,
+        phe.tid,
         phe.exec_id,
         phe.root_exec_id,
         phe.root_pid,
@@ -110,6 +112,7 @@ base_events AS (
         host,
         timestamp,
         pid,
+        tid,
         exec_id,
         root_exec_id,
         root_pid,
@@ -128,6 +131,7 @@ base_events AS (
         host,
         timestamp,
         pid,
+        tid,
         exec_id,
         root_exec_id,
         root_pid,
@@ -141,15 +145,15 @@ base_events AS (
         corr_id
     FROM stdio_enriched
 ),
-serverinfo_by_corr AS (
-    SELECT DISTINCT ON (host, corr_id)
+serverinfo_by_tid AS (
+    SELECT DISTINCT ON (host, tid)
         host,
-        corr_id,
+        tid,
         result->'serverInfo'->>'name' AS server_name,
         timestamp
     FROM base_events
-    WHERE result ? 'serverInfo'
-    ORDER BY host, corr_id, timestamp DESC
+    WHERE result ? 'serverInfo' AND tid IS NOT NULL
+    ORDER BY host, tid, timestamp DESC
 ),
 serverinfo_by_pid AS (
     SELECT DISTINCT ON (host, pid)
@@ -160,6 +164,16 @@ serverinfo_by_pid AS (
     FROM base_events
     WHERE result ? 'serverInfo'
     ORDER BY host, pid, timestamp DESC
+),
+serverinfo_by_corr AS (
+    SELECT DISTINCT ON (host, corr_id)
+        host,
+        corr_id,
+        result->'serverInfo'->>'name' AS server_name,
+        timestamp
+    FROM base_events
+    WHERE result ? 'serverInfo'
+    ORDER BY host, corr_id, timestamp DESC
 ),
 serverinfo_by_corr_pidset AS (
     SELECT DISTINCT ON (be.host, be.corr_id)
@@ -198,8 +212,9 @@ SELECT
         b.raw->'serverInfo'->>'name',
         b.raw->>'host',
         COALESCE(b.result->'serverInfo'->>'name', b.params->'serverInfo'->>'name'),
-        (SELECT server_name FROM serverinfo_by_corr sc WHERE sc.host = b.host AND sc.corr_id = b.corr_id),
+        (SELECT server_name FROM serverinfo_by_tid st WHERE st.host = b.host AND st.tid = b.tid AND b.tid IS NOT NULL),
         (SELECT server_name FROM serverinfo_by_pid sp WHERE sp.host = b.host AND sp.pid = b.pid),
+        (SELECT server_name FROM serverinfo_by_corr sc WHERE sc.host = b.host AND sc.corr_id = b.corr_id),
         (SELECT server_name FROM serverinfo_by_corr_pidset scp WHERE scp.host = b.host AND scp.corr_id = b.corr_id)
     ) AS server,
     COALESCE(

@@ -17,6 +17,10 @@ format:
 	@golangci-lint fmt
 	@find . -type f -name "*.c" | xargs clang-format -i
 
-lint:
-	@golangci-lint run
+lint-ebpf:
 	@find . -type f -name "*.c" | xargs clang-format --dry-run --Werror
+
+lint-go:
+	@golangci-lint run
+
+lint: lint-ebpf lint-go

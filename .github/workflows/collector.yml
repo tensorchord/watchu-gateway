@@ -34,21 +34,13 @@ jobs:
       run:
         working-directory: ./collector
     runs-on: ubuntu-latest
+    environment:
+      BUILDER: ghcr.io/tensorchord/ebpf-builder:0.1.0
     steps:
     - uses: actions/checkout@v6
 
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version: stable
-
-    - name: LLVM
-      run: |
-        curl --proto '=https' --tlsv1.2 -sSf https://apt.llvm.org/llvm.sh | sudo bash -s -- 20
-        sudo ln -s /usr/bin/llvm-strip-20 /usr/bin/llvm-strip
-
     - name: Build
-      run: make build
+      run: docker run --rm -v "$PWD":/workspace -w /workspace $BUILDER bash -c "make build && make lint-ebpf"
 
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v8
@@ -56,7 +48,7 @@ jobs:
         working-directory: ./collector
 
     - name: Lint
-      run: make lint
+      run: make lint-go
 
   release:
     needs: build

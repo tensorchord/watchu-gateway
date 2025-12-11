@@ -80,13 +80,11 @@ jobs:
       uses: docker/metadata-action@v5
       with:
         images: |
-          ghcr.io/${{ github.repository_owner }}/${{ github.repository }}-collector
+          ghcr.io/${{ github.repository_owner }}/watchu-collector
         flavor: |
           latest=false
         tags: |
-          type=ref,event=branch
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{version}},value=${{ inputs.version }}
 
     - name: Build and push images
       uses: docker/build-push-action@v6

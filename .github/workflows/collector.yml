@@ -34,7 +34,7 @@ jobs:
       run:
         working-directory: ./collector
     runs-on: ubuntu-latest
-    environment:
+    env:
       BUILDER: ghcr.io/tensorchord/ebpf-builder:0.1.0
     steps:
     - uses: actions/checkout@v6

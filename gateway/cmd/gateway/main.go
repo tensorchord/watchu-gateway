@@ -41,18 +41,19 @@ func main() {
 	ingestService := ingest.NewService(pool)
 	queries := sqlc.New(pool)
 	promptSvc := promptinjection.NewService(queries, promptinjection.Options{
-		Enabled:         cfg.PromptInjectionEnabled,
-		APIBase:         cfg.PromptInjectionAPIBase,
-		APIKey:          cfg.PromptInjectionAPIKey,
-		Model:           cfg.PromptInjectionModel,
-		Mode:            cfg.PromptInjectionMode,
-		Timeout:         cfg.PromptInjectionTimeout,
-		BatchSize:       cfg.PromptInjectionBatchSize,
-		MaxRetries:      cfg.PromptInjectionMaxRetries,
-		SampleRate:      cfg.PromptInjectionSampleRate,
-		MaxQPS:          cfg.PromptInjectionMaxQPS,
-		MaxPromptLength: cfg.PromptInjectionMaxPromptLen,
-		StripToolCalls:  cfg.PromptInjectionStripTools,
+		Enabled:           cfg.PromptInjectionEnabled,
+		APIBase:           cfg.PromptInjectionAPIBase,
+		APIKey:            cfg.PromptInjectionAPIKey,
+		Model:             cfg.PromptInjectionModel,
+		Mode:              cfg.PromptInjectionMode,
+		Timeout:           cfg.PromptInjectionTimeout,
+		BatchSize:         cfg.PromptInjectionBatchSize,
+		MaxRetries:        cfg.PromptInjectionMaxRetries,
+		SampleRate:        cfg.PromptInjectionSampleRate,
+		MaxQPS:            cfg.PromptInjectionMaxQPS,
+		MaxPromptLength:   cfg.PromptInjectionMaxPromptLen,
+		StripToolCalls:    cfg.PromptInjectionStripTools,
+		ExtractUserPrompt: cfg.PromptInjectionExtractUser,
 	}, slog.Default())
 
 	router := httpapi.NewRouter(httpapi.Dependencies{

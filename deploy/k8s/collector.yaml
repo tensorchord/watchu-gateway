@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: collector
+  namespace: watchu
+  labels:
+    app: collector
+spec:
+  selector:
+    matchLabels:
+      app: collector
+  template:
+    metadata:
+      labels:
+        app: collector
+    spec:
+      hostPID: true
+      hostNetwork: true
+      containers:
+      - name: collector
+        image: watchu-collector:latest
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: GATEWAY_URL
+          value: "http://gateway.watchu.svc.cluster.local:8080"
+        - name: TETRAGON_SOCKET
+          value: "unix:///var/run/tetragon/tetragon.sock"
+        volumeMounts:
+        # Mount /proc to access process information
+        - name: proc
+          mountPath: /host/proc
+          readOnly: true
+        # Mount /sys/fs/cgroup to list container pids
+        - name: cgroup
+          mountPath: /host/sys/fs/cgroup
+          readOnly: true
+        # Mount Tetragon socket to receive events
+        - name: tetragon-socket
+          mountPath: /var/run/tetragon
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      volumes:
+      - name: proc
+        hostPath:
+          path: /proc
+          type: Directory
+      - name: cgroup
+        hostPath:
+          path: /sys/fs/cgroup
+          type: Directory
+      - name: tetragon-socket
+        hostPath:
+          path: /var/run/tetragon
+          type: Directory
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      - effect: NoExecute
+        operator: Exists
+      serviceAccountName: collector
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: collector
+  namespace: watchu
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: collector
+rules:
+- apiGroups: [""]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: collector
+subjects:
+- kind: ServiceAccount
+  name: collector
+  namespace: watchu

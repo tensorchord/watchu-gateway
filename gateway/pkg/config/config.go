@@ -30,6 +30,7 @@ type Config struct {
 	PromptInjectionMaxQPS       float64
 	PromptInjectionMaxPromptLen int
 	PromptInjectionStripTools   bool
+	PromptInjectionExtractUser  bool // If true, extract user prompt from agent wrappers; if false, use full prompt
 }
 
 const (
@@ -64,6 +65,7 @@ func Load() (Config, error) {
 		PromptInjectionMaxQPS:       parseFloatEnv("PROMPT_INJECTION_MAX_QPS", 1.0),
 		PromptInjectionMaxPromptLen: parseIntEnv("PROMPT_INJECTION_MAX_PROMPT_CHARS", 8192),
 		PromptInjectionStripTools:   parseBoolEnv("PROMPT_INJECTION_STRIP_TOOL_CALLS", true),
+		PromptInjectionExtractUser:  parseBoolEnv("PROMPT_INJECTION_EXTRACT_USER_PROMPT", true),
 	}
 
 	if cfg.DatabaseURL == "" {

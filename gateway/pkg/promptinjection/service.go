@@ -22,27 +22,28 @@ import (
 
 // Options controls prompt injection detection behavior.
 type Options struct {
-	Enabled         bool
-	APIBase         string
-	APIKey          string
-	Model           string
-	Mode            string
-	Timeout         time.Duration
-	BatchSize       int
-	MaxRetries      int
-	SampleRate      float64
-	MaxQPS          float64
-	MaxPromptLength int
-	StripToolCalls  bool
+	Enabled           bool
+	APIBase           string
+	APIKey            string
+	Model             string
+	Mode              string
+	Timeout           time.Duration
+	BatchSize         int
+	MaxRetries        int
+	SampleRate        float64
+	MaxQPS            float64
+	MaxPromptLength   int
+	StripToolCalls    bool
+	ExtractUserPrompt bool // If true, intelligently extract user prompt from agent framework wrappers; if false, use full prompt
 }
 
 // Service pulls pending prompts, scores them via an OpenAI-compatible API, and stores the verdict.
 type Service struct {
-	queries *sqlc.Queries
-	client  *Client
-	opts    Options
-	limiter *rate.Limiter
-	logger  *slog.Logger
+	queries  *sqlc.Queries
+	detector Detector // Use Detector interface instead of holding client directly
+	opts     Options
+	limiter  *rate.Limiter
+	logger   *slog.Logger
 }
 
 // NewService constructs a detector with the provided dependencies.
@@ -56,12 +57,15 @@ func NewService(queries *sqlc.Queries, opts Options, logger *slog.Logger) *Servi
 		normalized.Enabled = false
 	}
 
-	var client *Client
+	var detector Detector
 	if normalized.Enabled {
-		client = NewClient(normalized.APIBase, normalized.APIKey, normalized.Timeout)
+		client := NewClient(normalized.APIBase, normalized.APIKey, normalized.Timeout)
 		if client == nil {
 			logger.Warn("prompt injection disabled due to invalid API base", slog.String("base", normalized.APIBase))
 			normalized.Enabled = false
+		} else {
+			// Create detector based on mode
+			detector = NewDetector(client, normalized.Model, normalized.Mode)
 		}
 	}
 
@@ -75,11 +79,11 @@ func NewService(queries *sqlc.Queries, opts Options, logger *slog.Logger) *Servi
 	}
 
 	return &Service{
-		queries: queries,
-		client:  client,
-		opts:    normalized,
-		limiter: limiter,
-		logger:  logger,
+		queries:  queries,
+		detector: detector,
+		opts:     normalized,
+		limiter:  limiter,
+		logger:   logger,
 	}
 }
 
@@ -122,7 +126,7 @@ func normalizeOptions(opts Options) Options {
 
 // Enabled reports whether the detector can be executed.
 func (s *Service) Enabled() bool {
-	return s != nil && s.opts.Enabled && s.client != nil && s.queries != nil
+	return s != nil && s.opts.Enabled && s.detector != nil && s.queries != nil
 }
 
 // Ready reports whether downstream dependencies (like the LLM endpoint) are reachable.
@@ -130,7 +134,10 @@ func (s *Service) Ready(ctx context.Context) error {
 	if s == nil || !s.Enabled() {
 		return nil
 	}
-	return s.client.Ping(ctx)
+	if pinger, ok := s.detector.(interface{ Ping(context.Context) error }); ok {
+		return pinger.Ping(ctx)
+	}
+	return nil
 }
 
 // Run evaluates prompts for the requested host within the supplied window.
@@ -177,7 +184,7 @@ func (s *Service) processCandidate(ctx context.Context, row sqlc.ListPromptInjec
 		return fmt.Errorf("missing request_id")
 	}
 
-	promptText, truncated, promptSource := extractPromptText(row.Prompt, textFromPg(row.RawRequest), s.opts.MaxPromptLength, s.opts.StripToolCalls)
+	promptText, truncated, promptSource := extractPromptText(row.Prompt, textFromPg(row.RawRequest), s.opts.MaxPromptLength, s.opts.StripToolCalls, s.opts.ExtractUserPrompt)
 	if promptText == "" {
 		promptText = "<unavailable prompt>"
 	}
@@ -199,7 +206,12 @@ func (s *Service) processCandidate(ctx context.Context, row sqlc.ListPromptInjec
 		return s.persistResult(ctx, row, promptHash, outcome)
 	}
 
-	detectionPrompt := s.renderDetectionPrompt(promptText)
+	if s.limiter != nil {
+		if err := s.limiter.Wait(ctx); err != nil {
+			return err
+		}
+	}
+
 	if s.limiter != nil {
 		if err := s.limiter.Wait(ctx); err != nil {
 			return err
@@ -208,15 +220,18 @@ func (s *Service) processCandidate(ctx context.Context, row sqlc.ListPromptInjec
 
 	recordRequest(row.Host)
 	start := time.Now()
-	completion, err := s.client.Detect(ctx, s.opts.Model, detectionPrompt)
+
+	// Use Detector interface for detection
+	parsed, err := s.detector.Detect(ctx, promptText)
+
 	observeLatency(row.Host, time.Since(start))
 	if err != nil {
 		recordFailure(row.Host)
 		return s.recordError(ctx, row, err)
 	}
 
-	parsed := ParseGuardrailOutput(completion)
 	outcome := deriveOutcome(parsed)
+	completion := formatGuardrailResult(parsed)
 	outcome.RawResponse = completion
 	outcome.Prompt = promptText
 	outcome.PromptTruncated = truncated
@@ -245,17 +260,6 @@ func (s *Service) recordError(ctx context.Context, row sqlc.ListPromptInjectionC
 		UpdatedAt: timestamptzNow(),
 	})
 	return err
-}
-
-func (s *Service) renderDetectionPrompt(promptText string) string {
-	trimmed := strings.TrimSpace(promptText)
-	if trimmed == "" {
-		trimmed = "<unavailable prompt>"
-	}
-	if s.opts.Mode == "model_based" {
-		return trimmed
-	}
-	return RenderDetectionPrompt(trimmed)
 }
 
 type detectionOutcome struct {

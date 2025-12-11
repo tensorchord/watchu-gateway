@@ -94,7 +94,7 @@ func ParseGuardrailOutput(text string) GuardrailResult {
 }
 
 // extractPromptText renders the stored prompt JSON (or raw request) into plain text.
-func extractPromptText(promptJSON []byte, fallback string, maxLen int, stripToolCalls bool) (string, bool, string) {
+func extractPromptText(promptJSON []byte, fallback string, maxLen int, stripToolCalls bool, extractUserPrompt bool) (string, bool, string) {
 	if len(promptJSON) > 0 {
 		if rendered, err := flattenPromptJSON(promptJSON, stripToolCalls); err == nil && rendered != "" {
 			trimmed, truncated := truncateString(rendered, maxLen)
@@ -104,7 +104,7 @@ func extractPromptText(promptJSON []byte, fallback string, maxLen int, stripTool
 
 	// Try to extract from raw HTTP request body (for direct API calls)
 	if fallback != "" {
-		if extracted := extractPromptFromHTTPBody(fallback); extracted != "" {
+		if extracted := extractPromptFromHTTPBody(fallback, extractUserPrompt); extracted != "" {
 			trimmed, truncated := truncateString(extracted, maxLen)
 			return trimmed, truncated, "http_body"
 		}
@@ -118,8 +118,16 @@ func extractPromptText(promptJSON []byte, fallback string, maxLen int, stripTool
 	return trimmed, truncated, source
 }
 
-// extractPromptFromHTTPBody attempts to extract prompt text from various LLM API request formats
-func extractPromptFromHTTPBody(body string) string {
+// ExtractPromptFromHTTPBody attempts to extract prompt text from various LLM API request formats
+// If extractUserPrompt is true, intelligently extracts user input from agent framework wrappers
+// If extractUserPrompt is false, returns the full prompt content without extraction
+// This function is exported for use in standalone tools
+func ExtractPromptFromHTTPBody(body string, extractUserPrompt bool) string {
+	return extractPromptFromHTTPBody(body, extractUserPrompt)
+}
+
+// extractPromptFromHTTPBody is the internal implementation
+func extractPromptFromHTTPBody(body string, extractUserPrompt bool) string {
 	var data map[string]any
 	if err := json.Unmarshal([]byte(body), &data); err != nil {
 		return ""
@@ -138,45 +146,270 @@ func extractPromptFromHTTPBody(body string) string {
 					role = r
 				}
 
+				// Skip assistant messages (system prompts)
+				if role == "assistant" {
+					continue
+				}
+
+				// Only process user messages
+				if role != "user" {
+					continue
+				}
+
 				content := extractMessageContent(msgObj["content"])
 				if content != "" {
-					if role != "" {
-						texts = append(texts, fmt.Sprintf("[%s] %s", role, content))
-					} else {
+					// Try to extract real user input from wrapped content if enabled
+					if extractUserPrompt {
+						if extracted := extractUserInputFromWrappedContent(content); extracted != "" {
+							content = extracted
+						}
+					}
+
+					if content != "" {
 						texts = append(texts, content)
 					}
 				}
 			}
 		}
 		if len(texts) > 0 {
+			// If extractUserPrompt is true, return the last user message (usually the actual query)
+			// If false, return all user messages concatenated (full conversation)
+			if extractUserPrompt {
+				return texts[len(texts)-1]
+			}
 			return strings.Join(texts, "\n\n")
 		}
 	}
 
 	// 2. Simple prompt field (some APIs)
 	if prompt, ok := data["prompt"].(string); ok && prompt != "" {
+		// Try to extract real user input from wrapped prompt if enabled
+		if extractUserPrompt {
+			if extracted := extractUserInputFromWrappedContent(prompt); extracted != "" {
+				return extracted
+			}
+		}
 		return prompt
 	}
 
 	// 3. Google Gemini format: contents array
 	if contents, ok := data["contents"].([]any); ok && len(contents) > 0 {
-		var texts []string
+		var userTexts []string
 		for _, content := range contents {
 			if contentObj, ok := content.(map[string]any); ok {
+				// Check if this is a user role message
+				role := ""
+				if r, ok := contentObj["role"].(string); ok {
+					role = r
+				}
+
+				// Only extract from user messages
+				if role != "user" {
+					continue
+				}
+
 				if parts, ok := contentObj["parts"].([]any); ok {
 					for _, part := range parts {
 						if partObj, ok := part.(map[string]any); ok {
 							if text, ok := partObj["text"].(string); ok && text != "" {
-								texts = append(texts, text)
+								// Clean system tags if extraction is enabled
+								if extractUserPrompt {
+									text = cleanSystemTags(text)
+
+									// Skip Gemini setup messages
+									if isGeminiSetupMessage(text) {
+										continue
+									}
+
+									// Try to extract real user input from wrapped text
+									if extracted := extractUserInputFromWrappedContent(text); extracted != "" {
+										text = extracted
+									}
+								}
+
+								if text != "" {
+									userTexts = append(userTexts, text)
+								}
 							}
 						}
 					}
 				}
 			}
 		}
-		if len(texts) > 0 {
-			return strings.Join(texts, "\n")
+		if len(userTexts) > 0 {
+			// If extractUserPrompt is true, return the last user text (usually the actual query)
+			// If false, return all user texts concatenated (full context)
+			if extractUserPrompt {
+				return userTexts[len(userTexts)-1]
+			}
+			return strings.Join(userTexts, "\n\n")
 		}
+	}
+
+	return ""
+}
+
+// cleanSystemTags removes XML-style system tags from content
+func cleanSystemTags(content string) string {
+	// Remove <system-reminder>...</system-reminder> blocks
+	lines := strings.Split(content, "\n")
+	var filtered []string
+	inSystemBlock := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Detect system block start (any <system-* tag)
+		if strings.HasPrefix(trimmed, "<system-") {
+			inSystemBlock = true
+			continue
+		}
+
+		// Detect system block end (any </system-* tag)
+		if strings.HasPrefix(trimmed, "</system-") {
+			inSystemBlock = false
+			continue
+		}
+
+		// Skip lines in system block or empty lines at boundaries
+		if inSystemBlock {
+			continue
+		}
+
+		// Keep non-system lines (but skip if it's just whitespace)
+		if trimmed != "" || len(filtered) > 0 {
+			filtered = append(filtered, line)
+		}
+	}
+
+	// Join and clean up extra whitespace
+	result := strings.Join(filtered, "\n")
+	result = strings.TrimSpace(result)
+
+	// Remove multiple consecutive newlines
+	for strings.Contains(result, "\n\n\n") {
+		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
+	}
+
+	return result
+}
+
+// isGeminiSetupMessage detects if a text is a Gemini CLI setup message
+func isGeminiSetupMessage(text string) bool {
+	setupMarkers := []string{
+		"This is the Gemini CLI",
+		"We are setting up the context",
+		"My setup is complete",
+		"Here is the user's editor context",
+		"Reminder: Do not return an empty response",
+	}
+
+	for _, marker := range setupMarkers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// extractUserInputFromWrappedContent tries to extract the real user input from wrapped content
+// Common patterns in agent frameworks:
+// - "USER_INPUT: <actual input>"
+// - "[user] <actual input>" after long assistant instructions
+// - "Human: <actual input>" / "User: <actual input>"
+func extractUserInputFromWrappedContent(content string) string {
+	if content == "" {
+		return ""
+	}
+
+	// Pattern 1: USER_INPUT: marker (used in security classifiers)
+	if idx := strings.Index(content, "USER_INPUT:"); idx >= 0 {
+		afterMarker := content[idx+len("USER_INPUT:"):]
+		extracted := strings.TrimSpace(afterMarker)
+		if extracted != "" {
+			// Check if there's a [user] marker within the USER_INPUT content
+			if userExtracted := extractLastUserMessage(extracted); userExtracted != "" {
+				return userExtracted
+			}
+			return extracted
+		}
+	}
+
+	// Pattern 2: [user] marker after [assistant] instructions
+	// This handles cases like: "[assistant] <long instructions> [user] <actual prompt>"
+	if extracted := extractLastUserMessage(content); extracted != "" {
+		return extracted
+	}
+
+	// Pattern 3: Human:/User: markers (Anthropic style)
+	for _, marker := range []string{"Human:", "User:", "human:", "user:"} {
+		if idx := strings.LastIndex(content, marker); idx >= 0 {
+			afterMarker := content[idx+len(marker):]
+			// Extract until next role marker or end
+			for _, endMarker := range []string{"\nAssistant:", "\nassistant:", "\nAI:", "\nai:"} {
+				if endIdx := strings.Index(afterMarker, endMarker); endIdx >= 0 {
+					afterMarker = afterMarker[:endIdx]
+					break
+				}
+			}
+			extracted := strings.TrimSpace(afterMarker)
+			if extracted != "" && len(extracted) < int(float64(len(content))*0.8) {
+				// Only return if it's significantly shorter than the full content
+				return extracted
+			}
+		}
+	}
+
+	// Pattern 4: Check if content starts with long instructions and has a separator
+	// Look for common separators like "---", "###", or empty lines followed by actual content
+	if len(content) > 500 {
+		lines := strings.Split(content, "\n")
+		for i, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			// Look for separator patterns
+			if trimmed == "---" || trimmed == "###" || (trimmed == "" && i > 0 && i < len(lines)-1) {
+				// Check if there's substantial content after the separator
+				remaining := strings.Join(lines[i+1:], "\n")
+				remaining = strings.TrimSpace(remaining)
+				if remaining != "" && len(remaining) < int(float64(len(content))*0.5) {
+					return remaining
+				}
+			}
+		}
+	}
+
+	// No pattern matched, return empty to indicate no extraction
+	return ""
+}
+
+// extractLastUserMessage extracts the last [user] message from content
+// This handles cases like: "[assistant] <long instructions> [user] <actual prompt>"
+func extractLastUserMessage(content string) string {
+	if !strings.Contains(content, "[user]") {
+		return ""
+	}
+
+	// Find the last [user] marker which is likely the real user input
+	parts := strings.Split(content, "[user]")
+	if len(parts) <= 1 {
+		return ""
+	}
+
+	lastUserPart := strings.TrimSpace(parts[len(parts)-1])
+
+	// Also check if there's a [tool] marker after, and extract up to that point
+	if toolIdx := strings.Index(lastUserPart, "[tool]"); toolIdx >= 0 {
+		lastUserPart = strings.TrimSpace(lastUserPart[:toolIdx])
+	}
+
+	// Also check for [assistant] marker after (in case of multi-turn)
+	if assistIdx := strings.Index(lastUserPart, "[assistant]"); assistIdx >= 0 {
+		lastUserPart = strings.TrimSpace(lastUserPart[:assistIdx])
+	}
+
+	if lastUserPart != "" {
+		return lastUserPart
 	}
 
 	return ""
@@ -193,19 +426,24 @@ func extractMessageContent(content any) string {
 		return s
 	}
 
-	// Array format (Anthropic style)
+	// Array format (Anthropic/Claude style)
 	if arr, ok := content.([]any); ok {
 		var texts []string
 		for _, item := range arr {
 			if obj, ok := item.(map[string]any); ok {
 				if typ, _ := obj["type"].(string); typ == "text" {
 					if text, ok := obj["text"].(string); ok && text != "" {
-						texts = append(texts, text)
+						// Clean system tags from each text part
+						cleaned := cleanSystemTags(text)
+						if cleaned != "" {
+							texts = append(texts, cleaned)
+						}
 					}
 				}
 			}
 		}
-		return strings.Join(texts, "\n")
+		result := strings.Join(texts, "\n")
+		return strings.TrimSpace(result)
 	}
 
 	return ""

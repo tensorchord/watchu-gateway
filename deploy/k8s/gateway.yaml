@@ -5,12 +5,18 @@ metadata:
   namespace: watchu
 data:
   DATABASE_URL: "postgres://watchu:watchu@postgres:5432/watchu?sslmode=disable"
+  GIN_MODE: "release"
+  LOG_LEVEL: "info"
   PROMPT_INJECTION_ENABLED: "true"
-  # Set these environment variables via Secret or external configuration
-  # PROMPT_INJECTION_API_BASE: ""
-  # PROMPT_INJECTION_API_KEY: ""
-  # PROMPT_INJECTION_MODEL: ""
-  # PROMPT_INJECTION_MODE: ""
+  PROMPT_INJECTION_EXTRACT_USER_PROMPT: "true"
+  PROMPT_INJECTION_API_BASE: "http://host.docker.internal:4000"
+  PROMPT_INJECTION_API_KEY: "your-api-key"
+  PROMPT_INJECTION_MODEL: "gpt-4o"
+  PROMPT_INJECTION_MODE: "prompt_based"
+  THREAT_INSIGHT_BASE_URL: "http://host.docker.internal:4000"
+  THREAT_INSIGHT_API_KEY: "your-api-key"
+  THREAT_INSIGHT_MODEL: "gpt-4o-mini"
+  THREAT_INSIGHT_TIMEOUT: "120s"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -29,7 +35,7 @@ spec:
     spec:
       containers:
       - name: gateway
-        image: watchu-gateway:latest
+        image: ghcr.io/tensorchord/watchu-gateway:v0.1.0
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
@@ -38,27 +44,6 @@ spec:
         - configMapRef:
             name: gateway-config
         env:
-        # Uncomment and set via Secret for production
-        # - name: PROMPT_INJECTION_API_BASE
-        #   valueFrom:
-        #     secretKeyRef:
-        #       name: gateway-secrets
-        #       key: api-base
-        # - name: PROMPT_INJECTION_API_KEY
-        #   valueFrom:
-        #     secretKeyRef:
-        #       name: gateway-secrets
-        #       key: api-key
-        # - name: PROMPT_INJECTION_MODEL
-        #   valueFrom:
-        #     secretKeyRef:
-        #       name: gateway-secrets
-        #       key: model
-        # - name: PROMPT_INJECTION_MODE
-        #   valueFrom:
-        #     secretKeyRef:
-        #       name: gateway-secrets
-        #       key: mode
         - name: HOST_GATEWAY_IP
           valueFrom:
             fieldRef:

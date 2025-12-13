@@ -18,7 +18,7 @@ spec:
       hostNetwork: true
       containers:
       - name: collector
-        image: watchu-collector:latest
+        image: ghcr.io/tensorchord/watchu-collector:v0.1.0
         imagePullPolicy: IfNotPresent
         securityContext:
           privileged: true

@@ -1,11 +1,11 @@
 import { ExclamationCircleOutlined, InfoCircleOutlined, SyncOutlined, WarningOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Col, Empty, List, Modal, Progress, Row, Space, Spin, Tag, Typography, message } from "antd";
+import { Button, Card, Col, List, Modal, Progress, Row, Space, Tag, Typography, message } from "antd";
 import { useCallback, useEffect, useState } from "react";
 
 import { analyzeThreat, fetchThreatAnalysis } from "../api/analytics";
 import type { ThreatAnalysisResponse } from "../types/api";
 
-const { Text, Paragraph, Title } = Typography;
+const { Text, Paragraph } = Typography;
 
 interface ThreatAnalysisProps {
     rootExecId: string;
@@ -33,7 +33,6 @@ function getThreatLevelIcon(level: number) {
 
 export default function ThreatAnalysis({ rootExecId }: ThreatAnalysisProps) {
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
     const [result, setResult] = useState<ThreatAnalysisResponse | null>(null);
     const [modalVisible, setModalVisible] = useState(false);
 
@@ -70,7 +69,6 @@ export default function ThreatAnalysis({ rootExecId }: ThreatAnalysisProps) {
         }
 
         setLoading(true);
-        setError(null);
 
         try {
             const data = await analyzeThreat(rootExecId);
@@ -79,7 +77,6 @@ export default function ThreatAnalysis({ rootExecId }: ThreatAnalysisProps) {
             void message.success("Threat analysis completed");
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : "Failed to analyze threat";
-            setError(errorMessage);
             void message.error(errorMessage);
         } finally {
             setLoading(false);

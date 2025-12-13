@@ -66,37 +66,9 @@ func (s *Service) AnalyzeRootExecID(ctx context.Context, rootExecID string) (*An
 		return nil, fmt.Errorf("analysis failed: %w", err)
 	}
 
-	// Get host for persistence - fetch first event to get host
-	rootExecIDText := pgtype.Text{String: rootExecID, Valid: true}
-	events, err := s.queries.GetEventsByRootExecID(ctx, sqlc.GetEventsByRootExecIDParams{
-		RootExecID: rootExecIDText,
-		TidInt:     pgtype.Int4{},
-		MethodText: pgtype.Text{},
-		UrlText:    pgtype.Text{},
-	})
-	if err != nil {
-		log.Printf("Warning: Failed to get events for host lookup: %v", err)
-	} else if len(events) > 0 {
-		host := events[0].Host
-
-		// Save analysis result using sqlc
-		recommendationsJSON, _ := json.Marshal(result.Recommendations)
-		evidenceJSON, _ := json.Marshal(result.Evidence)
-
-		err := s.queries.InsertSecurityAnalysisResult(ctx, sqlc.InsertSecurityAnalysisResultParams{
-			Host:            pgtype.Text{String: host, Valid: true},
-			RootExecID:      rootExecIDText,
-			ThreatLevel:     pgtype.Int4{Int32: int32(result.ThreatLevel), Valid: true},
-			ThreatType:      pgtype.Text{String: result.ThreatType, Valid: true},
-			Confidence:      pgtype.Float8{Float64: result.Confidence, Valid: true},
-			Summary:         pgtype.Text{String: result.Summary, Valid: true},
-			Details:         pgtype.Text{String: result.Details, Valid: true},
-			Recommendations: recommendationsJSON,
-			Evidence:        evidenceJSON,
-		})
-		if err != nil {
-			log.Printf("Warning: Failed to save analysis result: %v", err)
-		}
+	// Save analysis result to database
+	if err := SaveAnalysisResult(ctx, s.queries, rootExecID, result); err != nil {
+		log.Printf("Warning: Failed to save analysis result: %v", err)
 	}
 
 	return result, nil

@@ -16,7 +16,7 @@ import (
 	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
 	"github.com/tensorchord/watchu/gateway/pkg/httpapi"
 	"github.com/tensorchord/watchu/gateway/pkg/ingest"
-	"github.com/tensorchord/watchu/gateway/pkg/promptinjection"
+	"github.com/tensorchord/watchu/gateway/pkg/securityinsight"
 	"github.com/tensorchord/watchu/gateway/pkg/server"
 )
 
@@ -40,27 +40,38 @@ func main() {
 
 	ingestService := ingest.NewService(pool)
 	queries := sqlc.New(pool)
-	promptSvc := promptinjection.NewService(queries, promptinjection.Options{
-		Enabled:           cfg.PromptInjectionEnabled,
-		APIBase:           cfg.PromptInjectionAPIBase,
-		APIKey:            cfg.PromptInjectionAPIKey,
-		Model:             cfg.PromptInjectionModel,
-		Mode:              cfg.PromptInjectionMode,
-		Timeout:           cfg.PromptInjectionTimeout,
-		BatchSize:         cfg.PromptInjectionBatchSize,
-		MaxRetries:        cfg.PromptInjectionMaxRetries,
-		SampleRate:        cfg.PromptInjectionSampleRate,
-		MaxQPS:            cfg.PromptInjectionMaxQPS,
-		MaxPromptLength:   cfg.PromptInjectionMaxPromptLen,
-		StripToolCalls:    cfg.PromptInjectionStripTools,
-		ExtractUserPrompt: cfg.PromptInjectionExtractUser,
+
+	securityInsightSvc, err := securityinsight.NewService(queries, securityinsight.Options{
+		PromptInjectionEnabled:      cfg.PromptInjectionEnabled,
+		PromptInjectionAPIBase:      cfg.PromptInjectionAPIBase,
+		PromptInjectionAPIKey:       cfg.PromptInjectionAPIKey,
+		PromptInjectionModel:        cfg.PromptInjectionModel,
+		PromptInjectionMode:         cfg.PromptInjectionMode,
+		PromptInjectionTimeout:      cfg.PromptInjectionTimeout,
+		PromptInjectionBatchSize:    cfg.PromptInjectionBatchSize,
+		PromptInjectionMaxRetries:   cfg.PromptInjectionMaxRetries,
+		PromptInjectionSampleRate:   cfg.PromptInjectionSampleRate,
+		PromptInjectionMaxQPS:       cfg.PromptInjectionMaxQPS,
+		PromptInjectionMaxPromptLen: cfg.PromptInjectionMaxPromptLen,
+		PromptInjectionStripTools:   cfg.PromptInjectionStripTools,
+		PromptInjectionExtractUser:  cfg.PromptInjectionExtractUser,
+		ThreatInsightEnabled:        cfg.ThreatInsightEnabled,
+		ThreatInsightBaseURL:        cfg.ThreatInsightBaseURL,
+		ThreatInsightAPIKey:         cfg.ThreatInsightAPIKey,
+		ThreatInsightModel:          cfg.ThreatInsightModel,
+		ThreatInsightTimeout:        cfg.ThreatInsightTimeout,
 	}, slog.Default())
 
+	if err != nil {
+		slog.Error("security insight service initialization failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+
 	router := httpapi.NewRouter(httpapi.Dependencies{
-		Ingest:  ingestService,
-		Queries: queries,
-		Pool:    pool,
-		Prompt:  promptSvc,
+		Ingest:          ingestService,
+		Queries:         queries,
+		Pool:            pool,
+		SecurityInsight: securityInsightSvc,
 	})
 	srv := server.New(cfg.Address, router)
 
@@ -68,7 +79,7 @@ func main() {
 	defer stop()
 
 	if cfg.AnalysisEnabled {
-		scheduler := analysis.NewScheduler(pool, cfg.AnalysisTickInterval, cfg.AnalysisLookback, cfg.AnalysisHorizon, cfg.AnalysisLag, promptSvc, slog.Default())
+		scheduler := analysis.NewScheduler(pool, cfg.AnalysisTickInterval, cfg.AnalysisLookback, cfg.AnalysisHorizon, cfg.AnalysisLag, securityInsightSvc.PromptInjectionService(), slog.Default())
 		go scheduler.Run(ctx)
 	}
 

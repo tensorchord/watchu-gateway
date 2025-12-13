@@ -319,7 +319,7 @@ func (h analyticsHandlers) getCorrelations(c *gin.Context) {
 		Limit: limit,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
@@ -381,7 +381,7 @@ func (h analyticsHandlers) getHeuristicAlerts(c *gin.Context) {
 		Limit: limit,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
@@ -411,7 +411,7 @@ func (h analyticsHandlers) listHosts(c *gin.Context) {
 
 	hosts, err := h.queries.ListHosts(c.Request.Context(), limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
@@ -444,7 +444,7 @@ func (h analyticsHandlers) getHTTPEvents(c *gin.Context) {
 		Limit: limit,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
@@ -490,7 +490,7 @@ func (h analyticsHandlers) getHTTPEvents(c *gin.Context) {
 func (h analyticsHandlers) getSecurityLLMAnalysis(c *gin.Context) {
 	host := c.Query("host")
 	if host == "" {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "host is required"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "host is required", nil)
 		return
 	}
 
@@ -511,7 +511,7 @@ func (h analyticsHandlers) getSecurityLLMAnalysis(c *gin.Context) {
 		Limit: semanticLimit,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
@@ -520,7 +520,7 @@ func (h analyticsHandlers) getSecurityLLMAnalysis(c *gin.Context) {
 		Limit: promptLimit,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
@@ -572,19 +572,19 @@ func (h analyticsHandlers) getSecurityLLMAnalysis(c *gin.Context) {
 func (h analyticsHandlers) getPromptInjectionDetails(c *gin.Context) {
 	host := c.Query("host")
 	if host == "" {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "host is required"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "host is required", nil)
 		return
 	}
 
 	reqIDStr := strings.TrimSpace(c.Param("request_id"))
 	if reqIDStr == "" {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "request_id is required"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "request_id is required", nil)
 		return
 	}
 
 	reqUUID, err := uuid.Parse(reqIDStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "request_id must be a UUID"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "request_id must be a UUID", nil)
 		return
 	}
 
@@ -596,10 +596,10 @@ func (h analyticsHandlers) getPromptInjectionDetails(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			c.JSON(http.StatusNotFound, ErrorResponse{Error: "request not found"})
+			respondError(c, http.StatusNotFound, "not_found", "request not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
@@ -650,7 +650,7 @@ func (h analyticsHandlers) getProcessEvents(c *gin.Context) {
 		Limit: limit,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
@@ -687,7 +687,7 @@ func (h analyticsHandlers) getProcessEvents(c *gin.Context) {
 // @Param        root_exec_id query    string false "Specific root exec id to expand"
 // @Param        since       query     string false "RFC3339 timestamp lower bound"
 // @Param        until       query     string false "RFC3339 timestamp upper bound"
-// @Param        root_limit  query     int    false "Maximum unique roots" minimum(1) maximum(100)
+// @Param        root_limit  query     int    false "Maximum unique roots" minimum(1) maximum(2000)
 // @Param        node_limit  query     int    false "Maximum nodes returned" minimum(1) maximum(2000)
 // @Success      200         {array}   ProcessTreeNodeResponse
 // @Failure      400         {object}  ErrorResponse
@@ -696,11 +696,11 @@ func (h analyticsHandlers) getProcessEvents(c *gin.Context) {
 func (h analyticsHandlers) getProcessTree(c *gin.Context) {
 	host := c.Query("host")
 	if host == "" {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "host is required"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "host is required", nil)
 		return
 	}
 
-	rootLimit, ok := parseLimitQuery(c, "root_limit", 5, 1, 100)
+	rootLimit, ok := parseLimitQuery(c, "root_limit", 5, 1, 2000)
 	if !ok {
 		return
 	}
@@ -726,7 +726,7 @@ func (h analyticsHandlers) getProcessTree(c *gin.Context) {
 	if rootPIDStr := strings.TrimSpace(c.Query("root_pid")); rootPIDStr != "" {
 		pid, err := strconv.ParseInt(rootPIDStr, 10, 64)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "root_pid must be an integer"})
+			respondError(c, http.StatusBadRequest, "validation_failed", "root_pid must be an integer", nil)
 			return
 		}
 		rootIDs = append(rootIDs, pid)
@@ -739,7 +739,7 @@ func (h analyticsHandlers) getProcessTree(c *gin.Context) {
 			Until: untilBound,
 		})
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 			return
 		}
 		for _, root := range roots {
@@ -773,7 +773,7 @@ func (h analyticsHandlers) getProcessTree(c *gin.Context) {
 		Limit:       nodeLimit,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
@@ -884,14 +884,14 @@ func (h analyticsHandlers) getProcessTree(c *gin.Context) {
 func (h analyticsHandlers) getProcessSummary(c *gin.Context) {
 	host := c.Query("host")
 	if host == "" {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "host is required"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "host is required", nil)
 		return
 	}
 
 	rootPIDStr := strings.TrimSpace(c.Param("root_pid"))
 	rootPID, err := strconv.ParseInt(rootPIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "root_pid must be an integer"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "root_pid must be an integer", nil)
 		return
 	}
 
@@ -910,15 +910,15 @@ func (h analyticsHandlers) getProcessSummary(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			c.JSON(http.StatusNotFound, ErrorResponse{Error: "process root not found"})
+			respondError(c, http.StatusNotFound, "not_found", "process root not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
 	if meta.EventCount == 0 {
-		c.JSON(http.StatusNotFound, ErrorResponse{Error: "process root not found"})
+		respondError(c, http.StatusNotFound, "not_found", "process root not found", nil)
 		return
 	}
 
@@ -929,7 +929,7 @@ func (h analyticsHandlers) getProcessSummary(c *gin.Context) {
 		Limit:   alertsLimit,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
@@ -979,7 +979,7 @@ func (h analyticsHandlers) getAgentRuns(c *gin.Context) {
 		Limit: limit,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
@@ -1006,18 +1006,18 @@ func (h analyticsHandlers) getAgentRuns(c *gin.Context) {
 func (h analyticsHandlers) getTraceGraph(c *gin.Context) {
 	host := strings.TrimSpace(c.Query("host"))
 	if host == "" {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "host is required"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "host is required", nil)
 		return
 	}
 
 	agentRunParam := strings.TrimSpace(c.Param("agent_run_id"))
 	if agentRunParam == "" {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "agent_run_id is required"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "agent_run_id is required", nil)
 		return
 	}
 	agentRunUUID, err := uuid.Parse(agentRunParam)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "agent_run_id must be a valid UUID"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "agent_run_id must be a valid UUID", nil)
 		return
 	}
 	runID := pgtype.UUID{Bytes: agentRunUUID, Valid: true}
@@ -1026,27 +1026,27 @@ func (h analyticsHandlers) getTraceGraph(c *gin.Context) {
 	run, err := h.queries.GetAgentRunByID(ctx, runID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			c.JSON(http.StatusNotFound, ErrorResponse{Error: "agent run not found"})
+			respondError(c, http.StatusNotFound, "not_found", "agent run not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
 	if !strings.EqualFold(run.Host, host) {
-		c.JSON(http.StatusNotFound, ErrorResponse{Error: "agent run not found"})
+		respondError(c, http.StatusNotFound, "not_found", "agent run not found", nil)
 		return
 	}
 
 	traces, err := h.queries.ListTracesByAgentRun(ctx, runID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
 	traceResponses, err := h.buildTraceResponses(ctx, host, traces)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 
@@ -1287,7 +1287,7 @@ func parseOptionalBounds(c *gin.Context) (pgtype.Timestamptz, pgtype.Timestamptz
 	if sinceStr != "" {
 		timestamp, err := parseSinceParam(sinceStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			respondError(c, http.StatusBadRequest, "validation_failed", err.Error(), nil)
 			return pgtype.Timestamptz{}, pgtype.Timestamptz{}, false
 		}
 		since = pgtype.Timestamptz{Time: timestamp, Valid: true}
@@ -1297,11 +1297,11 @@ func parseOptionalBounds(c *gin.Context) (pgtype.Timestamptz, pgtype.Timestamptz
 	if untilStr != "" {
 		timestamp, err := parseSinceParam(untilStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			respondError(c, http.StatusBadRequest, "validation_failed", err.Error(), nil)
 			return pgtype.Timestamptz{}, pgtype.Timestamptz{}, false
 		}
 		if since.Valid && timestamp.Before(since.Time) {
-			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "until must be greater than or equal to since"})
+			respondError(c, http.StatusBadRequest, "validation_failed", "until must be greater than or equal to since", nil)
 			return pgtype.Timestamptz{}, pgtype.Timestamptz{}, false
 		}
 		until = pgtype.Timestamptz{Time: timestamp, Valid: true}
@@ -1313,19 +1313,19 @@ func parseOptionalBounds(c *gin.Context) (pgtype.Timestamptz, pgtype.Timestamptz
 func parseRangeParams(c *gin.Context) (string, time.Time, time.Time, int32, bool) {
 	host := c.Query("host")
 	if host == "" {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "host is required"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "host is required", nil)
 		return "", time.Time{}, time.Time{}, 0, false
 	}
 
 	sinceStr := c.Query("since")
 	if sinceStr == "" {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "since is required"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "since is required", nil)
 		return "", time.Time{}, time.Time{}, 0, false
 	}
 
 	since, err := parseSinceParam(sinceStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusBadRequest, "validation_failed", err.Error(), nil)
 		return "", time.Time{}, time.Time{}, 0, false
 	}
 
@@ -1336,20 +1336,20 @@ func parseRangeParams(c *gin.Context) (string, time.Time, time.Time, int32, bool
 	} else {
 		until, err = parseSinceParam(untilStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			respondError(c, http.StatusBadRequest, "validation_failed", err.Error(), nil)
 			return "", time.Time{}, time.Time{}, 0, false
 		}
 	}
 
 	if until.Before(since) {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "until must be greater than or equal to since"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "until must be greater than or equal to since", nil)
 		return "", time.Time{}, time.Time{}, 0, false
 	}
 
 	limitStr := c.DefaultQuery("limit", "100")
 	limit64, err := strconv.ParseInt(limitStr, 10, 32)
 	if err != nil || limit64 <= 0 {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "limit must be positive integer"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "limit must be positive integer", nil)
 		return "", time.Time{}, time.Time{}, 0, false
 	}
 
@@ -1400,15 +1400,15 @@ func parseLimitQuery(c *gin.Context, key string, defaultVal, minVal, maxVal int3
 	valueStr := c.DefaultQuery(key, defStr)
 	value64, err := strconv.ParseInt(valueStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: fmt.Sprintf("%s must be an integer", key)})
+		respondError(c, http.StatusBadRequest, "validation_failed", fmt.Sprintf("%s must be an integer", key), nil)
 		return 0, false
 	}
 	if value64 < int64(minVal) {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: fmt.Sprintf("%s must be >= %d", key, minVal)})
+		respondError(c, http.StatusBadRequest, "validation_failed", fmt.Sprintf("%s must be >= %d", key, minVal), nil)
 		return 0, false
 	}
 	if maxVal > 0 && value64 > int64(maxVal) {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: fmt.Sprintf("%s must be <= %d", key, maxVal)})
+		respondError(c, http.StatusBadRequest, "validation_failed", fmt.Sprintf("%s must be <= %d", key, maxVal), nil)
 		return 0, false
 	}
 	return int32(value64), true

@@ -52,7 +52,7 @@ Environment variables control runtime behavior. Values shown below are defaults 
 | `PROMPT_INJECTION_ENABLED` | `true` | Master switch for the detector. Disable if no compatible model is available. |
 | `PROMPT_INJECTION_API_BASE` | `https://api.openai.com/v1` | Base URL of an OpenAI-compatible `/chat/completions` endpoint. |
 | `PROMPT_INJECTION_API_KEY` | _empty_ | Bearer token sent with each detection call. Leave empty for unauthenticated backends. |
-| `PROMPT_INJECTION_MODEL` | `gpt-4o-mini` | Model name passed to the completion API. |
+| `PROMPT_INJECTION_MODEL` | `gpt-4o` | Model name passed to the completion API. |
 | `PROMPT_INJECTION_MODE` | `prompt_based` | `prompt_based` wraps prompts in a guardrail template; `model_based` sends the raw prompt text. |
 | `PROMPT_INJECTION_TIMEOUT` | `15s` | Detection HTTP timeout. |
 | `PROMPT_INJECTION_BATCH_SIZE` | `10` | Maximum pending requests processed per scheduler loop. |

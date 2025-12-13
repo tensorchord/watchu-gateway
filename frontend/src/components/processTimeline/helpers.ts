@@ -40,7 +40,7 @@ type TooltipRowDefinition = {
 
 const JSON_INDENT_UNIT = "  ";
 const PRE_BLOCK_STYLE =
-    "margin:0; font-family:'JetBrains Mono','Fira Code','Menlo',monospace; font-size:11px; line-height:1.6; background:#f1f5f9; border-radius:12px; padding:12px 14px; max-height:240px; overflow:auto; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere;";
+    "margin:0; font-family:'JetBrains Mono','Fira Code','Menlo',monospace; font-size:11px; line-height:1.6; background:#f1f5f9; border-radius:12px; padding:12px 14px; max-height:400px; overflow:auto; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; scrollbar-width:thin; scrollbar-color:#cbd5e1 #f1f5f9;";
 
 interface SseMetaEntry {
     key: string;
@@ -529,7 +529,7 @@ export function renderTooltipContent(
         )
         .join("");
 
-    return `<div style="width:auto; min-width:520px; max-width:80vw; padding:10px 12px;">${header}${rowsHtml}${sectionsHtml}</div>`;
+    return `<div style="width:auto; min-width:520px; max-width:80vw; max-height:70vh; overflow-y:auto; overflow-x:hidden; padding:10px 12px; scrollbar-width:thin; scrollbar-color:#cbd5e1 #f1f5f9;">${header}${rowsHtml}${sectionsHtml}</div>`;
 }
 
 export function toExportRows(httpEvents: TimelineEvent[], processEvents: ProcessEvent[]) {

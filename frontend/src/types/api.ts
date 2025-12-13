@@ -103,3 +103,18 @@ export interface TraceGraphResponse {
     agent_run: AgentRunResponse;
     traces: TraceNodeResponse[];
 }
+
+export interface ThreatAnalysisRequest {
+    root_exec_id: string;
+}
+
+export interface ThreatAnalysisResponse {
+    root_exec_id: string;
+    threat_level: number;
+    threat_type: string;
+    confidence: number;
+    summary: string;
+    details: string;
+    recommendations: string[];
+    evidence: Record<string, unknown>[];
+}

@@ -119,7 +119,7 @@ func normalizeOptions(opts Options) Options {
 		opts.Enabled = false
 	}
 	if opts.Model == "" {
-		opts.Model = "gpt-4o-mini"
+		opts.Model = "gpt-4o"
 	}
 	return opts
 }

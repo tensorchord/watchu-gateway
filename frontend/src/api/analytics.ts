@@ -11,7 +11,8 @@ import {
     ProcessTreeNodeResponse,
     SecurityLLMAnalysisResponse,
     AgentRunResponse,
-    TraceGraphResponse
+    TraceGraphResponse,
+    ThreatAnalysisResponse
 } from "../types/api";
 
 function toQueryTimestamp(value: Dayjs): string {
@@ -172,6 +173,18 @@ export async function fetchPromptInjectionDetails(host: string, requestId: strin
     const { data } = await apiClient.get<HTTPRequestDetailResponse>(`/analysis/prompt_injections/${requestId}`, {
         params: { host }
     });
+    return data;
+}
+
+export async function analyzeThreat(rootExecId: string): Promise<ThreatAnalysisResponse> {
+    const { data } = await apiClient.post<ThreatAnalysisResponse>("/security-insight/analyze-threat", {
+        root_exec_id: rootExecId
+    });
+    return data;
+}
+
+export async function fetchThreatAnalysis(rootExecId: string): Promise<ThreatAnalysisResponse> {
+    const { data } = await apiClient.get<ThreatAnalysisResponse>(`/security-insight/analyze-threat/${encodeURIComponent(rootExecId)}`);
     return data;
 }
 

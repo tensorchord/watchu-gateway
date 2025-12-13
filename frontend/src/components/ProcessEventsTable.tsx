@@ -60,5 +60,15 @@ function getRowKey(record: ProcessEventResponse): string {
 }
 
 export default function ProcessEventsTable({ events, loading = false }: ProcessEventsTableProps) {
-    return <Table rowKey={getRowKey} dataSource={events} columns={columns} loading={loading} pagination={false} />;
+    return (
+        <Table
+            rowKey={getRowKey}
+            dataSource={events}
+            columns={columns}
+            loading={loading}
+            pagination={false}
+            scroll={{ x: 800 }}
+            size="small"
+        />
+    );
 }

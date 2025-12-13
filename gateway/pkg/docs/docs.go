@@ -550,7 +550,7 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
-                        "maximum": 100,
+                        "maximum": 2000,
                         "minimum": 1,
                         "type": "integer",
                         "description": "Maximum unique roots",
@@ -861,6 +861,96 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/security-insight/analyze-threat": {
+            "post": {
+                "description": "Analyzes telemetry data for a specific root_exec_id and returns comprehensive threat assessment",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "security-insight"
+                ],
+                "summary": "Perform deep threat analysis on a process tree",
+                "parameters": [
+                    {
+                        "description": "Analysis request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ThreatAnalysisRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ThreatAnalysisResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/security-insight/analyze-threat/:root_exec_id": {
+            "get": {
+                "description": "Gets the latest threat analysis result for a specific root_exec_id from the database",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "security-insight"
+                ],
+                "summary": "Retrieve historical threat analysis result",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Root Execution ID",
+                        "name": "root_exec_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ThreatAnalysisResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
                         }
@@ -1271,7 +1361,11 @@ const docTemplate = `{
         "pkg_httpapi.ErrorResponse": {
             "type": "object",
             "properties": {
-                "error": {
+                "code": {
+                    "type": "string"
+                },
+                "details": {},
+                "message": {
                     "type": "string"
                 }
             }
@@ -1799,6 +1893,53 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "integer"
+                    }
+                },
+                "root_exec_id": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "threat_level": {
+                    "type": "integer"
+                },
+                "threat_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.ThreatAnalysisRequest": {
+            "type": "object",
+            "required": [
+                "root_exec_id"
+            ],
+            "properties": {
+                "root_exec_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.ThreatAnalysisResponse": {
+            "type": "object",
+            "properties": {
+                "confidence": {
+                    "type": "number"
+                },
+                "details": {
+                    "type": "string"
+                },
+                "evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                    }
+                },
+                "recommendations": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 },
                 "root_exec_id": {

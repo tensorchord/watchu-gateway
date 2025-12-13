@@ -15,16 +15,22 @@ import styles from "./components/layout.module.css";
 
 const { Header, Content, Sider } = Layout;
 
-const menuItems = [
+type MenuItem = Required<React.ComponentProps<typeof Menu>>["items"];
+
+const menuItems: NonNullable<MenuItem> = [
     { key: "/timeline", icon: <LineChartOutlined />, label: <Link to="/timeline">Timeline</Link> },
     { key: "/processes", icon: <ApartmentOutlined />, label: <Link to="/processes">Process Explorer</Link> },
     { key: "/security", icon: <SafetyCertificateOutlined />, label: <Link to="/security">Security Analysis</Link> },
     { key: "/alerts", icon: <BranchesOutlined />, label: <Link to="/alerts">Heuristic Alerts</Link> },
     {
         key: "agent-section",
-        icon: <RobotOutlined />,
-        label: "Agent",
-        type: "group",
+        label: (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <RobotOutlined />
+                Agent
+            </span>
+        ),
+        type: "group" as const,
         children: [
             { key: "/trace", icon: <ShareAltOutlined />, label: <Link to="/trace">Agent Trace Explorer</Link> },
             { key: "/agent-dashboard", icon: <DashboardOutlined />, label: <Link to="/agent-dashboard">Agent Dashboard</Link> }
@@ -41,11 +47,15 @@ function AppShell() {
         if (location.pathname.startsWith("/processes")) {
             return "/processes";
         }
-        // Find matching key from flat menu items (including children)
-        const flatItems = menuItems.flatMap(item =>
-            item.children ? item.children : [item]
-        );
-        return flatItems.find((item) => location.pathname.startsWith(item.key))?.key ?? location.pathname;
+        const flatKeys: string[] = [
+            "/timeline",
+            "/processes",
+            "/security",
+            "/alerts",
+            "/trace",
+            "/agent-dashboard"
+        ];
+        return flatKeys.find((key) => location.pathname.startsWith(key)) ?? location.pathname;
     }, [location.pathname]);
 
     return (

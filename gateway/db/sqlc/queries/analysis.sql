@@ -30,26 +30,6 @@ WHERE host = sqlc.arg('host')
 ORDER BY response_ts DESC
 LIMIT sqlc.arg('limit');
 
--- name: ListHeuristicAlertsByHostRange :many
-SELECT
-    alert_id,
-    alert_type,
-    host,
-    severity,
-    score,
-    start_ts,
-    end_ts,
-    root_exec_id,
-    root_pid,
-    details,
-    reason
-FROM heuristic_alerts
-WHERE host = sqlc.arg('host')
-  AND start_ts >= sqlc.arg('since')
-  AND start_ts <= sqlc.arg('until')
-ORDER BY start_ts DESC
-LIMIT sqlc.arg('limit');
-
 -- name: ListProcessHTTPEventsByHostRange :many
 SELECT
     host,
@@ -76,49 +56,6 @@ WHERE host = sqlc.arg('host')
   AND timestamp <= sqlc.arg('until')
 ORDER BY timestamp DESC
 LIMIT sqlc.arg('limit');
-
--- name: ListSecurityAnalysisByHost :many
-SELECT
-    id,
-    analyzed_at,
-    host,
-    root_exec_id,
-    threat_level,
-    threat_type,
-    confidence,
-    summary,
-    details,
-    recommendations,
-    evidence
-FROM security_analysis_results
-WHERE host = $1
-ORDER BY analyzed_at DESC
-LIMIT $2;
-
--- name: ListPromptInjectionsByHost :many
-SELECT
-    res.request_id,
-    res.host,
-    res.severity_level,
-    res.categories,
-    res.score,
-    res.model,
-    res.detected_at,
-    res.trace_id,
-    res.agent_run_id,
-    res.prompt_hash,
-    res.metadata,
-    res.reason,
-    COALESCE(e.started_at, req.timestamp) AS observed_at
-FROM llm_prompt_injection_results AS res
-LEFT JOIN llm_http_event AS e
-  ON e.host = res.host
- AND e.http_request_id = res.request_id
-LEFT JOIN http_request AS req
-  ON req.id = res.request_id
-WHERE res.host = $1
-ORDER BY COALESCE(e.started_at, req.timestamp) DESC NULLS LAST, res.request_id
-LIMIT $2;
 
 -- name: GetHTTPRequestByHostAndID :one
 SELECT

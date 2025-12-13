@@ -31,6 +31,12 @@ type Config struct {
 	PromptInjectionMaxPromptLen int
 	PromptInjectionStripTools   bool
 	PromptInjectionExtractUser  bool // If true, extract user prompt from agent wrappers; if false, use full prompt
+
+	ThreatInsightEnabled bool
+	ThreatInsightBaseURL string
+	ThreatInsightAPIKey  string
+	ThreatInsightModel   string
+	ThreatInsightTimeout time.Duration
 }
 
 const (
@@ -66,6 +72,12 @@ func Load() (Config, error) {
 		PromptInjectionMaxPromptLen: parseIntEnv("PROMPT_INJECTION_MAX_PROMPT_CHARS", 8192),
 		PromptInjectionStripTools:   parseBoolEnv("PROMPT_INJECTION_STRIP_TOOL_CALLS", true),
 		PromptInjectionExtractUser:  parseBoolEnv("PROMPT_INJECTION_EXTRACT_USER_PROMPT", true),
+
+		ThreatInsightEnabled: parseBoolEnv("THREAT_INSIGHT_ENABLED", true),
+		ThreatInsightBaseURL: os.Getenv("THREAT_INSIGHT_BASE_URL"),
+		ThreatInsightAPIKey:  os.Getenv("THREAT_INSIGHT_API_KEY"),
+		ThreatInsightModel:   getEnv("THREAT_INSIGHT_MODEL", "gpt-4o"),
+		ThreatInsightTimeout: parseDurationEnv("THREAT_INSIGHT_TIMEOUT", 120*time.Second),
 	}
 
 	if cfg.DatabaseURL == "" {

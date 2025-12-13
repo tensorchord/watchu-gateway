@@ -349,10 +349,10 @@ export default function ProcessTimeline({
             tooltip: {
                 trigger: "item",
                 triggerOn: "click",
-                confine: true,
+                confine: false,
                 enterable: true,
                 hideDelay: 80,
-                renderMode: "richText",
+                appendToBody: true,
                 formatter: (params: unknown) => {
                     const data = extractProcessEventFromTooltip(params as TimelineTooltipParam | TimelineTooltipParam[]);
                     if (!data) {

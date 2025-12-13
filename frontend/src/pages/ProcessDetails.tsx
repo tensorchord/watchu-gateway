@@ -7,6 +7,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import ProcessEventsTable from "../components/ProcessEventsTable";
 import ProcessTimeline from "../components/ProcessTimeline";
 import ProcessTreePanel from "../components/ProcessTreePanel";
+import ThreatAnalysis from "../components/ThreatAnalysis";
 import { useSettings } from "../context/SettingsContext";
 import { useProcessEvents, useProcessHttpEvents, useProcessSummary, useProcessTree } from "../hooks/useAnalytics";
 import { HeuristicAlertResponse, ProcessEventResponse, ProcessHTTPEventResponse, ProcessSummaryMeta } from "../types/api";
@@ -124,25 +125,40 @@ export default function ProcessDetails() {
         if (!isValidRootPid) {
             return [];
         }
+
         return [
             {
                 key: "timeline",
-                label: "HTTP Timeline",
+                label: "Timeline",
                 children: (
-                    <ProcessTimeline
-                        httpEvents={httpEventsForRoot}
-                        processEvents={lifecycleEventsForRoot}
-                        loading={httpEventsQuery.isFetching || eventsQuery.isFetching}
-                    />
+                    <div style={{ padding: "0 24px 24px 24px" }}>
+                        <ProcessTimeline
+                            httpEvents={httpEventsForRoot}
+                            processEvents={lifecycleEventsForRoot}
+                            loading={httpEventsQuery.isFetching || eventsQuery.isFetching}
+                        />
+                    </div>
                 )
             },
             {
                 key: "events",
                 label: "Lifecycle Events",
-                children: <ProcessEventsTable events={lifecycleEventsForRoot} loading={eventsQuery.isFetching} />
+                children: (
+                    <div style={{ padding: "0 24px 24px 24px", overflow: "auto" }}>
+                        <ProcessEventsTable events={lifecycleEventsForRoot} loading={eventsQuery.isFetching} />
+                    </div>
+                )
             }
         ];
     }, [eventsQuery.isFetching, httpEventsForRoot, httpEventsQuery.isFetching, isValidRootPid, lifecycleEventsForRoot]);
+
+    // Get root_exec_id for standalone Threat Analysis card
+    const rootExecId = useMemo(() =>
+        treeQuery.data?.[0]?.root_exec_id ??
+        lifecycleEventsForRoot[0]?.root_exec_id ??
+        summaryQuery.data?.meta?.exec_id ??
+        null
+        , [treeQuery.data, lifecycleEventsForRoot, summaryQuery.data?.meta?.exec_id]);
 
     const alertsInRange = useMemo(() => {
         const alerts = summaryQuery.data?.alerts ?? [];
@@ -217,43 +233,42 @@ export default function ProcessDetails() {
             </Flex>
             <Card style={CARD_STYLE} bodyStyle={{ padding: 24 }}>
                 <Flex vertical gap={8}>
-                    <Title level={3} style={{ margin: 0 }}>
-                        {`Process PID ${rootPid}`}
-                    </Title>
+                    <Flex align="center" justify="space-between">
+                        <Title level={3} style={{ margin: 0 }}>
+                            {`Process PID ${rootPid}`}
+                        </Title>
+                        {rootExecId && <ThreatAnalysis rootExecId={rootExecId} />}
+                    </Flex>
                     <Text type="secondary">
                         Detailed telemetry snapshot for a single process. Metrics and alerts are scoped to the selected root PID.
                     </Text>
                 </Flex>
             </Card>
-            <Row gutter={[24, 24]} align="stretch">
-                <Col xs={24} lg={15} style={COLUMN_STACK_STYLE}>
-                    <Card title="Heuristic Alerts" style={CARD_STYLE} headStyle={CARD_HEAD_STYLE} bodyStyle={{ padding: 24, minHeight: 200 }}>
-                        {renderHeuristicAlerts(alertsInRange, summaryQuery.isLoading)}
-                    </Card>
-                    <Card style={CARD_STYLE} headStyle={CARD_HEAD_STYLE} bodyStyle={{ padding: 0 }}>
-                        <div style={{ padding: 24 }}>
-                            <Tabs defaultActiveKey="timeline" items={tabs} destroyInactiveTabPane />
-                        </div>
-                    </Card>
-                </Col>
-                <Col xs={24} lg={9} style={COLUMN_STACK_STYLE}>
-                    <ProcessTreePanel
-                        title="Process Tree"
-                        tree={treeQuery.data}
-                        loading={treeQuery.isLoading}
-                        fetching={treeQuery.isFetching}
-                        since={since}
-                        until={until}
-                        onRefresh={() => {
-                            void treeQuery.refetch();
-                        }}
-                        height={360}
-                    />
-                    <Card title="Process Metadata" style={CARD_STYLE} headStyle={CARD_HEAD_STYLE} bodyStyle={{ padding: 24 }}>
-                        {renderProcessMetadata(metaForDisplay, summaryQuery.isLoading)}
-                    </Card>
-                </Col>
-            </Row>
+            <Space direction="vertical" size={24} style={{ width: "100%" }}>
+                <Card title="Process Metadata" style={CARD_STYLE} headStyle={CARD_HEAD_STYLE} bodyStyle={{ padding: 24 }}>
+                    {renderProcessMetadata(metaForDisplay, summaryQuery.isLoading)}
+                </Card>
+                <Card style={CARD_STYLE} headStyle={CARD_HEAD_STYLE} bodyStyle={{ padding: 0, overflow: "hidden" }}>
+                    <div style={{ padding: "24px 24px 0 24px" }}>
+                        <Tabs defaultActiveKey="timeline" items={tabs} destroyInactiveTabPane />
+                    </div>
+                </Card>
+                <ProcessTreePanel
+                    title="Process Tree"
+                    tree={treeQuery.data}
+                    loading={treeQuery.isLoading}
+                    fetching={treeQuery.isFetching}
+                    since={since}
+                    until={until}
+                    onRefresh={() => {
+                        void treeQuery.refetch();
+                    }}
+                    height={400}
+                />
+                <Card title="Heuristic Alerts" style={CARD_STYLE} headStyle={CARD_HEAD_STYLE} bodyStyle={{ padding: 24, minHeight: 200 }}>
+                    {renderHeuristicAlerts(alertsInRange, summaryQuery.isLoading)}
+                </Card>
+            </Space>
         </Flex>
     );
 }

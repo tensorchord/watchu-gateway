@@ -194,7 +194,7 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
             const observedAtRaw = record.observed_at ?? null;
             const observedAtDisplay = formatTimestamp(observedAtRaw) ?? "—";
             const categories = Array.isArray(record.categories) ? record.categories.filter(Boolean) : [];
-            const reason = record.reason ?? null;
+            const reason = categories.length ? categories.join(", ") : null;
             return {
                 key: requestId,
                 requestId,

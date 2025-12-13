@@ -34,15 +34,15 @@ func registerIngestRoutes(group *gin.RouterGroup, svc *ingest.Service) {
 func (h ingestHandlers) postHTTPRequests(c *gin.Context) {
 	var payload HTTPRequestBatch
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusBadRequest, "bad_request", err.Error(), nil)
 		return
 	}
 	if len(payload.Events) == 0 {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "events must not be empty"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "events must not be empty", nil)
 		return
 	}
 	if err := h.svc.IngestHTTPRequests(c.Request.Context(), payload.Events); err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 	c.Status(http.StatusAccepted)
@@ -62,15 +62,15 @@ func (h ingestHandlers) postHTTPRequests(c *gin.Context) {
 func (h ingestHandlers) postHTTPResponses(c *gin.Context) {
 	var payload HTTPResponseBatch
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusBadRequest, "bad_request", err.Error(), nil)
 		return
 	}
 	if len(payload.Events) == 0 {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "events must not be empty"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "events must not be empty", nil)
 		return
 	}
 	if err := h.svc.IngestHTTPResponses(c.Request.Context(), payload.Events); err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 	c.Status(http.StatusAccepted)
@@ -90,15 +90,15 @@ func (h ingestHandlers) postHTTPResponses(c *gin.Context) {
 func (h ingestHandlers) postExecEvents(c *gin.Context) {
 	var payload ExecEventBatch
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusBadRequest, "bad_request", err.Error(), nil)
 		return
 	}
 	if len(payload.Events) == 0 {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "events must not be empty"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "events must not be empty", nil)
 		return
 	}
 	if err := h.svc.IngestExecEvents(c.Request.Context(), payload.Events); err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 	c.Status(http.StatusAccepted)
@@ -118,15 +118,15 @@ func (h ingestHandlers) postExecEvents(c *gin.Context) {
 func (h ingestHandlers) postMCPSTDIOEvents(c *gin.Context) {
 	var payload MCPSTDIOBatch
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusBadRequest, "bad_request", err.Error(), nil)
 		return
 	}
 	if len(payload.Events) == 0 {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "events must not be empty"})
+		respondError(c, http.StatusBadRequest, "validation_failed", "events must not be empty", nil)
 		return
 	}
 	if err := h.svc.IngestMCPSTDIOEvents(c.Request.Context(), payload.Events); err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 	c.Status(http.StatusAccepted)

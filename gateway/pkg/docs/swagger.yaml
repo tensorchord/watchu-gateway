@@ -246,7 +246,10 @@ definitions:
     type: object
   pkg_httpapi.ErrorResponse:
     properties:
-      error:
+      code:
+        type: string
+      details: {}
+      message:
         type: string
     type: object
   pkg_httpapi.ExecEventBatch:
@@ -592,6 +595,37 @@ definitions:
       recommendations:
         items:
           type: integer
+        type: array
+      root_exec_id:
+        type: string
+      summary:
+        type: string
+      threat_level:
+        type: integer
+      threat_type:
+        type: string
+    type: object
+  pkg_httpapi.ThreatAnalysisRequest:
+    properties:
+      root_exec_id:
+        type: string
+    required:
+    - root_exec_id
+    type: object
+  pkg_httpapi.ThreatAnalysisResponse:
+    properties:
+      confidence:
+        type: number
+      details:
+        type: string
+      evidence:
+        items:
+          additionalProperties: true
+          type: object
+        type: array
+      recommendations:
+        items:
+          type: string
         type: array
       root_exec_id:
         type: string
@@ -1031,7 +1065,7 @@ paths:
         type: string
       - description: Maximum unique roots
         in: query
-        maximum: 100
+        maximum: 2000
         minimum: 1
         name: root_limit
         type: integer
@@ -1251,6 +1285,67 @@ paths:
       summary: Ingest STDIO MCP events
       tags:
       - ingest
+  /api/v1/security-insight/analyze-threat:
+    post:
+      consumes:
+      - application/json
+      description: Analyzes telemetry data for a specific root_exec_id and returns
+        comprehensive threat assessment
+      parameters:
+      - description: Analysis request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/pkg_httpapi.ThreatAnalysisRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_httpapi.ThreatAnalysisResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_httpapi.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_httpapi.ErrorResponse'
+      summary: Perform deep threat analysis on a process tree
+      tags:
+      - security-insight
+  /api/v1/security-insight/analyze-threat/:root_exec_id:
+    get:
+      consumes:
+      - application/json
+      description: Gets the latest threat analysis result for a specific root_exec_id
+        from the database
+      parameters:
+      - description: Root Execution ID
+        in: path
+        name: root_exec_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_httpapi.ThreatAnalysisResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_httpapi.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_httpapi.ErrorResponse'
+      summary: Retrieve historical threat analysis result
+      tags:
+      - security-insight
   /healthz:
     get:
       produces:

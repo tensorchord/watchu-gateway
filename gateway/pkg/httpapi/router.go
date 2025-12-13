@@ -15,14 +15,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
 	"github.com/tensorchord/watchu/gateway/pkg/ingest"
+	"github.com/tensorchord/watchu/gateway/pkg/securityinsight"
 )
 
 // Dependencies captures services the HTTP layer relies on.
 type Dependencies struct {
-	Ingest  *ingest.Service
-	Queries *sqlc.Queries
-	Pool    *pgxpool.Pool
-	Prompt  PromptReadiness
+	Ingest          *ingest.Service
+	Queries         *sqlc.Queries
+	Pool            *pgxpool.Pool
+	SecurityInsight *securityinsight.Service
 }
 
 // PromptReadiness exposes readiness for prompt injection integrations.
@@ -46,7 +47,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	engine.Use(cors.New(corsConfig))
 
 	docs.SwaggerInfo.BasePath = "/"
-	registerHealth(engine, deps.Pool, deps.Prompt)
+	registerHealth(engine, deps.Pool, deps.SecurityInsight)
 	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	swaggerHandler := ginSwagger.WrapHandler(swaggerFiles.Handler)
 	engine.GET("/swagger/*any", func(c *gin.Context) {
@@ -67,7 +68,12 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	}
 
 	if deps.Queries != nil {
-		registerAnalyticsRoutes(api.Group("/analysis"), deps.Queries)
+		analysisGroup := api.Group("/analysis")
+		registerAnalyticsRoutes(analysisGroup, deps.Queries)
+	}
+
+	if deps.SecurityInsight != nil {
+		registerSecurityInsightRoutes(api, deps.SecurityInsight)
 	}
 
 	return engine

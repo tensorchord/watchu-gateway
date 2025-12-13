@@ -17,7 +17,7 @@ func registerHealth(engine *gin.Engine, pool *pgxpool.Pool, prompt PromptReadine
 	engine.GET("/readyz", func(c *gin.Context) {
 		if pool != nil {
 			if err := pool.Ping(c.Request.Context()); err != nil {
-				c.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "database not ready"})
+				respondError(c, http.StatusServiceUnavailable, "database_not_ready", "database not ready", nil)
 				return
 			}
 		}
@@ -25,7 +25,7 @@ func registerHealth(engine *gin.Engine, pool *pgxpool.Pool, prompt PromptReadine
 			ctx, cancel := context.WithTimeout(c.Request.Context(), promptReadyTimeout)
 			defer cancel()
 			if err := prompt.Ready(ctx); err != nil {
-				c.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "prompt detection not ready"})
+				respondError(c, http.StatusServiceUnavailable, "prompt_detection_not_ready", "prompt detection not ready", nil)
 				return
 			}
 		}

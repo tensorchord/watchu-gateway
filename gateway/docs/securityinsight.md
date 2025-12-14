@@ -67,6 +67,7 @@ securityinsight prompt \
   --host="api-server-1" \
   --since="2024-01-01T00:00:00Z" \
   --until="2024-01-02T00:00:00Z" \
+  --mode="prompt_based" \
   --base-url="http://localhost:4000/" \
   --api-key="dummy" \
   --model="gpt-4o" \
@@ -78,6 +79,7 @@ securityinsight prompt \
 - `--host`: Host to analyze (required)
 - `--since`: Start time in RFC3339 format (required)
 - `--until`: End time in RFC3339 format (required)
+- `--mode`: Detection mode: `prompt_based` or `model_based` (default: prompt_based)
 - `--base-url`: LLM API base URL (default: OPENAI_BASE_URL env variable)
 - `--api-key`: LLM API key (default: OPENAI_API_KEY env variable)
 - `--model`: Model name to use (default: gpt-4o)

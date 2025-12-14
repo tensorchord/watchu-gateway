@@ -1,16 +1,19 @@
 BIN_DIR := bin
-BIN := $(BIN_DIR)/gateway
-PKG := ./cmd/gateway
+CMDS := $(wildcard cmd/*)
+BINS := $(patsubst cmd/%,$(BIN_DIR)/%,$(CMDS))
 
-build:
+build: $(BINS)
+
+$(BIN_DIR)/%: cmd/%
+	@rm -rf ${BIN_DIR}
 	@mkdir -p $(BIN_DIR)
-	GOFLAGS="-trimpath" go build -o $(BIN) $(PKG)
+	GOFLAGS="-trimpath" go build -o $@ ./$<
 
 run:
 ifndef DATABASE_URL
 	$(error DATABASE_URL is not set)
 endif
-	go run $(PKG)
+	go run ./cmd/gateway
 
 test:
 	go test ./...

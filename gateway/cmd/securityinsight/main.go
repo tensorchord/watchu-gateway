@@ -60,6 +60,7 @@ Prompt Injection Detection Options:
   --host string         Host to analyze (required)
   --since string        Start time in RFC3339 format (required)
   --until string        End time in RFC3339 format (required)
+  --mode string         Detection mode: prompt_based or model_based (default: prompt_based)
 
 Threat Insight Analysis Options:
   --root-exec-id string Root execution ID to analyze (required)
@@ -83,6 +84,7 @@ func runPromptCommand(args []string) {
 	host := fs.String("host", "", "Host to analyze (required)")
 	since := fs.String("since", "", "Start time in RFC3339 format (required)")
 	until := fs.String("until", "", "End time in RFC3339 format (required)")
+	mode := fs.String("mode", "prompt_based", "Detection mode: prompt_based or model_based")
 	baseURL := fs.String("base-url", "", "LLM API base URL (default: OPENAI_BASE_URL env)")
 	apiKey := fs.String("api-key", "", "LLM API key (default: OPENAI_API_KEY env)")
 	model := fs.String("model", "gpt-4o", "LLM model name")
@@ -98,7 +100,7 @@ func runPromptCommand(args []string) {
 	pool, queries := connectDatabase(ctx, *pgDSN)
 	defer pool.Close()
 
-	runPromptMode(ctx, queries, *host, *since, *until,
+	runPromptMode(ctx, queries, *host, *since, *until, *mode,
 		getBaseURL(*baseURL), getAPIKey(*apiKey), *model, *timeout, *verbose)
 }
 
@@ -159,7 +161,7 @@ func getAPIKey(apiKey string) string {
 	return apiKey
 }
 
-func runPromptMode(ctx context.Context, queries *sqlc.Queries, host, sinceStr, untilStr, baseURL, apiKey, model string, timeout time.Duration, verbose bool) {
+func runPromptMode(ctx context.Context, queries *sqlc.Queries, host, sinceStr, untilStr, mode, baseURL, apiKey, model string, timeout time.Duration, verbose bool) {
 	if host == "" {
 		fmt.Fprintf(os.Stderr, "Error: --host is required for prompt mode\n")
 		os.Exit(1)
@@ -170,6 +172,11 @@ func runPromptMode(ctx context.Context, queries *sqlc.Queries, host, sinceStr, u
 		os.Exit(1)
 	}
 
+	if mode != "prompt_based" && mode != "model_based" {
+		fmt.Fprintf(os.Stderr, "Error: --mode must be either 'prompt_based' or 'model_based'\n")
+		os.Exit(1)
+	}
+
 	since, err := time.Parse(time.RFC3339, sinceStr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing --since: %v\n", err)
@@ -177,18 +184,13 @@ func runPromptMode(ctx context.Context, queries *sqlc.Queries, host, sinceStr, u
 	}
 
 	until, err := time.Parse(time.RFC3339, untilStr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing --until: %v\n", err)
-		os.Exit(1)
-	}
-
 	// Create security insight service
 	svc, err := securityinsight.NewService(queries, securityinsight.Options{
 		PromptInjectionEnabled:    true,
 		PromptInjectionAPIBase:    baseURL,
 		PromptInjectionAPIKey:     apiKey,
 		PromptInjectionModel:      model,
-		PromptInjectionMode:       "prompt_based",
+		PromptInjectionMode:       mode,
 		PromptInjectionTimeout:    timeout,
 		PromptInjectionBatchSize:  10,
 		PromptInjectionMaxRetries: 3,

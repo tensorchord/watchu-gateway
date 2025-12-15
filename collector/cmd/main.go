@@ -13,6 +13,7 @@ import (
 	"github.com/tensorchord/watchu/collector/execve"
 	"github.com/tensorchord/watchu/collector/internal/logger"
 	"github.com/tensorchord/watchu/collector/internal/tool"
+	"github.com/tensorchord/watchu/collector/postgres"
 	"github.com/tensorchord/watchu/collector/sslsniff"
 	"github.com/tensorchord/watchu/collector/stdio"
 )
@@ -50,6 +51,9 @@ func main() {
 	stdioProbe := stdio.NewStdioProbe(gatewayClient)
 	go stdioProbe.Start(ctx)
 
+	pgProbe := postgres.NewPostgresProbe(gatewayClient)
+	go pgProbe.Start(ctx)
+
 	if len(*tetragonSocket) > 0 {
 		log.Info().Str("socket", *tetragonSocket).Msg("enable Tetragon integration")
 		tetragonClient, err := execve.NewTetragonClient(*tetragonSocket, gatewayClient)
@@ -63,4 +67,5 @@ func main() {
 	<-ctx.Done()
 	sslProbe.Close()
 	stdioProbe.Close()
+	pgProbe.Close()
 }

@@ -13,6 +13,12 @@ import (
 	"github.com/cilium/ebpf"
 )
 
+type pgConnKey struct {
+	_       structs.HostLayout
+	PidTgid uint64
+	Fd      uint64
+}
+
 type pgEvent struct {
 	_           structs.HostLayout
 	TimestampNs uint64
@@ -22,17 +28,8 @@ type pgEvent struct {
 	CgroupId    uint64
 	DataLen     uint64
 	Fd          uint64
-	MsgType     uint8
 	Data        [16384]uint8
 	Comm        [16]int8
-	_           [7]byte
-}
-
-type pgInflightRead struct {
-	_    structs.HostLayout
-	Buf  uint64
-	Size uint64
-	Fd   uint64
 }
 
 // loadPg returns the embedded CollectionSpec for pg.
@@ -77,8 +74,8 @@ type pgSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type pgProgramSpecs struct {
-	TracepointEnterRecvfrom *ebpf.ProgramSpec `ebpf:"tracepoint_enter_recvfrom"`
-	TracepointExitRecvfrom  *ebpf.ProgramSpec `ebpf:"tracepoint_exit_recvfrom"`
+	TracepointEnterClose  *ebpf.ProgramSpec `ebpf:"tracepoint_enter_close"`
+	TracepointEnterSendto *ebpf.ProgramSpec `ebpf:"tracepoint_enter_sendto"`
 }
 
 // pgMapSpecs contains maps before they are loaded into the kernel.
@@ -139,14 +136,14 @@ type pgVariables struct {
 //
 // It can be passed to loadPgObjects or ebpf.CollectionSpec.LoadAndAssign.
 type pgPrograms struct {
-	TracepointEnterRecvfrom *ebpf.Program `ebpf:"tracepoint_enter_recvfrom"`
-	TracepointExitRecvfrom  *ebpf.Program `ebpf:"tracepoint_exit_recvfrom"`
+	TracepointEnterClose  *ebpf.Program `ebpf:"tracepoint_enter_close"`
+	TracepointEnterSendto *ebpf.Program `ebpf:"tracepoint_enter_sendto"`
 }
 
 func (p *pgPrograms) Close() error {
 	return _PgClose(
-		p.TracepointEnterRecvfrom,
-		p.TracepointExitRecvfrom,
+		p.TracepointEnterClose,
+		p.TracepointEnterSendto,
 	)
 }
 

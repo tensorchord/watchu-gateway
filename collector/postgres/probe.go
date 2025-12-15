@@ -25,8 +25,8 @@ func attachPostgresProbes(objs pgObjects, links *[]link.Link) {
 		name  string
 		prog  *ebpf.Program
 	}{
-		{"syscalls", "sys_enter_recvfrom", objs.TracepointEnterRecvfrom},
-		{"syscalls", "sys_exit_recvfrom", objs.TracepointExitRecvfrom},
+		{"syscalls", "sys_enter_sendto", objs.TracepointEnterSendto},
+		{"syscalls", "sys_enter_close", objs.TracepointEnterClose},
 	}
 
 	failed := 0

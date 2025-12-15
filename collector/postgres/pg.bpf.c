@@ -113,7 +113,8 @@ int tracepoint_enter_sendto(struct sendto_ctx *ctx) {
         return 0;
     }
 
-    if (*flag > 1)
+    // negotiated Postgres connection, could be plaintext
+    if (*flag > 3)
         return 0;
 
     // only capture the plaintext Postgres traffic
@@ -131,12 +132,15 @@ int tracepoint_enter_sendto(struct sendto_ctx *ctx) {
         }
         u8 tag     = hdr[0];
         u32 length = ((hdr[1] << 24) | (hdr[2] << 16) | (hdr[3] << 8) | hdr[4]) - 4;
+        if (length > MAX_BUF_SIZE)
+            length = MAX_BUF_SIZE;
+        if (length <= 4)
+            return 0;
+        if (length + 5 > total_length)
+            // incomplete message, ignore
+            return 0;
         // Q, P, B, E, C, X
         if (tag == 0x51 || tag == 0x50 || tag == 0x42 || tag == 0x45 || tag == 0x43 || tag == 0x58) {
-            if (length > MAX_BUF_SIZE)
-                length = MAX_BUF_SIZE;
-            if (length <= 4)
-                return 0;
             u8 *addr = (u8 *)buf + 5;
 
             struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);

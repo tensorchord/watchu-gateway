@@ -99,6 +99,7 @@ func (pp *PostgresProbe) Start(ctx context.Context) {
 				Uint64("uid_gid", event.UidGid).
 				Uint64("cgroup_id", event.CgroupId).
 				Uint64("fd", event.Fd).
+				Byte("msg_type", byte(event.MsgType)).
 				Uint64("req_len", event.ReqLen).
 				Uint64("data_len", event.DataLen).
 				Str("comm", tool.CharsToString(event.Comm[:])).

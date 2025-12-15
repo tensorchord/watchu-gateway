@@ -154,6 +154,7 @@ int tracepoint_enter_sendto(struct sendto_ctx *ctx) {
             evt->req_len      = total_length;
             evt->data_len     = length;
             evt->fd           = ctx->fd;
+            evt->msg_type     = tag;
             bpf_get_current_comm(&evt->comm, TASK_COMM_LEN);
             bpf_probe_read_user(evt->data, length, (void *)addr);
 
@@ -173,7 +174,7 @@ int tracepoint_enter_close(struct close_ctx *ctx) {
         .fd       = ctx->fd,
     };
     u32 *flag = bpf_map_lookup_elem(&inflight, &key);
-    if (flag > 0) {
+    if (flag != NULL) {
         bpf_map_delete_elem(&inflight, &key);
     }
     return 0;

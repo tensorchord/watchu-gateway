@@ -28,8 +28,10 @@ type pgEvent struct {
 	CgroupId    uint64
 	DataLen     uint64
 	Fd          uint64
+	MsgType     uint8
 	Data        [16384]uint8
 	Comm        [16]int8
+	_           [7]byte
 }
 
 // loadPg returns the embedded CollectionSpec for pg.

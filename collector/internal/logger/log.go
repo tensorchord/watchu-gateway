@@ -9,8 +9,8 @@ import (
 func SetUpLogger(debug bool) {
 	if debug {
 		log.DefaultLogger = log.Logger{
-			Level:      log.DebugLevel,
-			Caller:     1,
+			Level:  log.DebugLevel,
+			Caller: 1,
 			Writer: &log.ConsoleWriter{
 				ColorOutput:    true,
 				QuoteString:    true,

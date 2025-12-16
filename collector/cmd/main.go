@@ -23,7 +23,7 @@ const (
 )
 
 func main() {
-	logger.SetUpLogger()
+	debug := flag.Bool("debug", false, "enable debug-level colorful log")
 	SSLPath := flag.String("ssl-path", "", "extra user binary path to attach SSL uprobes (optional)")
 	// TODO: rustls gets the encrypted data, we need to decrypt with the session key
 	rustlsPath := flag.String("rustls-path", "", "extra user binary path to attach rustls uprobes (optional)")
@@ -32,6 +32,7 @@ func main() {
 		fmt.Sprintf("the Tetragon gRPC socket path, e.g., '%s'. Leave it empty to disable Tetragon integration", TETRAGON_SOCKET))
 	flag.Parse()
 
+	logger.SetUpLogger(*debug)
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 

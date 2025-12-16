@@ -1,17 +1,16 @@
 package logger
 
 import (
-	"os"
+	"time"
 
 	"github.com/phuslu/log"
 )
 
-func SetUpLogger() {
-	if log.IsTerminal(os.Stderr.Fd()) {
+func SetUpLogger(debug bool) {
+	if debug {
 		log.DefaultLogger = log.Logger{
-			Level:      log.DebugLevel,
-			TimeFormat: "15:04:05.123Z",
-			Caller:     1,
+			Level:  log.DebugLevel,
+			Caller: 1,
 			Writer: &log.ConsoleWriter{
 				ColorOutput:    true,
 				QuoteString:    true,
@@ -20,18 +19,9 @@ func SetUpLogger() {
 		}
 	} else {
 		log.DefaultLogger = log.Logger{
-			Level: log.DebugLevel,
-			Writer: &log.AsyncWriter{
-				ChannelSize:   4096,
-				DiscardOnFull: false,
-				Writer: &log.FileWriter{
-					Filename:   "watchu.log",
-					FileMode:   0600,
-					MaxSize:    50 * 1024 * 1024,
-					MaxBackups: 15,
-					LocalTime:  false,
-				},
-			},
+			Level:        log.InfoLevel,
+			TimeField:    "timestamp",
+			TimeLocation: time.UTC,
 		}
 	}
 }

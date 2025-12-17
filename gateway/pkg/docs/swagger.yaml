@@ -551,6 +551,10 @@ definitions:
         items:
           type: string
         type: array
+      evidence:
+        items:
+          type: integer
+        type: array
       observed_at:
         type: string
       reason:

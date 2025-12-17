@@ -58,12 +58,13 @@ SELECT
     'openai-compatible' AS provider,
     NULL::TEXT AS model,
     NULL::JSONB AS prompt,
-    CASE 
-        WHEN req.body IS NOT NULL AND NOT req.truncated THEN convert_from(req.body, 'UTF8')
+    CASE
+        -- Use LATIN1 to avoid invalid UTF8 errors and preserve bytes for downstream parsing.
+        WHEN req.body IS NOT NULL AND NOT req.truncated THEN convert_from(req.body, 'LATIN1')
         ELSE NULL
     END AS raw_request,
-    CASE 
-        WHEN resp.body IS NOT NULL AND NOT resp.truncated THEN convert_from(resp.body, 'UTF8')
+    CASE
+        WHEN resp.body IS NOT NULL AND NOT resp.truncated THEN convert_from(resp.body, 'LATIN1')
         ELSE NULL
     END AS raw_response,
     req.timestamp AS observed_at,

@@ -16,10 +16,11 @@ type Client struct {
 	baseURL    string
 	apiKey     string
 	httpClient *http.Client
+	maxTokens  int
 }
 
 // NewClient builds a client using the provided base URL and API key.
-func NewClient(baseURL, apiKey string, timeout time.Duration) *Client {
+func NewClient(baseURL, apiKey string, timeout time.Duration, maxTokens int) *Client {
 	trimmed := strings.TrimRight(baseURL, "/")
 	if trimmed == "" {
 		return nil
@@ -27,12 +28,16 @@ func NewClient(baseURL, apiKey string, timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
+	if maxTokens <= 0 {
+		maxTokens = 512
+	}
 	return &Client{
 		baseURL: trimmed,
 		apiKey:  apiKey,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
+		maxTokens: maxTokens,
 	}
 }
 
@@ -46,7 +51,7 @@ func (c *Client) Detect(ctx context.Context, model, prompt string) (string, erro
 		Model:       model,
 		Messages:    []chatMessage{{Role: "user", Content: prompt}},
 		Temperature: 0,
-		MaxTokens:   64,
+		MaxTokens:   c.maxTokens,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

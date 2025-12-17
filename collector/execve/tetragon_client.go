@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/cilium/tetragon/api/v1/tetragon"
@@ -21,47 +24,99 @@ type TetragonClient struct {
 	conn          *grpc.ClientConn
 	client        tetragon.FineGuidanceSensorsClient
 	gatewayClient *collector.GatewayClient
-	channel       chan *collector.RawExec
 }
 
-func NewTetragonClient(socketPath string, gatewayClient *collector.GatewayClient) (*TetragonClient, error) {
-	conn, err := grpc.NewClient(socketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return nil, fmt.Errorf("failed to dial: %w", err)
+func unixSocketPath(target string) (string, bool) {
+	if strings.HasPrefix(target, "unix://") {
+		p := strings.TrimPrefix(target, "unix://")
+		return p, strings.HasPrefix(p, "/")
 	}
-	state := conn.GetState()
-	log.Info().Str("state", state.String()).Msg("connected to Tetragon gRPC server")
+	if strings.HasPrefix(target, "/") {
+		return target, true
+	}
+	return "", false
+}
+
+func waitForUnixSocket(ctx context.Context, path string) error {
+	t := time.NewTicker(200 * time.Millisecond)
+	defer t.Stop()
+
+	for {
+		info, err := os.Stat(path)
+		if err == nil && info.Mode()&os.ModeSocket != 0 {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("unix socket not ready: %s: %w", path, ctx.Err())
+		case <-t.C:
+		}
+	}
+}
+
+func dialTetragon(ctx context.Context, target string) (*grpc.ClientConn, error) {
+	if p, ok := unixSocketPath(target); ok {
+		if err := waitForUnixSocket(ctx, p); err != nil {
+			return nil, err
+		}
+		return grpc.DialContext(
+			ctx,
+			"passthrough:///"+p,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, "unix", addr)
+			}),
+			grpc.WithBlock(),
+			grpc.WithReturnConnectionError(),
+		)
+	}
+
+	return grpc.DialContext(
+		ctx,
+		target,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+		grpc.WithReturnConnectionError(),
+	)
+}
+
+func NewTetragonClient(ctx context.Context, socketPath string, gatewayClient *collector.GatewayClient) (*TetragonClient, error) {
+	dialCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	conn, err := dialTetragon(dialCtx, socketPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to tetragon: %w", err)
+	}
+	log.Info().Str("target", socketPath).Msg("connected to Tetragon gRPC server")
 	client := tetragon.NewFineGuidanceSensorsClient(conn)
 	return &TetragonClient{
 		conn:          conn,
 		client:        client,
 		gatewayClient: gatewayClient,
-		channel:       make(chan *collector.RawExec, collector.GatewayChannelSize),
 	}, nil
 }
 
 func (tc *TetragonClient) Close() {
-	close(tc.channel)
 	err := tc.conn.Close()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close the socket connection")
 	}
 }
 
-func (tc *TetragonClient) Run(ctx context.Context) {
-	go tc.gatewayClient.IngestExecEvent(ctx, tc.channel)
+func (tc *TetragonClient) Run(ctx context.Context, out chan<- *collector.RawExec) error {
 	for {
 		eventStream, err := tc.client.GetEvents(ctx, &tetragon.GetEventsRequest{})
 		if err != nil {
 			log.Error().Err(err).Msg("GetEvents failed")
 			if st, ok := status.FromError(err); ok {
 				if st.Code() == codes.Unavailable {
-					log.Info().Msg("service is unavailable, exit")
-					return
+					return err
 				}
 				if st.Code() == codes.Canceled {
-					log.Info().Msg("context is canceled, exit")
-					return
+					return nil
 				}
 			}
 			log.Error().Err(err).Msg("failed to get event from Tetragon, retry the next event after 1 seconds")
@@ -97,7 +152,7 @@ func (tc *TetragonClient) Run(ctx context.Context) {
 				if pp != nil && pp.Pid != nil {
 					ppid = pp.Pid.Value
 				}
-				tc.channel <- &collector.RawExec{
+				out <- &collector.RawExec{
 					Timestamp: exec.Process.StartTime.AsTime(),
 					Pid:       exec.Process.Pid.Value,
 					PPid:      ppid,
@@ -110,5 +165,35 @@ func (tc *TetragonClient) Run(ctx context.Context) {
 				}
 			}
 		}
+	}
+}
+
+func RunTetragonWithRetry(ctx context.Context, socketPath string, gatewayClient *collector.GatewayClient) {
+	channel := make(chan *collector.RawExec, collector.GatewayChannelSize)
+	go gatewayClient.IngestExecEvent(ctx, channel)
+
+	backoff := time.Second
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		tc, err := NewTetragonClient(ctx, socketPath, gatewayClient)
+		if err != nil {
+			log.Warn().Err(err).Str("socket", socketPath).Msg("tetragon not ready, retrying")
+			time.Sleep(backoff)
+			continue
+		}
+
+		err = tc.Run(ctx, channel)
+		tc.Close()
+		if err == nil || errors.Is(err, context.Canceled) {
+			return
+		}
+
+		log.Warn().Err(err).Msg("tetragon stream ended, reconnecting")
+		time.Sleep(backoff)
 	}
 }

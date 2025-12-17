@@ -228,3 +228,10 @@ WHERE host = sqlc.arg('host')
   AND start_ts <= sqlc.arg('until')
 ORDER BY start_ts DESC
 LIMIT sqlc.arg('limit');
+
+-- name: GetPromptInjectionMetadataByHostAndRequestID :one
+SELECT
+    metadata
+FROM llm_prompt_injection_results
+WHERE host = sqlc.arg('host')
+  AND request_id = sqlc.arg('request_id');

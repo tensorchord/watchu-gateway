@@ -98,11 +98,12 @@ type SecuritySemanticRecord struct {
 
 // PromptInjectionRecord represents a single prompt injection row for the security endpoint.
 type PromptInjectionRecord struct {
-	RequestID  *string    `json:"request_id,omitempty"`
-	Severity   *string    `json:"severity,omitempty"`
-	Categories []string   `json:"categories,omitempty"`
-	ObservedAt *time.Time `json:"observed_at,omitempty"`
-	Reason     *string    `json:"reason,omitempty"`
+	RequestID  *string         `json:"request_id,omitempty"`
+	Severity   *string         `json:"severity,omitempty"`
+	Categories []string        `json:"categories,omitempty"`
+	ObservedAt *time.Time      `json:"observed_at,omitempty"`
+	Reason     *string         `json:"reason,omitempty"`
+	Evidence   json.RawMessage `json:"evidence,omitempty"`
 }
 
 // SecurityLLMAnalysisResponse bundles semantic and prompt analysis payloads.
@@ -387,7 +388,7 @@ func (h analyticsHandlers) getHeuristicAlerts(c *gin.Context) {
 
 	resp := make([]HeuristicAlertResponse, 0, len(rows))
 	for _, row := range rows {
-		resp = append(resp, convertHeuristicAlert(row))
+		resp = append(resp, convertHeuristicAlertWithDetails(row, h.enrichPromptInjectionAlertDetails(c.Request.Context(), row)))
 	}
 
 	c.JSON(http.StatusOK, resp)
@@ -542,12 +543,14 @@ func (h analyticsHandlers) getSecurityLLMAnalysis(c *gin.Context) {
 
 	prompts := make([]PromptInjectionRecord, 0, len(promptRows))
 	for _, row := range promptRows {
+		evidence := extractPromptEvidence(row.Metadata)
 		prompts = append(prompts, PromptInjectionRecord{
 			RequestID:  uuidPtrFromUUID(row.RequestID),
 			Severity:   stringPtr(row.SeverityLevel),
 			Categories: parseCategories(row.Categories),
 			ObservedAt: timePtrFromTimestamptz(row.ObservedAt),
 			Reason:     stringPtrFromText(row.Reason),
+			Evidence:   evidence,
 		})
 	}
 
@@ -555,6 +558,28 @@ func (h analyticsHandlers) getSecurityLLMAnalysis(c *gin.Context) {
 		Semantic:         semantic,
 		PromptInjections: prompts,
 	})
+}
+
+func extractPromptEvidence(metadata []byte) json.RawMessage {
+	if len(metadata) == 0 {
+		return nil
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(metadata, &obj); err != nil {
+		return nil
+	}
+	evidence, ok := obj["evidence"]
+	if !ok || evidence == nil {
+		return nil
+	}
+	switch evidence.(type) {
+	case []any, map[string]any, string, float64, bool:
+		// Marshal it back to JSON raw message.
+		if b, err := json.Marshal(evidence); err == nil && len(b) > 0 {
+			return b
+		}
+	}
+	return nil
 }
 
 // getPromptInjectionDetails godoc
@@ -935,7 +960,7 @@ func (h analyticsHandlers) getProcessSummary(c *gin.Context) {
 
 	alertResponses := make([]HeuristicAlertResponse, 0, len(alerts))
 	for _, alert := range alerts {
-		alertResponses = append(alertResponses, convertHeuristicAlert(alert))
+		alertResponses = append(alertResponses, convertHeuristicAlertWithDetails(alert, h.enrichPromptInjectionAlertDetails(ctx, alert)))
 	}
 
 	resp := ProcessSummaryResponse{
@@ -1461,7 +1486,7 @@ func buildProcessTree(node *treeNode) ProcessTreeNodeResponse {
 	return resp
 }
 
-func convertHeuristicAlert(row sqlc.HeuristicAlert) HeuristicAlertResponse {
+func convertHeuristicAlertWithDetails(row sqlc.HeuristicAlert, details []byte) HeuristicAlertResponse {
 	return HeuristicAlertResponse{
 		AlertID:    row.AlertID,
 		AlertType:  row.AlertType,
@@ -1472,9 +1497,92 @@ func convertHeuristicAlert(row sqlc.HeuristicAlert) HeuristicAlertResponse {
 		EndTs:      timePtrFromTimestamptz(row.EndTs),
 		RootExecID: stringPtrFromText(row.RootExecID),
 		RootPID:    int64PtrFromInt8(row.RootPid),
-		Details:    jsonInterface(row.Details),
+		Details:    jsonInterface(details),
 		Reason:     stringPtrFromText(row.Reason),
 	}
+}
+
+func (h analyticsHandlers) enrichPromptInjectionAlertDetails(ctx context.Context, row sqlc.HeuristicAlert) []byte {
+	if row.AlertType != "prompt_injection" {
+		return row.Details
+	}
+
+	// If details already include evidence, return as-is.
+	if hasJSONKey(row.Details, "evidence") {
+		return row.Details
+	}
+
+	requestIDStr := extractRequestIDFromAlertDetails(row.Details)
+	if requestIDStr == "" {
+		requestIDStr = extractRequestIDFromAlertID(row.AlertID)
+	}
+	if requestIDStr == "" {
+		return row.Details
+	}
+
+	reqUUID, err := uuid.Parse(requestIDStr)
+	if err != nil {
+		return row.Details
+	}
+
+	meta, err := h.queries.GetPromptInjectionMetadataByHostAndRequestID(ctx, sqlc.GetPromptInjectionMetadataByHostAndRequestIDParams{
+		Host:      row.Host,
+		RequestID: pgtype.UUID{Bytes: reqUUID, Valid: true},
+	})
+	if err != nil || len(meta) == 0 {
+		return row.Details
+	}
+
+	evidence := extractPromptEvidence(meta)
+	if len(evidence) == 0 {
+		return row.Details
+	}
+
+	detailsObj := map[string]any{}
+	if len(row.Details) > 0 {
+		_ = json.Unmarshal(row.Details, &detailsObj)
+	}
+	detailsObj["evidence"] = json.RawMessage(evidence)
+
+	merged, err := json.Marshal(detailsObj)
+	if err != nil {
+		return row.Details
+	}
+	return merged
+}
+
+func extractRequestIDFromAlertID(alertID string) string {
+	parts := strings.Split(alertID, ":")
+	if len(parts) < 4 {
+		return ""
+	}
+	return strings.TrimSpace(parts[len(parts)-1])
+}
+
+func extractRequestIDFromAlertDetails(details []byte) string {
+	if len(details) == 0 {
+		return ""
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(details, &obj); err != nil {
+		return ""
+	}
+	if v, ok := obj["request_id"].(string); ok {
+		return strings.TrimSpace(v)
+	}
+	return ""
+}
+
+func hasJSONKey(raw []byte, key string) bool {
+	if len(raw) == 0 || key == "" {
+		return false
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return false
+	}
+	_, ok := obj[key]
+	return ok
 }
 
 func convertAgentRun(row sqlc.AgentRun) AgentRunResponse {

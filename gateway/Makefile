@@ -22,7 +22,7 @@ fmt:
 	gofmt -w $(shell find . -name '*.go' -not -path './vendor/*')
 
 lint:
-	golangci-lint run
+	golangci-lint run ./...
 
 swagger:
 	./scripts/generate-swagger.sh

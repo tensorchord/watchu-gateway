@@ -16,8 +16,13 @@ export type CorrelationSummaryResponse = PkgHttpapiCorrelationSummaryResponse;
 export type HeuristicAlertResponse = PkgHttpapiHeuristicAlertResponse;
 export type ProcessHTTPEventResponse = PkgHttpapiProcessHTTPEventResponse;
 export type SecuritySemanticRecord = PkgHttpapiSecuritySemanticRecord;
-export type PromptInjectionRecord = PkgHttpapiPromptInjectionRecord;
-export type SecurityLLMAnalysisResponse = PkgHttpapiSecurityLLMAnalysisResponse;
+export type PromptInjectionRecord = PkgHttpapiPromptInjectionRecord & {
+    reason?: string | null;
+    evidence?: unknown;
+};
+export type SecurityLLMAnalysisResponse = Omit<PkgHttpapiSecurityLLMAnalysisResponse, "prompt_injections"> & {
+    prompt_injections?: PromptInjectionRecord[];
+};
 export type HTTPRequestDetailResponse = PkgHttpapiHTTPRequestDetailResponse;
 export type ProcessEventResponse = PkgHttpapiProcessEventResponse;
 export type ProcessTreeNodeResponse = PkgHttpapiProcessTreeNodeResponse;

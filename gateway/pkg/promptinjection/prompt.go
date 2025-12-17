@@ -7,47 +7,18 @@ import (
 	"strings"
 )
 
-const detectionTemplate = `You are a security content classifier. Inspect the USER_INPUT and answer using this exact format:
-
-Safety: <Safe|Controversial|Unsafe>
-Categories: <comma-separated categories or None>
-Score: <0.00-1.00>
-Reason: <brief explanation why this is unsafe or controversial, or None if safe>
-
-Safety levels:
-- Safe: content generally considered safe in most scenarios.
-- Controversial: content whose harmfulness depends on context.
-- Unsafe: content generally considered harmful.
-
-Score interpretation (IMPORTANT):
-- Score represents the RISK/DANGER level (higher score = MORE dangerous)
-- 0.00-0.30: Safe content, low risk
-- 0.30-0.70: Controversial content, moderate risk
-- 0.70-1.00: Unsafe content, high risk
-- If Safety is "Safe", Score should be low (0.00-0.30)
-- If Safety is "Unsafe", Score should be high (0.70-1.00)
-
-Valid categories:
-- Violent
-- Non-violent Illegal Acts
-- Sexual Content or Sexual Acts
-- Personally Identifiable Information
-- Suicide & Self-Harm
-- Unethical Acts
-- Politically Sensitive Topics
-- Copyright Violation
-- Jailbreak
-- None
-
-For Reason field:
-- If Safety is "Unsafe" or "Controversial", provide a brief explanation (1-2 sentences) describing what makes this content risky and what specific behaviors were detected.
-- If Safety is "Safe", use "None".
-
-USER_INPUT: %s`
-
 // RenderDetectionPrompt embeds the user prompt into the guardrail template.
 func RenderDetectionPrompt(userInput string) string {
-	return fmt.Sprintf(detectionTemplate, strings.TrimSpace(userInput))
+	return fmt.Sprintf(DefaultDetectionTemplate, strings.TrimSpace(userInput))
+}
+
+type GuardrailEvidence struct {
+	ID             string `json:"id,omitempty"`
+	Type           string `json:"type,omitempty"`
+	Source         string `json:"source,omitempty"`
+	Severity       string `json:"severity,omitempty"`
+	Quote          string `json:"quote,omitempty"`
+	Interpretation string `json:"interpretation,omitempty"`
 }
 
 // GuardrailResult captures the parsed model response.
@@ -56,9 +27,10 @@ type GuardrailResult struct {
 	Categories []string
 	Score      float64
 	Reason     string
+	Evidence   []GuardrailEvidence
 }
 
-// ParseGuardrailOutput extracts severity metadata from the model output.
+// ParseGuardrailOutput extracts severity metadata from the legacy (line-based) model output.
 func ParseGuardrailOutput(text string) GuardrailResult {
 	res := GuardrailResult{}
 	for _, line := range strings.Split(text, "\n") {
@@ -91,6 +63,63 @@ func ParseGuardrailOutput(text string) GuardrailResult {
 		}
 	}
 	return res
+}
+
+// ParseGuardrailResponse parses the JSON response used by prompt_based mode.
+// It falls back to ParseGuardrailOutput when JSON parsing fails.
+func ParseGuardrailResponse(text string) GuardrailResult {
+	if parsed, ok := parseGuardrailJSON(text); ok {
+		return parsed
+	}
+	return ParseGuardrailOutput(text)
+}
+
+type guardrailJSON struct {
+	Safety     string              `json:"safety"`
+	Categories []string            `json:"categories"`
+	Score      float64             `json:"score"`
+	Reason     string              `json:"reason"`
+	Evidence   []GuardrailEvidence `json:"evidence"`
+}
+
+func parseGuardrailJSON(text string) (GuardrailResult, bool) {
+	clean := strings.TrimSpace(text)
+	if clean == "" {
+		return GuardrailResult{}, false
+	}
+	// Strip Markdown code fences if present.
+	if strings.HasPrefix(clean, "```") {
+		if idx := strings.Index(clean, "\n"); idx >= 0 {
+			clean = strings.TrimSpace(clean[idx+1:])
+		}
+		if end := strings.LastIndex(clean, "```"); end >= 0 {
+			clean = strings.TrimSpace(clean[:end])
+		}
+	}
+	// Attempt to extract the first JSON object if the model included extra text.
+	start := strings.Index(clean, "{")
+	end := strings.LastIndex(clean, "}")
+	if start < 0 || end < 0 || end <= start {
+		return GuardrailResult{}, false
+	}
+	clean = clean[start : end+1]
+
+	var payload guardrailJSON
+	if err := json.Unmarshal([]byte(clean), &payload); err != nil {
+		return GuardrailResult{}, false
+	}
+
+	res := GuardrailResult{
+		Safety:     strings.TrimSpace(payload.Safety),
+		Categories: payload.Categories,
+		Score:      payload.Score,
+		Reason:     strings.TrimSpace(payload.Reason),
+		Evidence:   payload.Evidence,
+	}
+	if len(res.Categories) == 0 && strings.EqualFold(res.Safety, "safe") {
+		res.Categories = nil
+	}
+	return res, res.Safety != "" || res.Score > 0 || res.Reason != "" || len(res.Categories) > 0 || len(res.Evidence) > 0
 }
 
 // extractPromptText renders the stored prompt JSON (or raw request) into plain text.
@@ -129,7 +158,7 @@ func ExtractPromptFromHTTPBody(body string, extractUserPrompt bool) string {
 // extractPromptFromHTTPBody is the internal implementation
 func extractPromptFromHTTPBody(body string, extractUserPrompt bool) string {
 	var data map[string]any
-	if err := json.Unmarshal([]byte(body), &data); err != nil {
+	if err := unmarshalJSONLoose(body, &data); err != nil {
 		return ""
 	}
 
@@ -247,6 +276,52 @@ func extractPromptFromHTTPBody(body string, extractUserPrompt bool) string {
 	}
 
 	return ""
+}
+
+func unmarshalJSONLoose(input string, out any) error {
+	raw := strings.TrimSpace(input)
+	if raw == "" {
+		return fmt.Errorf("empty input")
+	}
+	if err := json.Unmarshal([]byte(raw), out); err == nil {
+		return nil
+	}
+
+	// Some payloads might contain extra prefix/suffix; try extracting the first JSON object.
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start >= 0 && end > start {
+		if err := json.Unmarshal([]byte(raw[start:end+1]), out); err == nil {
+			return nil
+		}
+	}
+
+	// Last resort: interpret the bytes as ISO-8859-1 (LATIN1) and retry.
+	latin1 := decodeLatin1ToUTF8(raw)
+	if err := json.Unmarshal([]byte(latin1), out); err == nil {
+		return nil
+	}
+	start = strings.Index(latin1, "{")
+	end = strings.LastIndex(latin1, "}")
+	if start >= 0 && end > start {
+		if err := json.Unmarshal([]byte(latin1[start:end+1]), out); err == nil {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("unable to parse JSON")
+}
+
+func decodeLatin1ToUTF8(input string) string {
+	if input == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(input))
+	for i := 0; i < len(input); i++ {
+		b.WriteRune(rune(input[i]))
+	}
+	return b.String()
 }
 
 // cleanSystemTags removes XML-style system tags from content

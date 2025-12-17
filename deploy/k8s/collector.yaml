@@ -16,10 +16,37 @@ spec:
     spec:
       hostPID: true
       hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       containers:
+      - name: tetragon
+        image: quay.io/cilium/tetragon:v1.6.0
+        args:
+        - --server-address
+        - unix:///var/run/tetragon/tetragon.sock
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: btf
+          mountPath: /var/lib/tetragon/btf
+          readOnly: true
+        - name: tetragon-socket
+          mountPath: /var/run/tetragon
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
       - name: collector
         image: ghcr.io/tensorchord/watchu-collector:v0.1.0
         imagePullPolicy: IfNotPresent
+        command: ["/usr/local/bin/collector"]
+        args:
+        - "--gateway"
+        - "http://gateway.watchu.svc.cluster.local:8080"
+        - "--tetragon-socket"
+        - "unix:///var/run/tetragon/tetragon.sock"
         securityContext:
           privileged: true
         env:
@@ -27,10 +54,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
-        - name: GATEWAY_URL
-          value: "http://gateway.watchu.svc.cluster.local:8080"
-        - name: TETRAGON_SOCKET
-          value: "unix:///var/run/tetragon/tetragon.sock"
         volumeMounts:
         # Mount /proc to access process information
         - name: proc
@@ -43,7 +66,6 @@ spec:
         # Mount Tetragon socket to receive events
         - name: tetragon-socket
           mountPath: /var/run/tetragon
-          readOnly: true
         resources:
           requests:
             cpu: 100m
@@ -60,10 +82,12 @@ spec:
         hostPath:
           path: /sys/fs/cgroup
           type: Directory
-      - name: tetragon-socket
+      - name: btf
         hostPath:
-          path: /var/run/tetragon
-          type: Directory
+          path: /sys/kernel/btf/vmlinux
+          type: File
+      - name: tetragon-socket
+        emptyDir: {}
       tolerations:
       - effect: NoSchedule
         operator: Exists

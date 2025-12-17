@@ -1826,6 +1826,12 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
                 "observed_at": {
                     "type": "string"
                 },

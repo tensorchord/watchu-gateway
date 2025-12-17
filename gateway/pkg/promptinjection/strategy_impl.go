@@ -49,5 +49,5 @@ func (s *LLMBasedStrategy) Detect(prompt string) (GuardrailResult, error) {
 		return GuardrailResult{}, fmt.Errorf("llm detection failed: %w", err)
 	}
 
-	return ParseGuardrailOutput(completion), nil
+	return ParseGuardrailResponse(completion), nil
 }

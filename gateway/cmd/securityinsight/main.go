@@ -184,6 +184,11 @@ func runPromptMode(ctx context.Context, queries *sqlc.Queries, host, sinceStr, u
 	}
 
 	until, err := time.Parse(time.RFC3339, untilStr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing --until: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Create security insight service
 	svc, err := securityinsight.NewService(queries, securityinsight.Options{
 		PromptInjectionEnabled:    true,

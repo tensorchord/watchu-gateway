@@ -28,19 +28,22 @@ var ErrThreatInsightNotInitialized = errors.New("threat insight not initialized"
 
 // Options configures the security insight service
 type Options struct {
-	PromptInjectionEnabled      bool
-	PromptInjectionAPIBase      string
-	PromptInjectionAPIKey       string
-	PromptInjectionModel        string
-	PromptInjectionMode         string
-	PromptInjectionTimeout      time.Duration
-	PromptInjectionBatchSize    int
-	PromptInjectionMaxRetries   int
-	PromptInjectionSampleRate   float64
-	PromptInjectionMaxQPS       float64
-	PromptInjectionMaxPromptLen int
-	PromptInjectionStripTools   bool
-	PromptInjectionExtractUser  bool
+	PromptInjectionEnabled           bool
+	PromptInjectionAPIBase           string
+	PromptInjectionAPIKey            string
+	PromptInjectionModel             string
+	PromptInjectionMode              string
+	PromptInjectionTimeout           time.Duration
+	PromptInjectionMaxTokens         int
+	PromptInjectionBatchSize         int
+	PromptInjectionMaxRetries        int
+	PromptInjectionSampleRate        float64
+	PromptInjectionMaxQPS            float64
+	PromptInjectionMaxPromptLen      int
+	PromptInjectionStripTools        bool
+	PromptInjectionExtractUser       bool
+	PromptInjectionEvidenceVerbosity string
+	PromptInjectionEvidenceMaxChars  int
 
 	ThreatInsightEnabled bool
 	ThreatInsightBaseURL string
@@ -62,6 +65,7 @@ func NewService(queries *sqlc.Queries, opts Options, logger *slog.Logger) (*Serv
 		Model:             opts.PromptInjectionModel,
 		Mode:              opts.PromptInjectionMode,
 		Timeout:           opts.PromptInjectionTimeout,
+		MaxTokens:         opts.PromptInjectionMaxTokens,
 		BatchSize:         opts.PromptInjectionBatchSize,
 		MaxRetries:        opts.PromptInjectionMaxRetries,
 		SampleRate:        opts.PromptInjectionSampleRate,
@@ -69,6 +73,8 @@ func NewService(queries *sqlc.Queries, opts Options, logger *slog.Logger) (*Serv
 		MaxPromptLength:   opts.PromptInjectionMaxPromptLen,
 		StripToolCalls:    opts.PromptInjectionStripTools,
 		ExtractUserPrompt: opts.PromptInjectionExtractUser,
+		EvidenceVerbosity: opts.PromptInjectionEvidenceVerbosity,
+		EvidenceMaxChars:  opts.PromptInjectionEvidenceMaxChars,
 	}, logger)
 
 	var threatDetector threatinsight.Detector

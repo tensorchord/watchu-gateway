@@ -57,28 +57,23 @@ func (r *StrategyRegistry) List() []string {
 	return names
 }
 
-// DefaultDetectionTemplate is the standard template for LLM-based detection
-const DefaultDetectionTemplate = `You are a security content classifier. Inspect the USER_INPUT and answer using this exact format:
+// DefaultDetectionTemplate is the standard template for LLM-based detection.
+//
+// IMPORTANT: The model must not invent actions; it must only cite facts present in INPUT_JSON.
+const DefaultDetectionTemplate = `You are a security content classifier. Inspect the following INPUT_JSON and return a single valid JSON object only.
 
-Safety: <Safe|Controversial|Unsafe>
-Categories: <comma-separated categories or None>
-Score: <0.00-1.00>
-Reason: <brief explanation why this is unsafe or controversial, or None if safe>
+INPUT_JSON contains:
+- user_input: the extracted end-user request
+- observed_evidence: structured observations extracted from the original request (tool calls, arguments, snippets, indicators). Evidence may be incomplete.
 
-Safety levels:
-- Safe: content generally considered safe in most scenarios.
-- Controversial: content whose harmfulness depends on context.
-- Unsafe: content generally considered harmful.
+TASK:
+1) Classify the request as safety: "safe", "controversial", or "unsafe"
+2) Provide categories (array of strings) using only the list below
+3) Provide score from 0.00 to 1.00 (higher = more dangerous)
+4) Provide a detailed reason (3-8 sentences) citing concrete observations
+5) Provide evidence entries for UI drill-down (up to 10 items)
 
-Score interpretation (IMPORTANT):
-- Score represents the RISK/DANGER level (higher score = MORE dangerous)
-- 0.00-0.30: Safe content, low risk
-- 0.30-0.70: Controversial content, moderate risk
-- 0.70-1.00: Unsafe content, high risk
-- If Safety is "Safe", Score should be low (0.00-0.30)
-- If Safety is "Unsafe", Score should be high (0.70-1.00)
-
-Valid categories:
+VALID CATEGORIES:
 - Violent
 - Non-violent Illegal Acts
 - Sexual Content or Sexual Acts
@@ -90,8 +85,28 @@ Valid categories:
 - Jailbreak
 - None
 
-For Reason field:
-- If Safety is "Unsafe" or "Controversial", provide a brief explanation (1-2 sentences) describing what makes this content risky and what specific behaviors were detected.
-- If Safety is "Safe", use "None".
+CONSTRAINTS (MUST FOLLOW):
+- Only use facts present in INPUT_JSON. Do NOT invent tools, SQL, scripts, outputs, or system actions.
+- Use phrasing like "Observed in the request..." rather than "I executed..." or "The system ran...".
+- Each evidence[i].quote MUST be an exact substring copied from INPUT_JSON (after redaction), not paraphrased.
+- If the evidence is insufficient, say what is missing and lower confidence via score.
 
-USER_INPUT: %s`
+OUTPUT JSON SCHEMA:
+{
+  "safety": "safe|controversial|unsafe",
+  "categories": ["..."],
+  "score": 0.0,
+  "reason": "string",
+  "evidence": [
+    {
+      "id": "string",
+      "type": "tool_call|snippet|indicator|tool_result|user_intent|other",
+      "source": "user_input|raw_request|tool_args|tool_result",
+      "severity": "low|medium|high",
+      "quote": "string",
+      "interpretation": "string"
+    }
+  ]
+}
+
+INPUT_JSON: %s`

@@ -28,6 +28,7 @@ type Options struct {
 	Model             string
 	Mode              string
 	Timeout           time.Duration
+	MaxTokens         int
 	BatchSize         int
 	MaxRetries        int
 	SampleRate        float64
@@ -35,6 +36,13 @@ type Options struct {
 	MaxPromptLength   int
 	StripToolCalls    bool
 	ExtractUserPrompt bool // If true, intelligently extract user prompt from agent framework wrappers; if false, use full prompt
+
+	// EvidenceVerbosity controls how much observed evidence (from raw_request) is provided to the detector.
+	// Valid values: minimal|standard|full. Default: standard.
+	EvidenceVerbosity string
+	// EvidenceMaxChars caps per-snippet evidence size (applies to full mode; standard/minimal use smaller caps).
+	// Default: 4096.
+	EvidenceMaxChars int
 }
 
 // Service pulls pending prompts, scores them via an OpenAI-compatible API, and stores the verdict.
@@ -59,7 +67,7 @@ func NewService(queries *sqlc.Queries, opts Options, logger *slog.Logger) *Servi
 
 	var detector Detector
 	if normalized.Enabled {
-		client := NewClient(normalized.APIBase, normalized.APIKey, normalized.Timeout)
+		client := NewClient(normalized.APIBase, normalized.APIKey, normalized.Timeout, normalized.MaxTokens)
 		if client == nil {
 			logger.Warn("prompt injection disabled due to invalid API base", slog.String("base", normalized.APIBase))
 			normalized.Enabled = false
@@ -103,8 +111,17 @@ func normalizeOptions(opts Options) Options {
 	if opts.Timeout <= 0 {
 		opts.Timeout = 15 * time.Second
 	}
+	if opts.MaxTokens <= 0 {
+		opts.MaxTokens = 512
+	}
 	if opts.MaxPromptLength <= 0 {
 		opts.MaxPromptLength = 8192
+	}
+	if strings.TrimSpace(opts.EvidenceVerbosity) == "" {
+		opts.EvidenceVerbosity = "standard"
+	}
+	if opts.EvidenceMaxChars <= 0 {
+		opts.EvidenceMaxChars = 4096
 	}
 	if opts.SampleRate < 0 {
 		opts.SampleRate = 0
@@ -184,7 +201,8 @@ func (s *Service) processCandidate(ctx context.Context, row sqlc.ListPromptInjec
 		return fmt.Errorf("missing request_id")
 	}
 
-	promptText, truncated, promptSource := extractPromptText(row.Prompt, textFromPg(row.RawRequest), s.opts.MaxPromptLength, s.opts.StripToolCalls, s.opts.ExtractUserPrompt)
+	rawReq := textFromPg(row.RawRequest)
+	promptText, truncated, promptSource := extractPromptText(row.Prompt, rawReq, s.opts.MaxPromptLength, s.opts.StripToolCalls, s.opts.ExtractUserPrompt)
 	if promptText == "" {
 		promptText = "<unavailable prompt>"
 	}
@@ -221,8 +239,25 @@ func (s *Service) processCandidate(ctx context.Context, row sqlc.ListPromptInjec
 	recordRequest(row.Host)
 	start := time.Now()
 
-	// Use Detector interface for detection
-	parsed, err := s.detector.Detect(ctx, promptText)
+	var parsed GuardrailResult
+	var guardrailInput string
+	var observed ObservedEvidence
+
+	if strings.EqualFold(s.opts.Mode, "prompt_based") {
+		observed = buildObservedEvidence(rawReq, s.opts.EvidenceVerbosity, s.opts.EvidenceMaxChars)
+		redactedUserInput := capAndRedact(promptText, maxEvidenceChars(s.opts.EvidenceVerbosity, s.opts.EvidenceMaxChars))
+		payload := map[string]any{
+			"user_input":        redactedUserInput,
+			"observed_evidence": observed,
+		}
+		inputBytes, _ := json.Marshal(payload)
+		guardrailInput = string(inputBytes)
+	} else {
+		guardrailInput = promptText
+	}
+
+	// Use Detector interface for detection (single prompt call)
+	parsed, err := s.detector.Detect(ctx, guardrailInput)
 
 	observeLatency(row.Host, time.Since(start))
 	if err != nil {
@@ -236,6 +271,11 @@ func (s *Service) processCandidate(ctx context.Context, row sqlc.ListPromptInjec
 	outcome.Prompt = promptText
 	outcome.PromptTruncated = truncated
 	outcome.PromptSource = promptSource
+	outcome.Reason = strings.TrimSpace(parsed.Reason)
+	if strings.EqualFold(s.opts.Mode, "prompt_based") {
+		outcome.Evidence = validateGuardrailEvidence(parsed.Evidence, guardrailInput)
+		outcome.ObservedEvidence = observed
+	}
 
 	if err := s.persistResult(ctx, row, promptHash, outcome); err != nil {
 		return err
@@ -263,15 +303,17 @@ func (s *Service) recordError(ctx context.Context, row sqlc.ListPromptInjectionC
 }
 
 type detectionOutcome struct {
-	Severity        string
-	Categories      []string
-	Score           float64
-	Reason          string
-	RawResponse     string
-	Prompt          string
-	PromptTruncated bool
-	PromptSource    string
-	Sampled         bool
+	Severity         string
+	Categories       []string
+	Score            float64
+	Reason           string
+	Evidence         []GuardrailEvidence
+	ObservedEvidence ObservedEvidence
+	RawResponse      string
+	Prompt           string
+	PromptTruncated  bool
+	PromptSource     string
+	Sampled          bool
 }
 
 func deriveOutcome(parsed GuardrailResult) detectionOutcome {
@@ -281,35 +323,35 @@ func deriveOutcome(parsed GuardrailResult) detectionOutcome {
 	var score float64
 	var severity string
 
-	// Map Safety to score and severity
+	// Prefer model score when valid; otherwise map from Safety.
+	if parsed.Score > 0 && parsed.Score <= 1 {
+		score = parsed.Score
+	} else {
+		switch safety {
+		case "unsafe":
+			score = 0.9
+		case "controversial":
+			score = 0.5
+		default:
+			score = 0.1
+		}
+	}
+
+	// Prefer Safety for severity if set, otherwise derive from score.
 	switch safety {
 	case "unsafe":
-		score = 0.9
 		severity = "high"
 	case "controversial":
-		score = 0.5
 		severity = "medium"
 	case "safe":
-		score = 0.1
 		severity = "low"
 	default:
-		// If Safety is not explicitly set, fall back to Score
-		score = parsed.Score
-		if score <= 0 {
-			score = 0.1
-			severity = "low"
-		} else if score > 1 {
-			score = 1
+		severity = "low"
+		switch {
+		case score >= 0.7:
 			severity = "high"
-		} else {
-			// Use score thresholds
-			severity = "low"
-			switch {
-			case score >= 0.7:
-				severity = "high"
-			case score >= 0.4:
-				severity = "medium"
-			}
+		case score >= 0.4:
+			severity = "medium"
 		}
 	}
 
@@ -323,17 +365,20 @@ func deriveOutcome(parsed GuardrailResult) detectionOutcome {
 
 func (s *Service) persistResult(ctx context.Context, row sqlc.ListPromptInjectionCandidatesRow, promptHash string, outcome detectionOutcome) error {
 	metadata := map[string]any{
-		"categories":       outcome.Categories,
-		"raw_response":     outcome.RawResponse,
-		"prompt_truncated": outcome.PromptTruncated,
-		"prompt_source":    outcome.PromptSource,
-		"prompt_preview":   preview(outcome.Prompt, 512),
-		"sampled":          outcome.Sampled,
-		"provider":         textFromPg(row.Provider),
-		"observed_at":      timeFromPg(row.ObservedAt),
+		"categories":         outcome.Categories,
+		"raw_response":       outcome.RawResponse,
+		"prompt_truncated":   outcome.PromptTruncated,
+		"prompt_source":      outcome.PromptSource,
+		"prompt_preview":     preview(outcome.Prompt, 512),
+		"evidence":           outcome.Evidence,
+		"observed_evidence":  outcome.ObservedEvidence,
+		"evidence_verbosity": s.opts.EvidenceVerbosity,
+		"evidence_max_chars": s.opts.EvidenceMaxChars,
+		"sampled":            outcome.Sampled,
+		"provider":           textFromPg(row.Provider),
+		"observed_at":        timeFromPg(row.ObservedAt),
 	}
-	rawReq := textFromPg(row.RawRequest)
-	if rawReq != "" {
+	if rawReq := textFromPg(row.RawRequest); rawReq != "" {
 		metadata["raw_request_preview"] = preview(rawReq, 512)
 	}
 	metaBytes, _ := json.Marshal(metadata)
@@ -367,6 +412,7 @@ func (s *Service) raiseAlert(ctx context.Context, row sqlc.ListPromptInjectionCa
 		"agent_run_id":   uuidString(row.AgentRunID),
 		"model":          pickModel(row.Model, s.opts.Model),
 		"prompt_preview": preview(outcome.Prompt, 256),
+		"evidence":       outcome.Evidence,
 	}
 	detailBytes, _ := json.Marshal(details)
 

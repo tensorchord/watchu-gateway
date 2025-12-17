@@ -3,6 +3,7 @@ package analysis
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -82,15 +83,45 @@ func (s *Scheduler) runOnce(ctx context.Context) {
 }
 
 func (s *Scheduler) fetchActiveHosts(ctx context.Context, since time.Time) ([]string, error) {
-	rows, err := s.pool.Query(ctx, `
-			SELECT DISTINCT host
-			FROM (
-				SELECT host FROM http_response WHERE timestamp >= $1
-				UNION ALL
-				SELECT host FROM http_request WHERE timestamp >= $1
-			) recent
-		`, since)
+	tables := []string{"http_response", "http_request", "exec_events"}
+	hostSet := make(map[string]struct{})
+
+	for _, table := range tables {
+		hosts, err := s.fetchHostsFromTable(ctx, table, since)
+		if err != nil {
+			return nil, err
+		}
+		for _, host := range hosts {
+			hostSet[host] = struct{}{}
+		}
+	}
+
+	if len(hostSet) == 0 {
+		return nil, nil
+	}
+
+	hosts := make([]string, 0, len(hostSet))
+	for host := range hostSet {
+		hosts = append(hosts, host)
+	}
+
+	return hosts, nil
+}
+
+func (s *Scheduler) fetchHostsFromTable(ctx context.Context, table string, since time.Time) ([]string, error) {
+	switch table {
+	case "http_response", "http_request", "exec_events":
+	default:
+		return nil, fmt.Errorf("unsupported host source table: %s", table)
+	}
+
+	rows, err := s.pool.Query(ctx, fmt.Sprintf(`SELECT DISTINCT host FROM %s WHERE timestamp >= $1`, table), since)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+			// Table not yet migrated; treat as empty source.
+			return nil, nil
+		}
 		return nil, err
 	}
 	defer rows.Close()
@@ -103,11 +134,9 @@ func (s *Scheduler) fetchActiveHosts(ctx context.Context, since time.Time) ([]st
 		}
 		hosts = append(hosts, host)
 	}
-
 	if rows.Err() != nil {
 		return nil, rows.Err()
 	}
-
 	return hosts, nil
 }
 

@@ -10,8 +10,7 @@ var (
 )
 
 func mustColumnsFromStruct[T any]() []string {
-	var zero T
-	structType := reflect.TypeOf(zero)
+	structType := reflect.TypeOf((*T)(nil)).Elem()
 	if structType.Kind() == reflect.Pointer {
 		structType = structType.Elem()
 	}

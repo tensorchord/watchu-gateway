@@ -260,6 +260,26 @@ func (q *Queries) GetLatestSecurityAnalysisByRootExecID(ctx context.Context, roo
 	return i, err
 }
 
+const getPromptInjectionMetadataByHostAndRequestID = `-- name: GetPromptInjectionMetadataByHostAndRequestID :one
+SELECT
+    metadata
+FROM llm_prompt_injection_results
+WHERE host = $1
+  AND request_id = $2
+`
+
+type GetPromptInjectionMetadataByHostAndRequestIDParams struct {
+	Host      string
+	RequestID pgtype.UUID
+}
+
+func (q *Queries) GetPromptInjectionMetadataByHostAndRequestID(ctx context.Context, arg GetPromptInjectionMetadataByHostAndRequestIDParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getPromptInjectionMetadataByHostAndRequestID, arg.Host, arg.RequestID)
+	var metadata []byte
+	err := row.Scan(&metadata)
+	return metadata, err
+}
+
 const getSecurityAnalysisByID = `-- name: GetSecurityAnalysisByID :one
 SELECT
     id,

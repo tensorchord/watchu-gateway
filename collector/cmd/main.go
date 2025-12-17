@@ -57,12 +57,7 @@ func main() {
 
 	if len(*tetragonSocket) > 0 {
 		log.Info().Str("socket", *tetragonSocket).Msg("enable Tetragon integration")
-		tetragonClient, err := execve.NewTetragonClient(*tetragonSocket, gatewayClient)
-		if err != nil {
-			log.Panic().Err(err).Msg("failed to create Tetragon client")
-		}
-		defer tetragonClient.Close()
-		go tetragonClient.Run(ctx)
+		go execve.RunTetragonWithRetry(ctx, *tetragonSocket, gatewayClient)
 	}
 
 	<-ctx.Done()

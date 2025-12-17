@@ -60,6 +60,16 @@ interface PromptTableRow {
     observedAtRaw: string | null;
     observedAtDisplay: string;
     reason: string | null;
+    evidence: PromptEvidenceItem[];
+}
+
+interface PromptEvidenceItem {
+    id: string | null;
+    type: string | null;
+    source: string | null;
+    severity: string | null;
+    quote: string | null;
+    interpretation: string | null;
 }
 
 interface SecurityLLMAnalysisProps {
@@ -136,6 +146,44 @@ function parseEvidence(value: unknown): EvidenceItem[] {
         .map((line) => ({ type: null, description: line, severity: null }));
 }
 
+function parsePromptEvidence(value: unknown): PromptEvidenceItem[] {
+    if (!value) {
+        return [];
+    }
+    if (Array.isArray(value)) {
+        return value
+            .map((entry): PromptEvidenceItem | null => {
+                if (!entry || typeof entry !== "object") {
+                    return null;
+                }
+                const obj = entry as Record<string, unknown>;
+                return {
+                    id: typeof obj.id === "string" ? obj.id : null,
+                    type: typeof obj.type === "string" ? obj.type : null,
+                    source: typeof obj.source === "string" ? obj.source : null,
+                    severity: typeof obj.severity === "string" ? obj.severity : null,
+                    quote: typeof obj.quote === "string" ? obj.quote : null,
+                    interpretation: typeof obj.interpretation === "string" ? obj.interpretation : null
+                } satisfies PromptEvidenceItem;
+            })
+            .filter((entry): entry is PromptEvidenceItem => entry !== null);
+    }
+
+    const decoded = decodePayload(value);
+    if (!decoded) {
+        return [];
+    }
+    try {
+        const parsed: unknown = JSON.parse(decoded);
+        if (Array.isArray(parsed)) {
+            return parsePromptEvidence(parsed);
+        }
+    } catch {
+        // fall through
+    }
+    return [];
+}
+
 function normalizeSeverityLabel(value: string): string {
     const lower = value.trim().toLowerCase();
     if (!lower) {
@@ -194,7 +242,8 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
             const observedAtRaw = record.observed_at ?? null;
             const observedAtDisplay = formatTimestamp(observedAtRaw) ?? "—";
             const categories = Array.isArray(record.categories) ? record.categories.filter(Boolean) : [];
-            const reason = categories.length ? categories.join(", ") : null;
+            const reason = typeof record.reason === "string" && record.reason.trim().length ? record.reason.trim() : null;
+            const evidence = parsePromptEvidence(record.evidence);
             return {
                 key: requestId,
                 requestId,
@@ -203,7 +252,8 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
                 categories,
                 observedAtRaw,
                 observedAtDisplay,
-                reason
+                reason,
+                evidence
             } satisfies PromptTableRow;
         });
     }, [data?.prompt_injections]);
@@ -433,6 +483,43 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
         [handleOpenRequestDetails]
     );
 
+    const renderPromptEvidence = useCallback((items: PromptEvidenceItem[]) => {
+        if (!items.length) {
+            return <Text type="secondary">No evidence extracted.</Text>;
+        }
+        return (
+            <List
+                size="small"
+                split={false}
+                dataSource={items}
+                renderItem={(item, index) => {
+                    const quote = item.quote?.trim() ?? "";
+                    const interpretation = item.interpretation?.trim() ?? "";
+                    const title = item.type ? `${item.type}${item.source ? ` · ${item.source}` : ""}` : `Evidence ${index + 1}`;
+                    return (
+                        <List.Item style={{ paddingLeft: 0, paddingRight: 0 }}>
+                            <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                                <Space size={8} wrap>
+                                    <Text strong style={{ fontSize: 12, color: "#0f172a" }}>
+                                        {title}
+                                    </Text>
+                                    {item.severity ? <Tag>{item.severity}</Tag> : null}
+                                    {item.id ? (
+                                        <Text type="secondary" style={{ fontFamily: "JetBrains Mono, Fira Code, Menlo, monospace", fontSize: 11 }}>
+                                            {item.id}
+                                        </Text>
+                                    ) : null}
+                                </Space>
+                                {quote ? <CommandBlock text={quote} size="small" /> : <Text type="secondary">—</Text>}
+                                {interpretation ? <Text style={{ fontSize: 13, color: "#1f2937" }}>{interpretation}</Text> : null}
+                            </Space>
+                        </List.Item>
+                    );
+                }}
+            />
+        );
+    }, []);
+
     const semanticContent = useMemo(() => {
         if (!semanticRecords.length) {
             return <Empty description="No semantic analysis yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
@@ -631,6 +718,12 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
                     <Table
                         columns={promptColumns}
                         dataSource={unsafePromptRows}
+                        expandable={{
+                            expandedRowRender: (row) => (
+                                <div style={{ padding: "12px 4px" }}>{renderPromptEvidence(row.evidence)}</div>
+                            ),
+                            rowExpandable: (row) => row.evidence.length > 0
+                        }}
                         pagination={{
                             pageSize: 10,
                             showSizeChanger: true,
@@ -645,7 +738,7 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
                 </Card>
             </Space>
         );
-    }, [categoryChartOption, promptColumns, promptRows, unsafePromptRows, severityChartOption]);
+    }, [categoryChartOption, promptColumns, renderPromptEvidence, unsafePromptRows, severityChartOption]);
 
     const tabs: TabsProps["items"] = useMemo(
         () => [

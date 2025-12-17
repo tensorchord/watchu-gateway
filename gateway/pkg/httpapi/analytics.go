@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
+	"github.com/tensorchord/watchu/gateway/pkg/textencoding"
 )
 
 // CorrelationSummaryResponse represents the JSON payload returned by the correlations endpoint.
@@ -1684,6 +1685,7 @@ func previewFromJSON(raw json.RawMessage, limit int) *string {
 		return nil
 	}
 	trimmed := strings.TrimSpace(string(raw))
+	trimmed = textencoding.RepairUTF8Mojibake(trimmed)
 	if trimmed == "" {
 		return nil
 	}

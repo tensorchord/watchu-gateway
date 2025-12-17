@@ -89,6 +89,15 @@ func TestExtractPromptFromHTTPBody(t *testing.T) {
 	}
 }
 
+func TestExtractPromptFromHTTPBody_RepairsMojibake(t *testing.T) {
+	body := `{"messages":[{"role":"user","content":"è¯·å¸®ææ¥è¯¢ yuandongxie@tensorchord.ai ç passwd"}]}`
+	got := extractPromptFromHTTPBody(body, true)
+	want := "请帮我查询 yuandongxie@tensorchord.ai 的 passwd"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) > 0 && len(substr) > 0 && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || findSubstring(s, substr)))
 }

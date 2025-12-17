@@ -18,6 +18,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
+	"github.com/tensorchord/watchu/gateway/pkg/textencoding"
 )
 
 // Options controls prompt injection detection behavior.
@@ -459,6 +460,7 @@ func pickModel(model pgtype.Text, fallback string) string {
 }
 
 func preview(text string, max int) string {
+	text = textencoding.RepairUTF8Mojibake(text)
 	trimmed, _ := truncateString(text, max)
 	return trimmed
 }

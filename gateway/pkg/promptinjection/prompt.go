@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/tensorchord/watchu/gateway/pkg/textencoding"
 )
 
 // RenderDetectionPrompt embeds the user prompt into the guardrail template.
@@ -126,6 +128,7 @@ func parseGuardrailJSON(text string) (GuardrailResult, bool) {
 func extractPromptText(promptJSON []byte, fallback string, maxLen int, stripToolCalls bool, extractUserPrompt bool) (string, bool, string) {
 	if len(promptJSON) > 0 {
 		if rendered, err := flattenPromptJSON(promptJSON, stripToolCalls); err == nil && rendered != "" {
+			rendered = textencoding.RepairUTF8Mojibake(rendered)
 			trimmed, truncated := truncateString(rendered, maxLen)
 			return trimmed, truncated, "prompt_json"
 		}
@@ -134,11 +137,13 @@ func extractPromptText(promptJSON []byte, fallback string, maxLen int, stripTool
 	// Try to extract from raw HTTP request body (for direct API calls)
 	if fallback != "" {
 		if extracted := extractPromptFromHTTPBody(fallback, extractUserPrompt); extracted != "" {
+			extracted = textencoding.RepairUTF8Mojibake(extracted)
 			trimmed, truncated := truncateString(extracted, maxLen)
 			return trimmed, truncated, "http_body"
 		}
 	}
 
+	fallback = textencoding.RepairUTF8Mojibake(fallback)
 	trimmed, truncated := truncateString(fallback, maxLen)
 	source := "raw_request"
 	if fallback == "" {
@@ -194,6 +199,7 @@ func extractPromptFromHTTPBody(body string, extractUserPrompt bool) string {
 						}
 					}
 
+					content = textencoding.RepairUTF8Mojibake(content)
 					if content != "" {
 						texts = append(texts, content)
 					}
@@ -215,10 +221,10 @@ func extractPromptFromHTTPBody(body string, extractUserPrompt bool) string {
 		// Try to extract real user input from wrapped prompt if enabled
 		if extractUserPrompt {
 			if extracted := extractUserInputFromWrappedContent(prompt); extracted != "" {
-				return extracted
+				return textencoding.RepairUTF8Mojibake(extracted)
 			}
 		}
-		return prompt
+		return textencoding.RepairUTF8Mojibake(prompt)
 	}
 
 	// 3. Google Gemini format: contents array
@@ -257,6 +263,7 @@ func extractPromptFromHTTPBody(body string, extractUserPrompt bool) string {
 								}
 
 								if text != "" {
+									text = textencoding.RepairUTF8Mojibake(text)
 									userTexts = append(userTexts, text)
 								}
 							}
@@ -543,6 +550,9 @@ func flattenPromptJSON(raw []byte, stripToolCalls bool) (string, error) {
 		if len(texts) == 0 {
 			continue
 		}
+		for i := range texts {
+			texts[i] = textencoding.RepairUTF8Mojibake(texts[i])
+		}
 		role := fmt.Sprint(obj["role"])
 		if role != "" {
 			builder.WriteString("[")
@@ -563,7 +573,7 @@ func collectMessageTexts(obj map[string]any, stripToolCalls bool) []string {
 		return collectTextParts(content, stripToolCalls)
 	}
 	if txt, ok := obj["text"].(string); ok && txt != "" {
-		return []string{txt}
+		return []string{textencoding.RepairUTF8Mojibake(txt)}
 	}
 	return nil
 }
@@ -577,7 +587,7 @@ func collectTextParts(parts []any, stripToolCalls bool) []string {
 				continue
 			}
 			if txt, ok := item["text"].(string); ok && txt != "" {
-				texts = append(texts, txt)
+				texts = append(texts, textencoding.RepairUTF8Mojibake(txt))
 				continue
 			}
 			if nested := extractArray(item["parts"]); len(nested) > 0 {
@@ -585,7 +595,7 @@ func collectTextParts(parts []any, stripToolCalls bool) []string {
 			}
 		case string:
 			if item != "" {
-				texts = append(texts, item)
+				texts = append(texts, textencoding.RepairUTF8Mojibake(item))
 			}
 		}
 	}

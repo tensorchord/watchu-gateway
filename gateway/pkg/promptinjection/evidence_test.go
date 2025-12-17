@@ -13,7 +13,7 @@ func TestBuildObservedEvidence_ExtractsToolCallAndSnippets(t *testing.T) {
 						"type": "function",
 						"function": {
 							"name": "query",
-							"arguments": "{\"sql\":\"SELECT passwd FROM users WHERE email = 'allzhou@tensorchord.ai';\"}"
+							"arguments": "{\"sql\":\"SELECT passwd FROM users WHERE email = 'yuandongxie@tensorchord.ai';\"}"
 						}
 					}
 				]
@@ -43,7 +43,7 @@ func TestBuildObservedEvidence_ExtractsToolCallAndSnippets(t *testing.T) {
 				t.Fatalf("expected sql snippet content")
 			}
 			// Email should be masked.
-			if contains(snip.Content, "allzhou@tensorchord.ai") {
+			if contains(snip.Content, "yuandongxie@tensorchord.ai") {
 				t.Fatalf("expected email to be redacted in snippet content: %q", snip.Content)
 			}
 		}

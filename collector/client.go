@@ -26,6 +26,7 @@ const (
 	PathRequest    = "http_request"
 	PathResponse   = "http_response"
 	PathStdIO      = "mcp_stdio"
+	PathPostgres   = "pg_event"
 
 	requestInterval = time.Second
 	maxBatchSize    = 1024
@@ -124,6 +125,19 @@ type RecordStdIO struct {
 	Result      json.RawMessage `json:"result"`
 	Error       json.RawMessage `json:"error"`
 	CorrID      string          `json:"corr_id"`
+}
+
+type RecordPostgres struct {
+	Timestamp   time.Time `json:"timestamp"`
+	Pid         int32     `json:"pid"`
+	Tid         int32     `json:"tid"`
+	Uid         int32     `json:"uid"`
+	Gid         int32     `json:"gid"`
+	Host        string    `json:"host"`
+	ContainerID string    `json:"container_id"`
+	Comm        string    `json:"comm"`
+	Data        []byte    `json:"data"`
+	MsgType     string    `json:"msg_type"`
 }
 
 type BatchRecord struct {
@@ -272,6 +286,31 @@ func (raw RawStdIO) ToRecord(host string) any {
 		Result:      mcp.Result,
 		Error:       mcp.Error,
 		CorrID:      strconv.Itoa(mcp.CorrID),
+	}
+}
+
+type RawPostgres struct {
+	ElapsedNs uint64
+	PidTid    uint64
+	UidGid    uint64
+	CgroupID  uint64
+	Comm      string
+	MsgType   string
+	Data      []byte
+}
+
+func (raw RawPostgres) ToRecord(host string) any {
+	return RecordPostgres{
+		Timestamp:   parseElapsedToTimestamp(raw.ElapsedNs),
+		Pid:         int32(raw.PidTid & 0xFFFFFFFF),
+		Tid:         int32(raw.PidTid >> 32),
+		Uid:         int32(raw.UidGid & 0xFFFFFFFF),
+		Gid:         int32(raw.UidGid >> 32),
+		Comm:        raw.Comm,
+		Data:        raw.Data,
+		MsgType:     raw.MsgType,
+		Host:        host,
+		ContainerID: containerResolver.Resolve(raw.CgroupID),
 	}
 }
 
@@ -428,4 +467,8 @@ func (gc *GatewayClient) IngestResponseEvent(ctx context.Context, channel <-chan
 
 func (gc *GatewayClient) IngestStdIOEvent(ctx context.Context, channel <-chan *RawStdIO) {
 	gc.ingestEvents(ctx, PathStdIO, consumeFromChannel(gc.host, channel))
+}
+
+func (gc *GatewayClient) IngestPostgresEvent(ctx context.Context, channel <-chan *RawPostgres) {
+	gc.ingestEvents(ctx, PathPostgres, consumeFromChannel(gc.host, channel))
 }

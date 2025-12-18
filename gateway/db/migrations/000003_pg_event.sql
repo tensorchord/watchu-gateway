@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS pg_event (
     uid INTEGER NOT NULL CHECK (uid >= 0),
     gid INTEGER NOT NULL CHECK (gid >= 0),
     comm TEXT,
-    msg_type TEXT, -- 'Q' (Query), 'P' (Parse), 'B' (Bind), 'E' (Execute), 'C' (Close), 'X' (Terminate)
+    msg_type TEXT CHECK (msg_type IN ('Q', 'P', 'B', 'E', 'C', 'X')), -- 'Q' (Query), 'P' (Parse), 'B' (Bind), 'E' (Execute), 'C' (Close), 'X' (Terminate)
     data BYTEA,
     container_id TEXT
 );

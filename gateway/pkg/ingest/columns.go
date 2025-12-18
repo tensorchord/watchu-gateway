@@ -7,6 +7,7 @@ var (
 	httpResponseCols  = mustColumnsFromStruct[HTTPResponseEvent]()
 	execEventCols     = mustColumnsFromStruct[ExecEvent]()
 	mcpSTDIOEventCols = mustColumnsFromStruct[MCPSTDIOEvent]()
+	pgEventCols       = mustColumnsFromStruct[PGEvent]()
 )
 
 func mustColumnsFromStruct[T any]() []string {

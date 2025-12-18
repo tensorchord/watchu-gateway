@@ -73,3 +73,17 @@ type MCPSTDIOEvent struct {
 	CorrID      string          `json:"corr_id" db:"corr_id"`
 	ContainerID string          `json:"container_id" db:"container_id"`
 }
+
+// PGEvent represents a Postgres frontend message (client → server) event.
+type PGEvent struct {
+	Timestamp   time.Time `json:"timestamp" binding:"required" db:"timestamp"`
+	PID         int32     `json:"pid" binding:"required" db:"pid"`
+	TID         int32     `json:"tid" binding:"required" db:"tid"`
+	UID         int32     `json:"uid" binding:"required" db:"uid"`
+	GID         int32     `json:"gid" binding:"required" db:"gid"`
+	Host        string    `json:"host" binding:"required" db:"host"`
+	Comm        string    `json:"comm" db:"comm"`
+	MsgType     string    `json:"msg_type" binding:"required,oneof=Q P B E C X" db:"msg_type"`
+	Data        []byte    `json:"data" db:"data"`
+	ContainerID string    `json:"container_id" db:"container_id"`
+}

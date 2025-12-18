@@ -874,6 +874,49 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/ingest/pg_event": {
+            "post": {
+                "description": "Accepts a batch of Postgres frontend message (client → server) events for bulk ingestion.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ingest"
+                ],
+                "summary": "Ingest Postgres client protocol events",
+                "parameters": [
+                    {
+                        "description": "Postgres event batch",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.PGEventBatch"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_httpapi.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/security-insight/analyze-threat": {
             "post": {
                 "description": "Analyzes telemetry data for a specific root_exec_id and returns comprehensive threat assessment",
@@ -1240,6 +1283,61 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
+                },
+                "tid": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "uid": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_tensorchord_watchu_gateway_pkg_ingest.PGEvent": {
+            "type": "object",
+            "required": [
+                "gid",
+                "host",
+                "msg_type",
+                "pid",
+                "tid",
+                "timestamp",
+                "uid"
+            ],
+            "properties": {
+                "comm": {
+                    "type": "string"
+                },
+                "container_id": {
+                    "type": "string"
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "gid": {
+                    "type": "integer"
+                },
+                "host": {
+                    "type": "string"
+                },
+                "msg_type": {
+                    "type": "string",
+                    "enum": [
+                        "Q",
+                        "P",
+                        "B",
+                        "E",
+                        "C",
+                        "X"
+                    ]
+                },
+                "pid": {
+                    "type": "integer"
                 },
                 "tid": {
                     "type": "integer"
@@ -1621,6 +1719,17 @@ const docTemplate = `{
                 },
                 "tool": {
                     "type": "string"
+                }
+            }
+        },
+        "pkg_httpapi.PGEventBatch": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_tensorchord_watchu_gateway_pkg_ingest.PGEvent"
+                    }
                 }
             }
         },

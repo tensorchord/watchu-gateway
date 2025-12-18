@@ -45,10 +45,11 @@ func attachPostgresProbes(objs pgObjects, links *[]link.Link) {
 }
 
 type PostgresProbe struct {
-	rb     *ringbuf.Reader
-	objs   *pgObjects
-	links  []link.Link
-	client *collector.GatewayClient
+	rb      *ringbuf.Reader
+	objs    *pgObjects
+	links   []link.Link
+	client  *collector.GatewayClient
+	channel chan *collector.RawPostgres
 }
 
 func NewPostgresProbe(client *collector.GatewayClient) *PostgresProbe {
@@ -65,15 +66,17 @@ func NewPostgresProbe(client *collector.GatewayClient) *PostgresProbe {
 		log.Panic().Err(err).Msg("failed to open ringbuf reader for pg")
 	}
 	return &PostgresProbe{
-		rb:     rb,
-		objs:   &objs,
-		links:  links,
-		client: client,
+		rb:      rb,
+		objs:    &objs,
+		links:   links,
+		client:  client,
+		channel: make(chan *collector.RawPostgres, collector.GatewayChannelSize),
 	}
 }
 
 func (pp *PostgresProbe) Start(ctx context.Context) {
 	log.Info().Msg("listening for postgres read socket events...")
+	go pp.client.IngestPostgresEvent(ctx, pp.channel)
 
 	var event pgEvent
 	for {
@@ -90,6 +93,20 @@ func (pp *PostgresProbe) Start(ctx context.Context) {
 		if err = binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
 			log.Error().Err(err).Msg("failed to decode pg event")
 			continue
+		}
+
+		select {
+		case pp.channel <- &collector.RawPostgres{
+			ElapsedNs: event.TimestampNs,
+			PidTid:    event.PidTgid,
+			UidGid:    event.UidGid,
+			CgroupID:  event.CgroupId,
+			Comm:      tool.CharsToString(event.Comm[:]),
+			Data:      bytes.Clone(event.Data[:event.DataLen]),
+			MsgType:   string(event.MsgType),
+		}:
+		default:
+			log.Warn().Msg("pg event channel is full, dropping event")
 		}
 
 		if log.Debug().Enabled() {

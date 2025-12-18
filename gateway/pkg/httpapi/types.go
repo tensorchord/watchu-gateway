@@ -26,3 +26,8 @@ type ExecEventBatch struct {
 type MCPSTDIOBatch struct {
 	Events []ingest.MCPSTDIOEvent `json:"events"`
 }
+
+// PGEventBatch wraps a collection of Postgres client protocol events.
+type PGEventBatch struct {
+	Events []ingest.PGEvent `json:"events"`
+}

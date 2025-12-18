@@ -130,5 +130,31 @@ func (s *Service) IngestMCPSTDIOEvents(ctx context.Context, events []MCPSTDIOEve
 	return err
 }
 
+// IngestPGEvents copies Postgres client protocol events into storage.
+func (s *Service) IngestPGEvents(ctx context.Context, events []PGEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	rows := make([][]any, len(events))
+	for i, event := range events {
+		rows[i] = []any{
+			event.Timestamp,
+			event.PID,
+			event.TID,
+			event.UID,
+			event.GID,
+			event.Host,
+			event.Comm,
+			event.MsgType,
+			event.Data,
+			event.ContainerID,
+		}
+	}
+
+	_, err := s.pool.CopyFrom(ctx, pgx.Identifier{"pg_event"}, pgEventCols, pgx.CopyFromRows(rows))
+	return err
+}
+
 // ContentLength is now a value type (int64); unknown length should be
 // represented by -1 following net/http semantics and stored as such.

@@ -1,0 +1,185 @@
+// Find out the dynamic linked libraries inside the container.
+
+package container
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"debug/elf"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/phuslu/log"
+)
+
+const (
+	SCAN_INTERVAL    = time.Second * 5
+	PROC_EXE_FORMAT  = "/proc/%s/exe"
+	PROC_MAPS_FORMAT = "/proc/%s/maps"
+	PROC_PATH_FORMAT = "/proc/%s/root/%s"
+	REGEX_LIBSSL     = `libssl\.so(\.\d+)*`
+)
+
+var (
+	PATTERN_LIBSSL = regexp.MustCompile(REGEX_LIBSSL)
+)
+
+type ContainerLibsDetector struct {
+	mu sync.RWMutex
+	re *regexp.Regexp
+	// <proc:path>
+	procLib  map[string]string
+	procSkip map[string]struct{}
+}
+
+func NewContainerLibsDetector() *ContainerLibsDetector {
+	return &ContainerLibsDetector{
+		re:       regexp.MustCompile(REGEX_CONTAINER_ID),
+		procLib:  make(map[string]string),
+		procSkip: make(map[string]struct{}),
+	}
+}
+
+func (cld *ContainerLibsDetector) Start(ctx context.Context) {
+	ticker := time.NewTicker(SCAN_INTERVAL)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := cld.scan(); err != nil {
+				log.Error().Err(err).Msg("failed to scan container libs")
+			}
+			cld.mu.RLock()
+			log.Info().Any("container libs", cld.procLib).Msg("update the container lib table")
+			cld.mu.RUnlock()
+		case <-ctx.Done():
+			log.Info().Msg("stop container libs detector")
+			return
+		}
+	}
+}
+
+func (cld *ContainerLibsDetector) scan() error {
+	newProcLib := make(map[string]string)
+	newProcSkip := make(map[string]struct{})
+	if err := filepath.WalkDir(CGROUP_DIR, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return nil
+		}
+		matches := cld.re.FindStringSubmatch(d.Name())
+		if matches == nil {
+			return nil
+		}
+		buf, err := os.ReadFile(filepath.Join(path, "cgroup.procs"))
+		if err != nil {
+			log.Warn().Err(err).Str("container", d.Name()).Msg("failed to read the cgroup procs")
+			return nil
+		}
+		procs := bytes.SplitSeq(buf, []byte("\n"))
+		for proc := range procs {
+			if len(proc) == 0 {
+				continue
+			}
+			cld.mu.RLock()
+			if lib, ok := cld.procLib[string(proc)]; ok {
+				newProcLib[string(proc)] = lib
+				cld.mu.RUnlock()
+				continue
+			}
+			if lib, ok := cld.procSkip[string(proc)]; ok {
+				newProcSkip[string(proc)] = lib
+				cld.mu.RUnlock()
+				continue
+			}
+			cld.mu.RUnlock()
+			path, err := os.Readlink(fmt.Sprintf(PROC_EXE_FORMAT, proc))
+			if err != nil {
+				log.Warn().Err(err).Bytes("proc", proc).Msg("failed to readlink")
+				continue
+			}
+			absPath := filepath.Join("/proc", string(proc), "root", path)
+			libsslPath, err := findLibSSLInMaps(fmt.Sprintf(PROC_MAPS_FORMAT, proc))
+			if err != nil {
+				continue
+			}
+			if libsslPath == "" {
+				// check if the binary has libssl statically linked
+				hasOpenSSL, err := findOpenSSLSymbols(absPath)
+				if err != nil {
+					continue
+				}
+				if !hasOpenSSL {
+					newProcSkip[string(proc)] = struct{}{}
+					continue
+				}
+				libsslPath = absPath
+			}
+			newProcLib[string(proc)] = libsslPath
+		}
+		return nil
+	}); err != nil {
+		log.Error().Err(err).Msg("failed to walk the cgroup dir")
+		return err
+	}
+	cld.mu.Lock()
+	cld.procLib = newProcLib
+	cld.procSkip = newProcSkip
+	cld.mu.Unlock()
+	return nil
+}
+
+func findLibSSLInMaps(filename string) (string, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if loc := PATTERN_LIBSSL.FindStringIndex(line); len(loc) > 0 {
+			fields := bytes.Fields([]byte(line))
+			if len(fields) >= 6 {
+				return string(fields[5]), nil
+			}
+		}
+	}
+	return "", nil
+}
+
+func findOpenSSLSymbols(filepath string) (bool, error) {
+	f, err := elf.Open(filepath)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	symbols, err := f.Symbols()
+	if err != nil && !errors.Is(err, elf.ErrNoSymbols) {
+		log.Error().Err(err).Str("file", filepath).Msg("failed to read symbols")
+		return false, err
+	}
+	if len(symbols) == 0 {
+		symbols, err = f.DynamicSymbols()
+		if err != nil && !errors.Is(err, elf.ErrNoSymbols) {
+			log.Error().Err(err).Str("file", filepath).Msg("failed to read dynamic symbols")
+			return false, err
+		}
+	}
+
+	for _, sym := range symbols {
+		if strings.HasPrefix(sym.Name, "SSL_read") || strings.HasPrefix(sym.Name, "SSL_write") {
+			return true, nil
+		}
+	}
+	return false, nil
+}

@@ -147,15 +147,15 @@ func (h ingestHandlers) postMCPSTDIOEvents(c *gin.Context) {
 func (h ingestHandlers) postPGEvents(c *gin.Context) {
 	var payload PGEventBatch
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
 	}
 	if len(payload.Events) == 0 {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "events must not be empty"})
+		respondError(c, http.StatusBadRequest, "invalid_request", "events must not be empty", nil)
 		return
 	}
 	if err := h.svc.IngestPGEvents(c.Request.Context(), payload.Events); err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
 		return
 	}
 	c.Status(http.StatusAccepted)

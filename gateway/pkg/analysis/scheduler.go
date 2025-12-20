@@ -176,6 +176,9 @@ func (s *Scheduler) runAnalysis(ctx context.Context, host string) error {
 	if err := s.populateProcessHTTP(ctx, tx, host, windowSince, until); err != nil {
 		return err
 	}
+	if err := s.populateProcessPG(ctx, tx, host, windowSince, until); err != nil {
+		return err
+	}
 	if err := s.populateLLMHTTP(ctx, tx, host, windowSince, until); err != nil {
 		return err
 	}
@@ -375,6 +378,81 @@ func (s *Scheduler) populateProcessHTTP(ctx context.Context, tx pgx.Tx, host str
 			depth = EXCLUDED.depth,
 			is_mcp_http = EXCLUDED.is_mcp_http;
 	`, host, since, until)
+	return err
+}
+
+func (s *Scheduler) populateProcessPG(ctx context.Context, tx pgx.Tx, host string, since, until time.Time) error {
+	_, err := tx.Exec(ctx, `
+		WITH source_events AS (
+			SELECT
+				e.host,
+				e.id AS pg_event_id,
+				e.timestamp,
+				e.pid,
+				e.tid,
+				e.uid,
+				e.gid,
+				e.comm,
+				e.msg_type,
+				e.data,
+				e.container_id,
+				l.exec_id,
+				l.root_exec_id,
+				l.root_pid,
+				l.depth,
+				CASE
+					WHEN e.msg_type = 'Q' AND e.data IS NOT NULL THEN safe_text_from_bytea(strip_cstring_terminator(e.data))
+					ELSE NULL
+				END AS sql_text
+			FROM pg_event e
+			LEFT JOIN process_lifecycle l
+			  ON l.host = e.host
+			 AND l.pid = e.pid
+			 AND e.timestamp BETWEEN l.start_ts AND (l.end_ts + analyze_idle_timeout())
+			WHERE e.host = $1 AND e.timestamp > $2 AND e.timestamp <= $3
+		),
+		enriched AS (
+			SELECT
+				*,
+				CASE
+					WHEN sql_text IS NULL THEN NULL
+					ELSE md5(lower(regexp_replace(sql_text, '\s+', ' ', 'g')))
+				END AS sql_hash
+			FROM source_events
+		)
+		INSERT INTO process_pg_events (
+			host, pg_event_id, timestamp, pid, tid, uid, gid, comm, msg_type, data, container_id,
+			exec_id, root_exec_id, root_pid, depth, sql_text, sql_hash
+		)
+		SELECT
+			host, pg_event_id, timestamp, pid, tid, uid, gid, comm, msg_type, data, container_id,
+			exec_id, root_exec_id, root_pid, depth, sql_text, sql_hash
+		FROM enriched
+		ON CONFLICT (host, pg_event_id) DO UPDATE
+		SET timestamp = EXCLUDED.timestamp,
+			pid = EXCLUDED.pid,
+			tid = EXCLUDED.tid,
+			uid = EXCLUDED.uid,
+			gid = EXCLUDED.gid,
+			comm = EXCLUDED.comm,
+			msg_type = EXCLUDED.msg_type,
+			data = EXCLUDED.data,
+			container_id = EXCLUDED.container_id,
+			exec_id = EXCLUDED.exec_id,
+			root_exec_id = EXCLUDED.root_exec_id,
+			root_pid = EXCLUDED.root_pid,
+			depth = EXCLUDED.depth,
+			sql_text = EXCLUDED.sql_text,
+			sql_hash = EXCLUDED.sql_hash;
+	`, host, since, until)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && (pgErr.Code == "42P01" || pgErr.Code == "42883") {
+			// Optional feature: allow analysis to proceed if Postgres tables/functions
+			// are not yet migrated.
+			return nil
+		}
+	}
 	return err
 }
 

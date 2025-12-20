@@ -1055,3 +1055,52 @@ COMMENT ON COLUMN heuristic_alerts.reason IS 'Explanation for why this alert was
 -- These indexes optimize the common query pattern: WHERE host = X AND timestamp >= Y AND timestamp <= Z ORDER BY timestamp DESC
 CREATE INDEX IF NOT EXISTS idx_pl_host_start_ts_desc ON process_lifecycle(host, start_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_phe_host_ts_desc ON process_http_events(host, timestamp DESC);
+
+-- Derived Postgres client events enriched with process lifecycle metadata.
+
+-- strip_cstring_terminator trims the first NULL byte (0x00) and everything after it.
+-- This is required because Postgres text values cannot contain 0x00, while the wire
+-- protocol often uses C-strings (NUL-terminated).
+CREATE OR REPLACE FUNCTION strip_cstring_terminator(p_data BYTEA)
+RETURNS BYTEA
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT CASE
+        WHEN p_data IS NULL THEN NULL
+        WHEN strpos(p_data, E'\x00'::bytea) > 0 THEN substring(p_data from 1 for strpos(p_data, E'\x00'::bytea) - 1)
+        ELSE p_data
+    END;
+$$;
+
+-- process_pg_events is a derived table that adds exec/root context and decodes SQL
+-- for simple query messages (msg_type='Q').
+CREATE TABLE IF NOT EXISTS process_pg_events (
+    host TEXT NOT NULL,
+    pg_event_id UUID NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL,
+    pid INTEGER,
+    tid INTEGER,
+    uid INTEGER,
+    gid INTEGER,
+    comm TEXT,
+    msg_type TEXT,
+    data BYTEA,
+    container_id TEXT,
+    exec_id TEXT,
+    root_exec_id TEXT,
+    root_pid BIGINT,
+    depth INTEGER,
+    sql_text TEXT,
+    sql_hash TEXT,
+    PRIMARY KEY (host, pg_event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_process_pg_events_host_ts ON process_pg_events(host, timestamp);
+CREATE INDEX IF NOT EXISTS idx_process_pg_events_host_pid_ts ON process_pg_events(host, pid, timestamp);
+CREATE INDEX IF NOT EXISTS idx_process_pg_events_host_root_ts ON process_pg_events(host, root_exec_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_process_pg_events_sql_hash ON process_pg_events(sql_hash) WHERE sql_hash IS NOT NULL;
+
+COMMENT ON TABLE process_pg_events IS 'Postgres client events enriched with process lifecycle (exec/root) and decoded SQL for Q messages';
+COMMENT ON COLUMN process_pg_events.sql_text IS 'Decoded SQL text for msg_type=Q (NUL-terminated bytes trimmed before UTF-8 decode)';
+COMMENT ON COLUMN process_pg_events.sql_hash IS 'Hash of normalized sql_text for grouping/top queries';

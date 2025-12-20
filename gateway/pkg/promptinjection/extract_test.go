@@ -90,7 +90,7 @@ func TestExtractPromptFromHTTPBody(t *testing.T) {
 }
 
 func TestExtractPromptFromHTTPBody_RepairsMojibake(t *testing.T) {
-	body := `{"messages":[{"role":"user","content":"è¯·å¸®ææ¥è¯¢ yuandongxie@tensorchord.ai ç passwd"}]}`
+	body := `{"messages":[{"role":"user","content":"\u00e8\u00af\u00b7\u00e5\u00b8\u00ae\u00e6\u0088\u0091\u00e6\u009f\u00a5\u00e8\u00af\u00a2 yuandongxie@tensorchord.ai \u00e7\u009a\u0084 passwd"}]}`
 	got := extractPromptFromHTTPBody(body, true)
 	want := "请帮我查询 yuandongxie@tensorchord.ai 的 passwd"
 	if got != want {

@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
+
+	"github.com/tensorchord/watchu/collector/internal/container"
 )
+
+const MAX_DYNAMIC_CHANNEL_SIZE = 16
 
 func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links *[]link.Link) error {
 	probes := []struct {
@@ -142,34 +147,58 @@ func addSSLProbe(sslPath *string, links *[]link.Link) (*sslObjects, error) {
 }
 
 type OpenSSLProbe struct {
-	links []link.Link
-	obj   *sslObjects
-	rb    *ringbuf.Reader
+	links         []link.Link
+	obj           *sslObjects
+	rb            *ringbuf.Reader
+	mu            sync.Mutex
+	dynamicProbes map[container.LibKey]string
+	libDetector   *container.ContainerLibsDetector
 }
 
 func NewOpenSSLProbe(sslPath *string) (*OpenSSLProbe, error) {
 	links := []link.Link{}
-	sslObjs, err := addSSLProbe(sslPath, &links)
-	if sslObjs == nil {
+	obj, err := addSSLProbe(sslPath, &links)
+	if obj == nil {
 		return nil, fmt.Errorf("failed to create OpenSSL probe: %w", err)
 	}
 	// continuous as long as some probes work
 	if err != nil {
 		log.Warn().Err(err).Msg("some errors occurred while attaching OpenSSL probes")
 	}
-	sslRingbuffer, err := ringbuf.NewReader(sslObjs.Events)
+	rb, err := ringbuf.NewReader(obj.Events)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open OpenSSL ringbuf reader: %w", err)
 	}
 	return &OpenSSLProbe{
-		links: links,
-		obj:   sslObjs,
-		rb:    sslRingbuffer,
+		links:         links,
+		obj:           obj,
+		rb:            rb,
+		dynamicProbes: make(map[container.LibKey]string),
+		libDetector:   container.NewContainerLibsDetector(),
 	}, nil
 }
 
 func (op *OpenSSLProbe) Start(ctx context.Context) {
-
+	channel := make(chan container.ContainerOpenSSL, MAX_DYNAMIC_CHANNEL_SIZE)
+	go op.libDetector.Start(ctx, channel)
+	for containerLibs := range channel {
+		for key, path := range containerLibs.Libs {
+			op.mu.Lock()
+			if _, ok := op.dynamicProbes[key]; ok {
+				continue
+			}
+			exec, err := link.OpenExecutable(path)
+			if err != nil {
+				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to open the SSL lib")
+			}
+			if err = attachSSLProbes(exec, op.obj, path, &op.links); err != nil {
+				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to attach SSL probes to the lib")
+			}
+			log.Info().Str("path", path).Any("key", key).Msg("attaching dynamic SSL uprobes")
+			op.dynamicProbes[key] = path
+			op.mu.Unlock()
+		}
+	}
 }
 
 func (op *OpenSSLProbe) ReadBuffer() (ringbuf.Record, error) {
@@ -184,10 +213,12 @@ func (op *OpenSSLProbe) Close() error {
 	if err := op.rb.Close(); err != nil {
 		final = errors.Join(final, fmt.Errorf("failed to close OpenSSL ringbuf reader: %w", err))
 	}
+	op.mu.Lock()
 	for i, l := range op.links {
 		if err := l.Close(); err != nil {
 			final = errors.Join(final, fmt.Errorf("failed to close %d-OpenSSL link: %w", i, err))
 		}
 	}
+	op.mu.Unlock()
 	return final
 }

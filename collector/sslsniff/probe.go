@@ -73,6 +73,10 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 	store := NewSSLStore()
 	go store.Parse(ctx, sp.reqChan, sp.respChan)
 
+	for _, prob := range sp.probs {
+		go prob.Start(ctx)
+	}
+
 	var wg sync.WaitGroup
 	for i, prob := range sp.probs {
 		wg.Go(func() {
@@ -122,13 +126,15 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 		})
 	}
 	wg.Wait()
+	log.Info().Msg("SSLProbe closed")
 }
 
 func (sp *SSLProbe) Close() {
 	for i, prob := range sp.probs {
 		if err := prob.Close(); err != nil {
-			log.Error().Err(err).Int("index", i).Msg("failed to close TLS probe")
+			log.Error().Err(err).Int("probe_index", i).Msg("failed to close TLS probe")
 		}
+		log.Info().Int("probe_index", i).Msg("SSL probe closed successfully")
 	}
 	close(sp.reqChan)
 	close(sp.respChan)

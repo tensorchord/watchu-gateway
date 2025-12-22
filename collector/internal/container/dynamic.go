@@ -48,7 +48,7 @@ func NewContainerLibsDetector() *ContainerLibsDetector {
 	}
 }
 
-func (cld *ContainerLibsDetector) Start(ctx context.Context) {
+func (cld *ContainerLibsDetector) Start(ctx context.Context, ch chan ContainerOpenSSL) {
 	ticker := time.NewTicker(SCAN_INTERVAL)
 	defer ticker.Stop()
 
@@ -58,9 +58,10 @@ func (cld *ContainerLibsDetector) Start(ctx context.Context) {
 			if err := cld.scan(); err != nil {
 				log.Error().Err(err).Msg("failed to scan container libs")
 			}
-			_ = cld.Export()
+			ch <- cld.Export()
 		case <-ctx.Done():
 			log.Info().Msg("stop container libs detector")
+			close(ch)
 			return
 		}
 	}
@@ -125,7 +126,7 @@ func (cld *ContainerLibsDetector) scan() error {
 		}
 		return nil
 	}); err != nil {
-		log.Error().Err(err).Msg("failed to walk the cgroup dir")
+		log.Error().Str("cgroup_dir", CGROUP_DIR).Err(err).Msg("failed to walk the cgroup dir")
 		return err
 	}
 	cld.mu.Lock()

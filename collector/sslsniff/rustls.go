@@ -19,18 +19,18 @@ type RusTLSProbe struct {
 
 func NewRusTLSProbe(rustlsPath *string) (*RusTLSProbe, error) {
 	links := []link.Link{}
-	rustlsObjs, err := addRustlsProbe(rustlsPath, &links)
-	if rustlsObjs == nil || err != nil {
+	obj, err := addRustlsProbe(rustlsPath, &links)
+	if obj == nil || err != nil {
 		return nil, err
 	}
-	rustlsRingBuffer, err := ringbuf.NewReader(rustlsObjs.Events)
+	rb, err := ringbuf.NewReader(obj.Events)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open rustls ringbuf reader: %w", err)
 	}
 	return &RusTLSProbe{
 		links: links,
-		obj:   rustlsObjs,
-		rb:    rustlsRingBuffer,
+		obj:   obj,
+		rb:    rb,
 	}, nil
 }
 
@@ -66,23 +66,23 @@ func addRustlsProbe(rustlsPath *string, links *[]link.Link) (*rustlsObjects, err
 		return nil, fmt.Errorf("invalid rustls file path: %w", err)
 	}
 	logger.Info().Msg("using rustls")
-	rustObjs := rustlsObjects{}
+	obj := rustlsObjects{}
 	rustSpec, err := ebpf.LoadCollectionSpec(rustlsSpecPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load rustls eBPF spec: %w", err)
 	}
-	if err := rustSpec.LoadAndAssign(&rustObjs, nil); err != nil {
+	if err := rustSpec.LoadAndAssign(&obj, nil); err != nil {
 		return nil, fmt.Errorf("failed to load and assign rustls eBPF objects: %w", err)
 	}
 	exec, err := link.OpenExecutable(*rustlsPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open rustls executable: %w", err)
 	}
-	if err = attachRustlsProbes(exec, &rustObjs, *rustlsPath, links); err != nil {
+	if err = attachRustlsProbes(exec, &obj, *rustlsPath, links); err != nil {
 		return nil, fmt.Errorf("failed to attach rustls probes")
 	}
 	logger.Info().Msg("attaching rustls uprobes")
-	return &rustObjs, nil
+	return &obj, nil
 }
 
 func attachRustlsProbes(ex *link.Executable, objs *rustlsObjects, target string, links *[]link.Link) error {

@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/phuslu/log"
@@ -24,7 +25,6 @@ const (
 	SCAN_INTERVAL    = time.Second * 5
 	PROC_EXE_FORMAT  = "/proc/%s/exe"
 	PROC_MAPS_FORMAT = "/proc/%s/maps"
-	PROC_PATH_FORMAT = "/proc/%s/root/%s"
 	REGEX_LIBSSL     = `libssl\.so(\.\d+)*`
 )
 
@@ -58,9 +58,7 @@ func (cld *ContainerLibsDetector) Start(ctx context.Context) {
 			if err := cld.scan(); err != nil {
 				log.Error().Err(err).Msg("failed to scan container libs")
 			}
-			cld.mu.RLock()
-			log.Info().Any("container libs", cld.procLib).Msg("update the container lib table")
-			cld.mu.RUnlock()
+			_ = cld.Export()
 		case <-ctx.Done():
 			log.Info().Msg("stop container libs detector")
 			return
@@ -182,4 +180,39 @@ func findOpenSSLSymbols(filepath string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+type LibKey struct {
+	DeviceID uint64
+	INode    uint64
+}
+
+type ContainerOpenSSL struct {
+	Libs map[LibKey]string
+}
+
+func (cld *ContainerLibsDetector) Export() ContainerOpenSSL {
+	cld.mu.RLock()
+	defer cld.mu.RUnlock()
+	res := ContainerOpenSSL{
+		Libs: make(map[LibKey]string),
+	}
+	for _, libPath := range cld.procLib {
+		fi, err := os.Stat(libPath)
+		if err != nil {
+			log.Warn().Err(err).Str("path", libPath).Msg("failed to stat libssl path")
+			continue
+		}
+		stat, ok := fi.Sys().(*syscall.Stat_t)
+		if !ok {
+			log.Warn().Str("path", libPath).Msg("failed to get stat_t")
+			continue
+		}
+		key := LibKey{
+			DeviceID: stat.Dev,
+			INode:    stat.Ino,
+		}
+		res.Libs[key] = libPath
+	}
+	return res
 }

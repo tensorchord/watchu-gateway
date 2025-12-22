@@ -13,7 +13,7 @@ import (
 	"github.com/phuslu/log"
 )
 
-func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links *[]link.Link) int {
+func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links *[]link.Link) error {
 	probes := []struct {
 		symbol string
 		prog   *ebpf.Program
@@ -30,6 +30,7 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links
 	}
 
 	failedProbes := 0
+	newLinks := []link.Link{}
 	for _, probe := range probes {
 		up, err := probe.inject(probe.symbol, probe.prog, nil)
 		if err != nil {
@@ -37,9 +38,16 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links
 			failedProbes++
 			continue
 		}
-		*links = append(*links, up)
+		newLinks = append(newLinks, up)
 	}
-	return failedProbes
+	if failedProbes > 0 {
+		for _, link := range newLinks {
+			_ = link.Close()
+		}
+		return fmt.Errorf("failed to inject the prog %d/%d", failedProbes, len(probes))
+	}
+	*links = append(*links, newLinks...)
+	return nil
 }
 
 var libSSLCandidates = []string{
@@ -88,48 +96,49 @@ func findLibSSLPath() (string, error) {
 	return "", fmt.Errorf("libssl not found, please set the path via args `--ssl-path`")
 }
 
-func addSSLProbe(sslPath *string, links *[]link.Link) *sslObjects {
+func addSSLProbe(sslPath *string, links *[]link.Link) (*sslObjects, error) {
 	attachPaths := []string{}
 	libPaths, err := findLibSSLPath()
 	if err != nil {
-		log.Warn().Err(err).Msg("cannot find the libssl path")
+		log.Warn().Err(err).Msg("cannot find the libssl path from the common paths")
 	} else {
 		attachPaths = append(attachPaths, libPaths)
 	}
 
 	if sslPath != nil && len(*sslPath) > 0 {
 		if ok, err := isFilePath(*sslPath); err != nil || !ok {
-			log.Fatal().Str("path", *sslPath).Err(err).Msg("invalid SSL file path")
-		} else {
-			attachPaths = append(attachPaths, *sslPath)
+			return nil, fmt.Errorf("invalid SSL file path: %w", err)
 		}
+		attachPaths = append(attachPaths, *sslPath)
 	}
 	if len(attachPaths) == 0 {
-		log.Fatal().Msg("no valid libssl path to attach")
+		log.Warn().Msg("no valid libssl path to attach")
 	}
-	log.Info().Any("path", attachPaths).Msg("using libssl")
+	log.Info().Any("default_path", attachPaths).Msg("using libssl")
 
 	sslObjs := sslObjects{}
 	SSLSpec, err := ebpf.LoadCollectionSpec(sslSpecPath)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to load ebpf spec")
+		return nil, fmt.Errorf("failed to load eBPF spec: %w", err)
 	}
 
 	if err := SSLSpec.LoadAndAssign(&sslObjs, nil); err != nil {
-		log.Fatal().Err(err).Msg("failed to load and assign ebpf objects")
+		return nil, fmt.Errorf("failed to load and assign eBPF objects: %w", err)
 	}
 
+	var final error
 	for _, p := range attachPaths {
 		exec, err := link.OpenExecutable(p)
 		if err != nil {
-			log.Fatal().Str("path", p).Err(err).Msg("failed to open file")
-		} else {
-			attachSSLProbes(exec, &sslObjs, p, links)
-			log.Info().Str("path", p).Msg("attaching SSL uprobes")
+			final = errors.Join(final, fmt.Errorf("failed to open OpenSSL file %s: %w", p, err))
 		}
+		if err = attachSSLProbes(exec, &sslObjs, p, links); err != nil {
+			final = errors.Join(final, fmt.Errorf("failed to inject OpenSSL probes to %s: %w", p, err))
+		}
+		log.Info().Str("path", p).Msg("attaching SSL uprobes")
 	}
 
-	return &sslObjs
+	return &sslObjs, final
 }
 
 type OpenSSLProbe struct {
@@ -140,7 +149,14 @@ type OpenSSLProbe struct {
 
 func NewOpenSSLProbe(sslPath *string) (*OpenSSLProbe, error) {
 	links := []link.Link{}
-	sslObjs := addSSLProbe(sslPath, &links)
+	sslObjs, err := addSSLProbe(sslPath, &links)
+	if sslObjs == nil {
+		return nil, fmt.Errorf("failed to create OpenSSL probe: %w", err)
+	}
+	// continuous as long as some probes work
+	if err != nil {
+		log.Warn().Err(err).Msg("some errors occurred while attaching OpenSSL probes")
+	}
 	sslRingbuffer, err := ringbuf.NewReader(sslObjs.Events)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open OpenSSL ringbuf reader: %w", err)

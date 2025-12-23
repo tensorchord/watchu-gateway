@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/phuslu/log"
@@ -29,6 +30,14 @@ func ReadCloserToBytes(rc io.ReadCloser) ([]byte, error) {
 		return nil, err
 	}
 	return buf, nil
+}
+
+func IsFilePath(path string) (bool, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	return !st.IsDir(), nil
 }
 
 func InitEBPF() error {

@@ -27,9 +27,9 @@ func main() {
 	SSLPath := flag.String("ssl-path", "", "extra user binary path to attach SSL uprobes (optional)")
 	// TODO: rustls gets the encrypted data, we need to decrypt with the session key
 	rustlsPath := flag.String("rustls-path", "", "extra user binary path to attach rustls uprobes (optional)")
-	address := flag.String("gateway", "", "the gateway address, e.g., 'http://localhost:8080'. Leave it empty to disable pushing events to the gateway")
-	tetragonSocket := flag.String("tetragon-socket", "",
-		fmt.Sprintf("the Tetragon gRPC socket path, e.g., '%s'. Leave it empty to disable Tetragon integration", TETRAGON_SOCKET))
+	address := flag.String("gateway", "", "the gateway address, e.g., 'http://localhost:8080' (optional). Leave it empty to disable pushing events to the gateway")
+	tetragonPath := flag.String("tetragon-path", "",
+		fmt.Sprintf("the Tetragon gRPC path (Unix domain socket or HTTP) (optional). e.g., '%s'. Leave it empty to disable Tetragon integration", TETRAGON_SOCKET))
 	flag.Parse()
 
 	logger.SetUpLogger(*debug)
@@ -55,14 +55,14 @@ func main() {
 	pgProbe := postgres.NewPostgresProbe(gatewayClient)
 	go pgProbe.Start(ctx)
 
-	if len(*tetragonSocket) > 0 {
-		log.Info().Str("socket", *tetragonSocket).Msg("enable Tetragon integration")
-		tetragonClient, err := execve.NewTetragonClient(*tetragonSocket, gatewayClient)
+	if len(*tetragonPath) > 0 {
+		log.Info().Str("socket", *tetragonPath).Msg("enable Tetragon integration")
+		tetragonClient, err := execve.NewTetragonClient(*tetragonPath, gatewayClient, ctx)
 		if err != nil {
 			log.Panic().Err(err).Msg("failed to create Tetragon client")
 		}
 		defer tetragonClient.Close()
-		go tetragonClient.Run(ctx)
+		go tetragonClient.Start(ctx)
 	}
 
 	<-ctx.Done()

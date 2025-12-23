@@ -303,6 +303,7 @@ func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 		if request.URL != nil {
 			url = request.URL.String()
 		}
+		request.Header.Add("Host", request.Host)
 		headers := flattenMaskedHeader(request.Header)
 		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
 		record.EndOfStream = false
@@ -710,6 +711,7 @@ func (h2 *HTTP2Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 		Method:     method,
 		URL:        url,
 		Header:     hdrs,
+		Host:       authority,
 		Proto:      "HTTP/2.0",
 		ProtoMajor: 2,
 		ProtoMinor: 0,

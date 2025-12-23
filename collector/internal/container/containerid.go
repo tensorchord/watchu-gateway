@@ -1,3 +1,5 @@
+// Resolves container IDs from cgroup IDs.
+
 package container
 
 import (
@@ -14,7 +16,7 @@ import (
 
 const (
 	CGROUP_DIR         = "/sys/fs/cgroup"
-	CONTAINER_ID_REGEX = `-([0-9a-f]{32,64})\.scope`
+	REGEX_CONTAINER_ID = `-([0-9a-f]{32,64})\.scope`
 )
 
 var (
@@ -33,7 +35,7 @@ func NewContainerResolver() *ContainerResolver {
 	return &ContainerResolver{
 		cache:   make(map[uint64]string),
 		unknown: make(map[uint64]struct{}),
-		re:      regexp.MustCompile(CONTAINER_ID_REGEX),
+		re:      regexp.MustCompile(REGEX_CONTAINER_ID),
 	}
 }
 

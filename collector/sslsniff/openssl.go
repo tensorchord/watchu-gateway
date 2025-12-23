@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sync"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/tensorchord/watchu/collector/internal/container"
+	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
 const MAX_DYNAMIC_CHANNEL_SIZE = 16
@@ -72,17 +72,9 @@ var libSDirs = []string{
 	"/usr/local/lib64",
 }
 
-func isFilePath(path string) (bool, error) {
-	st, err := os.Stat(path)
-	if err != nil {
-		return false, err
-	}
-	return !st.IsDir(), nil
-}
-
 func findLibSSLPath() (string, error) {
 	for _, path := range libSSLCandidates {
-		if ok, err := isFilePath(path); err == nil && ok {
+		if ok, err := tool.IsFilePath(path); err == nil && ok {
 			return path, nil
 		}
 	}
@@ -92,7 +84,7 @@ func findLibSSLPath() (string, error) {
 		if len(matches) > 0 {
 			log.Info().Str("path", matches[0]).Msg("found potential libssl, consider add this to the env")
 			for _, path := range matches {
-				if ok, err := isFilePath(path); err == nil && ok {
+				if ok, err := tool.IsFilePath(path); err == nil && ok {
 					return path, nil
 				}
 			}
@@ -111,7 +103,7 @@ func addSSLProbe(sslPath *string, links *[]link.Link) (*sslObjects, error) {
 	}
 
 	if sslPath != nil && len(*sslPath) > 0 {
-		if ok, err := isFilePath(*sslPath); err != nil || !ok {
+		if ok, err := tool.IsFilePath(*sslPath); err != nil || !ok {
 			return nil, fmt.Errorf("invalid SSL file path: %w", err)
 		}
 		attachPaths = append(attachPaths, *sslPath)

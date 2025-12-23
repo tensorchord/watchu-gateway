@@ -9,6 +9,8 @@ import (
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
+
+	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
 type RusTLSProbe struct {
@@ -62,7 +64,7 @@ func addRustlsProbe(rustlsPath *string, links *[]link.Link) (*rustlsObjects, err
 	}
 	logger := log.DefaultLogger
 	logger.Context = log.NewContext(nil).Str("path", *rustlsPath).Value()
-	if ok, err := isFilePath(*rustlsPath); err != nil || !ok {
+	if ok, err := tool.IsFilePath(*rustlsPath); err != nil || !ok {
 		return nil, fmt.Errorf("invalid rustls file path: %w", err)
 	}
 	logger.Info().Msg("using rustls")

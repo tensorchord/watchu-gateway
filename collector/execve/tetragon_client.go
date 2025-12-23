@@ -17,6 +17,66 @@ import (
 	"github.com/tensorchord/watchu/collector"
 )
 
+const (
+	MAX_RETRY_COUNT        = 8
+	DEFAULT_SLEEP_DURATION = time.Second
+)
+
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	select {
+	case <-time.After(d):
+		return nil
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	}
+}
+
+func isServiceAvailable(client tetragon.FineGuidanceSensorsClient, ctx context.Context) bool {
+	retry := 0
+	var health *tetragon.GetHealthStatusResponse
+	var errHealth error
+	for health == nil && retry < MAX_RETRY_COUNT {
+		health, errHealth = client.GetHealth(ctx, &tetragon.GetHealthStatusRequest{})
+		if errHealth != nil {
+			log.Error().Err(errHealth).Msg("failed to get the health status of the tetragon")
+			health = nil
+		}
+		retry++
+		if err := sleepWithContext(ctx, DEFAULT_SLEEP_DURATION*time.Duration(retry)); err != nil {
+			// context canceled, exit
+			break
+		}
+	}
+	if health == nil {
+		log.Error().Err(errHealth).Int("retry", MAX_RETRY_COUNT).Msg("failed to wait the tetragon service available")
+		return false
+	}
+	log.Info().Str("status", health.String()).Msg("tetragon service is available")
+	return true
+}
+
+func connectWithRetry(path string, ctx context.Context) (*grpc.ClientConn, error) {
+	retry := 0
+	var conn *grpc.ClientConn
+	var errDial error
+	for conn == nil && retry < MAX_RETRY_COUNT {
+		conn, errDial = grpc.NewClient(path, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if errDial != nil {
+			log.Error().Err(errDial).Msg("failed to dial tetragon gRPC server")
+			conn = nil
+		}
+		retry++
+		if err := sleepWithContext(ctx, DEFAULT_SLEEP_DURATION*time.Duration(retry)); err != nil {
+			// context canceled, exit
+			break
+		}
+	}
+	if conn == nil {
+		return nil, fmt.Errorf("failed to connect to tetragon gRPC server after %d retries: %w", MAX_RETRY_COUNT, errDial)
+	}
+	return conn, nil
+}
+
 type TetragonClient struct {
 	conn          *grpc.ClientConn
 	client        tetragon.FineGuidanceSensorsClient
@@ -24,14 +84,19 @@ type TetragonClient struct {
 	channel       chan *collector.RawExec
 }
 
-func NewTetragonClient(socketPath string, gatewayClient *collector.GatewayClient) (*TetragonClient, error) {
-	conn, err := grpc.NewClient(socketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func NewTetragonClient(path string, gatewayClient *collector.GatewayClient, ctx context.Context) (*TetragonClient, error) {
+	conn, err := connectWithRetry(path, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial: %w", err)
 	}
+	client := tetragon.NewFineGuidanceSensorsClient(conn)
+
+	if !isServiceAvailable(client, ctx) {
+		return nil, fmt.Errorf("failed to get the health status of the tetragon")
+	}
 	state := conn.GetState()
 	log.Info().Str("state", state.String()).Msg("connected to Tetragon gRPC server")
-	client := tetragon.NewFineGuidanceSensorsClient(conn)
+
 	return &TetragonClient{
 		conn:          conn,
 		client:        client,
@@ -48,7 +113,7 @@ func (tc *TetragonClient) Close() {
 	}
 }
 
-func (tc *TetragonClient) Run(ctx context.Context) {
+func (tc *TetragonClient) Start(ctx context.Context) {
 	go tc.gatewayClient.IngestExecEvent(ctx, tc.channel)
 	for {
 		eventStream, err := tc.client.GetEvents(ctx, &tetragon.GetEventsRequest{})
@@ -56,8 +121,12 @@ func (tc *TetragonClient) Run(ctx context.Context) {
 			log.Error().Err(err).Msg("GetEvents failed")
 			if st, ok := status.FromError(err); ok {
 				if st.Code() == codes.Unavailable {
-					log.Info().Msg("service is unavailable, exit")
-					return
+					log.Info().Msg("service is unavailable")
+					if isServiceAvailable(tc.client, ctx) {
+						continue
+					} else {
+						return
+					}
 				}
 				if st.Code() == codes.Canceled {
 					log.Info().Msg("context is canceled, exit")
@@ -77,16 +146,6 @@ func (tc *TetragonClient) Run(ctx context.Context) {
 			if err != nil {
 				log.Error().Err(err).Msg("event stream Recv failed")
 				break
-			}
-
-			kprobe := event.GetProcessKprobe()
-			if kprobe != nil {
-				log.Info().Str("exec_id", kprobe.Process.ExecId).Str("p_exec_id", kprobe.Process.ParentExecId).Str("comm", kprobe.Process.Binary).Str("policy", kprobe.PolicyName).Str("event", "kprobe").Msg("")
-			}
-
-			trace := event.GetProcessTracepoint()
-			if trace != nil {
-				log.Info().Str("exec_id", trace.Process.ExecId).Str("p_exec_id", trace.Process.ParentExecId).Str("comm", trace.Process.Binary).Str("policy", trace.PolicyName).Str("event", "tracepoint").Msg("")
 			}
 
 			exec := event.GetProcessExec()

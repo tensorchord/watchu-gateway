@@ -90,7 +90,7 @@ type StdioProbe struct {
 func NewStdioProbe(client *collector.GatewayClient) *StdioProbe {
 	objs := stdioObjects{}
 	if err := loadStdioObjects(&objs, nil); err != nil {
-		log.Fatal().Err(err).Msg("failed to load ebpf spec")
+		log.Fatal().Err(err).Msg("failed to load eBPF spec")
 	}
 
 	links := []link.Link{}

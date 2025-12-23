@@ -121,6 +121,8 @@ func (cld *ContainerLibsDetector) scan() error {
 					continue
 				}
 				libsslPath = absPath
+			} else {
+				libsslPath = filepath.Join("/proc", string(proc), "root", libsslPath)
 			}
 			newProcLib[string(proc)] = libsslPath
 		}

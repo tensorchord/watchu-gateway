@@ -37,10 +37,11 @@ func isServiceAvailable(client tetragon.FineGuidanceSensorsClient, ctx context.C
 	var errHealth error
 	for health == nil && retry < MAX_RETRY_COUNT {
 		health, errHealth = client.GetHealth(ctx, &tetragon.GetHealthStatusRequest{})
-		if errHealth != nil {
-			log.Error().Err(errHealth).Msg("failed to get the health status of the tetragon")
-			health = nil
+		if errHealth == nil {
+			break
 		}
+		log.Error().Err(errHealth).Msg("failed to get the health status of the tetragon")
+		health = nil
 		retry++
 		if err := sleepWithContext(ctx, DEFAULT_SLEEP_DURATION*time.Duration(retry)); err != nil {
 			// context canceled, exit
@@ -48,7 +49,7 @@ func isServiceAvailable(client tetragon.FineGuidanceSensorsClient, ctx context.C
 		}
 	}
 	if health == nil {
-		log.Error().Err(errHealth).Int("retry", MAX_RETRY_COUNT).Msg("failed to wait the tetragon service available")
+		log.Error().Err(errHealth).Int("retry", MAX_RETRY_COUNT).Msg("failed to wait for the tetragon service to become available")
 		return false
 	}
 	log.Info().Str("status", health.String()).Msg("tetragon service is available")
@@ -61,10 +62,11 @@ func connectWithRetry(path string, ctx context.Context) (*grpc.ClientConn, error
 	var errDial error
 	for conn == nil && retry < MAX_RETRY_COUNT {
 		conn, errDial = grpc.NewClient(path, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if errDial != nil {
-			log.Error().Err(errDial).Msg("failed to dial tetragon gRPC server")
-			conn = nil
+		if errDial == nil {
+			break
 		}
+		log.Error().Err(errDial).Msg("failed to dial tetragon gRPC server")
+		conn = nil
 		retry++
 		if err := sleepWithContext(ctx, DEFAULT_SLEEP_DURATION*time.Duration(retry)); err != nil {
 			// context canceled, exit

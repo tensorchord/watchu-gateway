@@ -27,9 +27,9 @@ func main() {
 	SSLPath := flag.String("ssl-path", "", "extra user binary path to attach SSL uprobes (optional)")
 	// TODO: rustls gets the encrypted data, we need to decrypt with the session key
 	rustlsPath := flag.String("rustls-path", "", "extra user binary path to attach rustls uprobes (optional)")
-	address := flag.String("gateway", "", "the gateway address, e.g., 'http://localhost:8080'. Leave it empty to disable pushing events to the gateway")
+	address := flag.String("gateway", "", "the gateway address, e.g., 'http://localhost:8080' (optional). Leave it empty to disable pushing events to the gateway")
 	tetragonPath := flag.String("tetragon-path", "",
-		fmt.Sprintf("the Tetragon gRPC path (Unix domain socket or HTTP) (optional) \ne.g., '%s'.\nLeave it empty to disable Tetragon integration", TETRAGON_SOCKET))
+		fmt.Sprintf("the Tetragon gRPC path (Unix domain socket or HTTP) (optional). e.g., '%s'. Leave it empty to disable Tetragon integration", TETRAGON_SOCKET))
 	flag.Parse()
 
 	logger.SetUpLogger(*debug)

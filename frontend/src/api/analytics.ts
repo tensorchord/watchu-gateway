@@ -19,6 +19,79 @@ function toQueryTimestamp(value: Dayjs): string {
     return value.toISOString();
 }
 
+export interface DataSourceCount {
+    source: string;
+    hits: number;
+}
+
+export interface DataSourceSummaryResponse {
+    sources: DataSourceCount[];
+    s3: {
+        buckets_top: Array<{ bucket: string; hits: number }>;
+        status_codes: Array<{ status_code?: number; hits: number }>;
+        operations: Array<{ operation?: string; hits: number }>;
+    };
+    postgres: {
+        queries_top: Array<{ sql_hash: string; sample?: string; hits: number }>;
+    };
+}
+
+export interface DataSourceByRootResponse {
+    root_exec_id?: string;
+    root_pid?: number;
+    source: string;
+    hits: number;
+}
+
+export interface S3EventResponse {
+    host: string;
+    response_id?: string;
+    request_id?: string;
+    timestamp?: string;
+    pid?: number;
+    tid?: number;
+    comm?: string;
+    method?: string;
+    url?: string;
+    status_code?: number;
+    bucket?: string;
+    bucket_region?: string;
+    object_key?: string;
+    request_bytes?: number;
+    response_bytes?: number;
+    container_id?: string;
+    exec_id?: string;
+    root_exec_id?: string;
+    root_pid?: number;
+    depth?: number;
+    operation?: string;
+}
+
+export interface PostgresQueryTopResponse {
+    sql_hash: string;
+    sample?: string;
+    hits: number;
+}
+
+export interface PostgresEventResponse {
+    host: string;
+    pg_event_id?: string;
+    timestamp?: string;
+    pid?: number;
+    tid?: number;
+    uid?: number;
+    gid?: number;
+    comm?: string;
+    msg_type?: string;
+    container_id?: string;
+    exec_id?: string;
+    root_exec_id?: string;
+    root_pid?: number;
+    depth?: number;
+    sql_text?: string;
+    sql_hash?: string;
+}
+
 export async function fetchSecurityLLMAnalysis(host: string, semanticLimit: number, promptLimit: number) {
     const { data } = await apiClient.get<SecurityLLMAnalysisResponse>("/analysis/security_llm_analysis", {
         params: {
@@ -37,6 +110,106 @@ export async function fetchProcessHttpEvents(host: string, since: Dayjs, until: 
             since: toQueryTimestamp(since),
             until: toQueryTimestamp(until),
             limit
+        }
+    });
+    return data;
+}
+
+export async function fetchDataSourceSummary(host: string, since: Dayjs, until: Dayjs, limit: number, rootExecId?: string) {
+    const { data } = await apiClient.get<DataSourceSummaryResponse>("/analysis/data_sources/summary", {
+        params: {
+            host,
+            since: toQueryTimestamp(since),
+            until: toQueryTimestamp(until),
+            limit,
+            root_exec_id: rootExecId
+        }
+    });
+    return data;
+}
+
+export async function fetchDataSourceByRoot(host: string, since: Dayjs, until: Dayjs, limit: number) {
+    const { data } = await apiClient.get<DataSourceByRootResponse[]>("/analysis/data_sources/by_root", {
+        params: {
+            host,
+            since: toQueryTimestamp(since),
+            until: toQueryTimestamp(until),
+            limit
+        }
+    });
+    return data;
+}
+
+export async function fetchS3Buckets(host: string, since: Dayjs, until: Dayjs, limit: number, rootExecId?: string) {
+    const { data } = await apiClient.get<Array<{ bucket: string; hits: number }>>("/analysis/data_sources/s3/buckets", {
+        params: {
+            host,
+            since: toQueryTimestamp(since),
+            until: toQueryTimestamp(until),
+            limit,
+            root_exec_id: rootExecId
+        }
+    });
+    return data;
+}
+
+export async function fetchS3Events(host: string, since: Dayjs, until: Dayjs, limit: number, params?: { rootExecId?: string; bucket?: string; operation?: string }) {
+    const { data } = await apiClient.get<S3EventResponse[]>("/analysis/data_sources/s3/events", {
+        params: {
+            host,
+            since: toQueryTimestamp(since),
+            until: toQueryTimestamp(until),
+            limit,
+            root_exec_id: params?.rootExecId,
+            bucket: params?.bucket,
+            operation: params?.operation
+        }
+    });
+    return data;
+}
+
+export async function fetchS3Operations(host: string, since: Dayjs, until: Dayjs, limit: number, rootExecId?: string) {
+    const { data } = await apiClient.get<Array<{ operation?: string; hits: number }>>("/analysis/data_sources/s3/operations", {
+        params: {
+            host,
+            since: toQueryTimestamp(since),
+            until: toQueryTimestamp(until),
+            limit,
+            root_exec_id: rootExecId
+        }
+    });
+    return data;
+}
+
+export async function fetchPostgresQueries(host: string, since: Dayjs, until: Dayjs, limit: number, rootExecId?: string) {
+    const { data } = await apiClient.get<PostgresQueryTopResponse[]>("/analysis/data_sources/postgres/queries", {
+        params: {
+            host,
+            since: toQueryTimestamp(since),
+            until: toQueryTimestamp(until),
+            limit,
+            root_exec_id: rootExecId
+        }
+    });
+    return data;
+}
+
+export async function fetchPostgresEvents(
+    host: string,
+    since: Dayjs,
+    until: Dayjs,
+    limit: number,
+    params?: { rootExecId?: string; msgType?: string; sqlHash?: string }
+) {
+    const { data } = await apiClient.get<PostgresEventResponse[]>("/analysis/data_sources/postgres/events", {
+        params: {
+            host,
+            since: toQueryTimestamp(since),
+            until: toQueryTimestamp(until),
+            limit,
+            root_exec_id: params?.rootExecId,
+            msg_type: params?.msgType,
+            sql_hash: params?.sqlHash
         }
     });
     return data;

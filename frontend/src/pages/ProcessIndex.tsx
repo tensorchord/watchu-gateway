@@ -1,4 +1,4 @@
-import { Card, Flex, InputNumber, Result, Space, Tooltip, Typography } from "antd";
+import { Button, Card, Flex, InputNumber, Result, Space, Tooltip, Typography } from "antd";
 import { useNavigate } from "react-router-dom";
 
 import ProcessTreePanel from "../components/ProcessTreePanel";
@@ -31,6 +31,7 @@ export default function ProcessIndex() {
                         <Text type="secondary">Choose a node below to jump straight into the process detail page.</Text>
                     </Flex>
                     <Flex wrap gap={12} align="flex-end">
+                        <Button onClick={() => navigate("/data-sources")}>Data Sources</Button>
                         <Space direction="vertical" size={2}>
                             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                                 Root limit

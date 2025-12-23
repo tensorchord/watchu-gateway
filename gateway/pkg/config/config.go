@@ -17,6 +17,7 @@ type Config struct {
 	AnalysisLookback                 time.Duration
 	AnalysisHorizon                  time.Duration
 	AnalysisLag                      time.Duration
+	AnalysisMaxWindow                time.Duration
 	AnalysisEnabled                  bool
 	PromptInjectionEnabled           bool
 	PromptInjectionAPIBase           string
@@ -49,6 +50,7 @@ const (
 	defaultLookback        = time.Minute
 	defaultHorizon         = time.Minute
 	defaultLag             = time.Second
+	defaultMaxWindow       = 10 * time.Minute
 )
 
 // Load constructs Config from environment with sane defaults.
@@ -61,6 +63,7 @@ func Load() (Config, error) {
 		AnalysisLookback:                 parseDurationEnv("ANALYSIS_HOST_LOOKBACK", defaultLookback),
 		AnalysisHorizon:                  parseDurationEnv("ANALYSIS_HORIZON", defaultHorizon),
 		AnalysisLag:                      parseDurationEnv("ANALYSIS_LAG", defaultLag),
+		AnalysisMaxWindow:                parseDurationEnv("ANALYSIS_MAX_WINDOW", defaultMaxWindow),
 		AnalysisEnabled:                  parseBoolEnv("ANALYSIS_ENABLED", true),
 		PromptInjectionEnabled:           parseBoolEnv("PROMPT_INJECTION_ENABLED", true),
 		PromptInjectionAPIBase:           getEnv("PROMPT_INJECTION_API_BASE", "https://api.openai.com/v1"),

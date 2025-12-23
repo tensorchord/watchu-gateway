@@ -1,8 +1,9 @@
-import { Button, Card, Descriptions, List, Modal, Result, Space, Table, Tag, Typography } from "antd";
+import { Button, Card, Descriptions, List, Modal, Result, Space, Table, Tabs, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import { useState } from "react";
 
+import DataSourcesPanel from "../components/DataSourcesPanel";
 import { useSettings } from "../context/SettingsContext";
 import { useHeuristicAlerts } from "../hooks/useAnalytics";
 import { HeuristicAlertResponse } from "../types/api";
@@ -220,14 +221,31 @@ export default function HeuristicAlerts() {
     return (
         <>
             <Card bordered={false}>
-                <Table
-                    rowKey={(record: HeuristicAlertResponse) =>
-                        record.alert_id ?? `${record.alert_type ?? "type"}-${record.start_ts ?? "start"}-${record.end_ts ?? "end"}-${record.score ?? "score"}`
-                    }
-                    columns={columns}
-                    dataSource={dataSource}
-                    loading={alertsQuery.isLoading}
-                    pagination={{ pageSize: 10 }}
+                <Tabs
+                    defaultActiveKey="alerts"
+                    items={[
+                        {
+                            key: "alerts",
+                            label: "Heuristic Alerts",
+                            children: (
+                                <Table
+                                    rowKey={(record: HeuristicAlertResponse) =>
+                                        record.alert_id ??
+                                        `${record.alert_type ?? "type"}-${record.start_ts ?? "start"}-${record.end_ts ?? "end"}-${record.score ?? "score"}`
+                                    }
+                                    columns={columns}
+                                    dataSource={dataSource}
+                                    loading={alertsQuery.isLoading}
+                                    pagination={{ pageSize: 10 }}
+                                />
+                            )
+                        },
+                        {
+                            key: "data-sources",
+                            label: "Data Sources",
+                            children: <DataSourcesPanel />
+                        }
+                    ]}
                 />
             </Card>
 

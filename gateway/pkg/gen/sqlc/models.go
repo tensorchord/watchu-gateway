@@ -193,6 +193,20 @@ type McpStdioEvent struct {
 	ContainerID pgtype.Text
 }
 
+type PgEvent struct {
+	ID          pgtype.UUID
+	Host        string
+	Timestamp   pgtype.Timestamptz
+	Pid         int32
+	Tid         int32
+	Uid         int32
+	Gid         int32
+	Comm        pgtype.Text
+	MsgType     pgtype.Text
+	Data        []byte
+	ContainerID pgtype.Text
+}
+
 type ProcessHttpEvent struct {
 	Host       string
 	HttpID     pgtype.UUID
@@ -228,6 +242,50 @@ type ProcessLifecycle struct {
 	Cwd        pgtype.Text
 	Comm       pgtype.Text
 	Args       pgtype.Text
+}
+
+type ProcessPgEvent struct {
+	Host        string
+	PgEventID   pgtype.UUID
+	Timestamp   pgtype.Timestamptz
+	Pid         pgtype.Int4
+	Tid         pgtype.Int4
+	Uid         pgtype.Int4
+	Gid         pgtype.Int4
+	Comm        pgtype.Text
+	MsgType     pgtype.Text
+	Data        []byte
+	ContainerID pgtype.Text
+	ExecID      pgtype.Text
+	RootExecID  pgtype.Text
+	RootPid     pgtype.Int8
+	Depth       pgtype.Int4
+	SqlText     pgtype.Text
+	SqlHash     pgtype.Text
+}
+
+type ProcessS3Event struct {
+	Host          string
+	ResponseID    pgtype.UUID
+	RequestID     pgtype.UUID
+	Timestamp     pgtype.Timestamptz
+	Pid           pgtype.Int4
+	Tid           pgtype.Int4
+	Comm          pgtype.Text
+	Method        pgtype.Text
+	Url           pgtype.Text
+	StatusCode    pgtype.Int4
+	Bucket        pgtype.Text
+	BucketRegion  pgtype.Text
+	ObjectKey     pgtype.Text
+	RequestBytes  pgtype.Int8
+	ResponseBytes pgtype.Int8
+	ContainerID   pgtype.Text
+	ExecID        pgtype.Text
+	RootExecID    pgtype.Text
+	RootPid       pgtype.Int8
+	Depth         pgtype.Int4
+	Operation     pgtype.Text
 }
 
 type PromptInjectionError struct {

@@ -20,9 +20,12 @@ services:
   gateway:
     build: .
     environment:
+      ANALYSIS_ENABLED: "true"
+      ANALYSIS_TICK_INTERVAL: "5s"
       DATABASE_URL: postgres://watchu:watchu@db:5432/watchu?sslmode=disable
       GIN_MODE: debug
       LOG_LEVEL: debug
+      ANALYSIS_MAX_WINDOW: 10m
       PROMPT_INJECTION_ENABLED: true
       PROMPT_INJECTION_API_BASE: ${PROMPT_INJECTION_API_BASE} 
       PROMPT_INJECTION_API_KEY: ${PROMPT_INJECTION_API_KEY} 

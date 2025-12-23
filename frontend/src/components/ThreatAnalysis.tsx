@@ -157,7 +157,14 @@ export default function ThreatAnalysis({ rootExecId }: ThreatAnalysisProps) {
                 onCancel={handleCloseModal}
                 width={800}
                 footer={[
-                    <Button key="reanalyze" icon={<SyncOutlined />} onClick={runAnalysis} loading={loading}>
+                    <Button
+                        key="reanalyze"
+                        icon={<SyncOutlined />}
+                        onClick={() => {
+                            void runAnalysis();
+                        }}
+                        loading={loading}
+                    >
                         Re-analyze
                     </Button>,
                     <Button key="close" type="primary" onClick={handleCloseModal}>

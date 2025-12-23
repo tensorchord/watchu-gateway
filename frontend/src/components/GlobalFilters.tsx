@@ -33,6 +33,27 @@ export default function GlobalFilters() {
         [hosts]
     );
 
+    // Auto-update time range when using preset (not custom)
+    useEffect(() => {
+        if (timePreset === "custom") {
+            return;
+        }
+
+        // Update time range to current when using preset
+        const [nextSince, nextUntil] = calculateRange(timePreset);
+        setSince(nextSince);
+        setUntil(nextUntil);
+
+        // Set up interval to refresh every 30 seconds for non-custom presets
+        const intervalId = setInterval(() => {
+            const [refreshedSince, refreshedUntil] = calculateRange(timePreset);
+            setSince(refreshedSince);
+            setUntil(refreshedUntil);
+        }, 30000); // 30 seconds
+
+        return () => clearInterval(intervalId);
+    }, [timePreset, setSince, setUntil]);
+
     useEffect(() => {
         if (!hostOptions || hostOptions.length === 0) {
             return;
@@ -99,12 +120,12 @@ export default function GlobalFilters() {
                         setUntil(end);
                     }}
                     disabledDate={(current) => {
-                        // 只禁用未来的日期（从明天开始）
-                        return !!current && current.startOf('day').isAfter(dayjs().startOf('day'));
+                        // Only disable future dates (starting from tomorrow)
+                        return current && current.startOf("day").isAfter(dayjs().startOf("day"));
                     }}
                     disabledTime={(current, type) => {
-                        // 如果是当天，禁用未来的时间
-                        if (!current || !current.isSame(dayjs(), 'day')) {
+                        // If it's today, disable future times
+                        if (!current || !current.isSame(dayjs(), "day")) {
                             return {};
                         }
 
@@ -113,12 +134,12 @@ export default function GlobalFilters() {
                         const currentMinute = now.minute();
                         const currentSecond = now.second();
 
-                        if (type === 'start') {
-                            // start 时间可以选择任何过去的时间
+                        if (type === "start") {
+                            // Start time can select any past time
                             return {};
                         }
 
-                        // end 时间：禁用未来的小时、分钟、秒
+                        // For end time: disable future hours, minutes, seconds
                         return {
                             disabledHours: () => {
                                 const hours = [];

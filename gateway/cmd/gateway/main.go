@@ -82,7 +82,16 @@ func main() {
 	defer stop()
 
 	if cfg.AnalysisEnabled {
-		scheduler := analysis.NewScheduler(pool, cfg.AnalysisTickInterval, cfg.AnalysisLookback, cfg.AnalysisHorizon, cfg.AnalysisLag, securityInsightSvc.PromptInjectionService(), slog.Default())
+		scheduler := analysis.NewScheduler(
+			pool,
+			cfg.AnalysisTickInterval,
+			cfg.AnalysisLookback,
+			cfg.AnalysisHorizon,
+			cfg.AnalysisLag,
+			cfg.AnalysisMaxWindow,
+			securityInsightSvc.PromptInjectionService(),
+			slog.Default(),
+		)
 		go scheduler.Run(ctx)
 	}
 

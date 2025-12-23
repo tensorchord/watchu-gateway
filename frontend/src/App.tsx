@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { Layout, Menu, Typography } from "antd";
-import { ApartmentOutlined, BranchesOutlined, DashboardOutlined, LineChartOutlined, RobotOutlined, SafetyCertificateOutlined, ShareAltOutlined } from "@ant-design/icons";
+import { ApartmentOutlined, BranchesOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined, RobotOutlined, SafetyCertificateOutlined, ShareAltOutlined } from "@ant-design/icons";
 import { Link, Route, Routes, useLocation } from "react-router-dom";
 
 import Dashboard from "./pages/Dashboard";
+import DataSources from "./pages/DataSources";
 import AgentDashboard from "./pages/AgentDashboard";
 import ProcessIndex from "./pages/ProcessIndex";
 import ProcessDetails from "./pages/ProcessDetails";
@@ -22,6 +23,7 @@ const menuItems: NonNullable<MenuItem> = [
     { key: "/processes", icon: <ApartmentOutlined />, label: <Link to="/processes">Process Explorer</Link> },
     { key: "/security", icon: <SafetyCertificateOutlined />, label: <Link to="/security">Security Analysis</Link> },
     { key: "/alerts", icon: <BranchesOutlined />, label: <Link to="/alerts">Heuristic Alerts</Link> },
+    { key: "/data-sources", icon: <DatabaseOutlined />, label: <Link to="/data-sources">Data Sources</Link> },
     {
         key: "agent-section",
         label: (
@@ -52,6 +54,7 @@ function AppShell() {
             "/processes",
             "/security",
             "/alerts",
+            "/data-sources",
             "/trace",
             "/agent-dashboard"
         ];
@@ -80,6 +83,7 @@ function AppShell() {
                         <Route path="/timeline" element={<Dashboard view="timeline" />} />
                         <Route path="/trace" element={<Dashboard view="trace" />} />
                         <Route path="/security" element={<Dashboard view="security" />} />
+                        <Route path="/data-sources" element={<DataSources />} />
                         <Route path="/agent-dashboard" element={<AgentDashboard />} />
                         <Route path="/processes" element={<ProcessIndex />} />
                         <Route path="/processes/:rootPid" element={<ProcessDetails />} />

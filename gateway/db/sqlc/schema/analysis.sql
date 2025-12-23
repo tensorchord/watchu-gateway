@@ -60,6 +60,52 @@ CREATE TABLE IF NOT EXISTS process_http_events (
     is_mcp_http BOOLEAN
 );
 
+CREATE TABLE IF NOT EXISTS process_pg_events (
+    host TEXT NOT NULL,
+    pg_event_id UUID NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL,
+    pid INTEGER,
+    tid INTEGER,
+    uid INTEGER,
+    gid INTEGER,
+    comm TEXT,
+    msg_type TEXT,
+    data BYTEA,
+    container_id TEXT,
+    exec_id TEXT,
+    root_exec_id TEXT,
+    root_pid BIGINT,
+    depth INTEGER,
+    sql_text TEXT,
+    sql_hash TEXT,
+    PRIMARY KEY (host, pg_event_id)
+);
+
+CREATE TABLE IF NOT EXISTS process_s3_events (
+    host TEXT NOT NULL,
+    response_id UUID NOT NULL,
+    request_id UUID,
+    timestamp TIMESTAMPTZ NOT NULL,
+    pid INTEGER,
+    tid INTEGER,
+    comm TEXT,
+    method TEXT,
+    url TEXT,
+    status_code INTEGER,
+    bucket TEXT,
+    bucket_region TEXT,
+    object_key TEXT,
+    request_bytes BIGINT,
+    response_bytes BIGINT,
+    container_id TEXT,
+    exec_id TEXT,
+    root_exec_id TEXT,
+    root_pid BIGINT,
+    depth INTEGER,
+    operation TEXT,
+    PRIMARY KEY (host, response_id)
+);
+
 CREATE TABLE IF NOT EXISTS process_lifecycle (
     host VARCHAR NOT NULL,
     exec_id VARCHAR NOT NULL,

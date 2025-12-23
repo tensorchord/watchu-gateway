@@ -1,6 +1,7 @@
 import { ReloadOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Col, Collapse, Descriptions, Empty, List, Row, Space, Spin, Statistic, Tag, Typography } from "antd";
 import { useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 
 import { useAgentRuns, useTraceGraph } from "../hooks/useAnalytics";
 import { useSettings } from "../context/SettingsContext";
@@ -230,7 +231,13 @@ function buildPreviewPair(trace: TraceNodeResponse): { request: string | null; r
 
 export default function TraceExplorer() {
     const { host, since, until } = useSettings();
-    const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+    const location = useLocation();
+    const initialRunId = useMemo(() => {
+        const params = new URLSearchParams(location.search);
+        const value = params.get("agent_run_id");
+        return value ? value.trim() : null;
+    }, [location.search]);
+    const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId);
     const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
 
     const agentRunsQuery = useAgentRuns(host, since, until, MAX_AGENT_RUNS);

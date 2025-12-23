@@ -1,7 +1,8 @@
-import { Card, Col, Result, Row, Skeleton, Typography, message } from "antd";
+import { Card, Col, Result, Row, Skeleton, Tabs, Typography, message } from "antd";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
+import DataSourcesPanel from "../components/DataSourcesPanel";
 import ProcessTimeline from "../components/ProcessTimeline";
 import SecurityLLMAnalysis from "../components/SecurityLLMAnalysis";
 import TraceExplorer from "../components/TraceExplorer";
@@ -31,6 +32,7 @@ interface DashboardProps {
 
 export default function Dashboard({ view = "timeline" }: DashboardProps) {
     const { host, since, until, limit } = useSettings();
+    const location = useLocation();
     const httpEventsQuery = useProcessHttpEvents(host, since, until, limit);
     const processEventsQuery = useProcessEvents(host, since, until, limit);
     const securityQuery = useSecurityAnalysis(host, 20, 20);
@@ -119,14 +121,14 @@ export default function Dashboard({ view = "timeline" }: DashboardProps) {
     const renderContent = useMemo(() => {
         switch (activeView) {
             case "trace":
-                return <TraceExplorer />;
+                return <TraceExplorer key={location.key} />;
             case "security":
                 return securityContent;
             case "timeline":
             default:
                 return timelineContent;
         }
-    }, [activeView, securityContent, timelineContent]);
+    }, [activeView, location.key, securityContent, timelineContent]);
 
     if (hasError) {
         return (
@@ -145,6 +147,8 @@ export default function Dashboard({ view = "timeline" }: DashboardProps) {
 
     const meta = VIEW_METADATA[activeView];
 
+    const showAuxTabs = activeView === "timeline" || activeView === "security";
+
     return (
         <Row gutter={[24, 24]}>
             <Col span={24}>
@@ -155,7 +159,18 @@ export default function Dashboard({ view = "timeline" }: DashboardProps) {
                     <Typography.Paragraph type="secondary" style={{ marginBottom: 24 }}>
                         {meta.description}
                     </Typography.Paragraph>
-                    {renderContent}
+                    {showAuxTabs ? (
+                        <Tabs
+                            key={activeView}
+                            defaultActiveKey="main"
+                            items={[
+                                { key: "main", label: meta.title, children: renderContent },
+                                { key: "data-sources", label: "Data Sources", children: <DataSourcesPanel /> }
+                            ]}
+                        />
+                    ) : (
+                        renderContent
+                    )}
                 </Card>
             </Col>
         </Row>

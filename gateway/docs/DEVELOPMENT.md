@@ -97,6 +97,7 @@ Schema definitions live under `db/migrations` (Atlas migrations) and `db/sqlc/sc
 
 6. **Analysis Scheduler**
    Configure via environment variables (`ANALYSIS_*`). Disable by leaving `ANALYSIS_ENABLED` unset or `false`.
+   - `ANALYSIS_MAX_WINDOW` limits how much history each tick processes (default `10m`) to avoid long catch-up scans.
 
 ## Local Testing Tips
 

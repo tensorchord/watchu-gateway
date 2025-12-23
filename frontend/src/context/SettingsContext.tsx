@@ -33,12 +33,12 @@ const DEFAULT_NODE_LIMIT = 600;
 
 export function SettingsProvider({ children }: SettingsProviderProps) {
     const [host, setHost] = useState(DEFAULT_HOST);
-    const [since, setSince] = useState(dayjs().subtract(1, "hour"));
+    const [since, setSince] = useState(dayjs().subtract(24, "hour"));
     const [until, setUntil] = useState(dayjs());
     const [limit, setLimit] = useState(DEFAULT_LIMIT);
     const [rootLimit, setRootLimit] = useState(DEFAULT_ROOT_LIMIT);
     const [nodeLimit, setNodeLimit] = useState(DEFAULT_NODE_LIMIT);
-    const [timePreset, setTimePreset] = useState<TimeRangePreset>("1h");
+    const [timePreset, setTimePreset] = useState<TimeRangePreset>("24h");
 
     const value = useMemo<SettingsContextValue>(
         () => ({

@@ -738,7 +738,7 @@ export default function SecurityLLMAnalysis({ data, loading = false, onNavigateT
                 </Card>
             </Space>
         );
-    }, [categoryChartOption, promptColumns, renderPromptEvidence, unsafePromptRows, severityChartOption]);
+    }, [categoryChartOption, promptColumns, promptRows, renderPromptEvidence, unsafePromptRows, severityChartOption]);
 
     const tabs: TabsProps["items"] = useMemo(
         () => [

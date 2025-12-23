@@ -18,7 +18,14 @@ BEGIN
         v_text := convert_from(p_body, 'UTF8');
     EXCEPTION
         WHEN others THEN
-            RETURN NULL;
+            BEGIN
+                -- Best-effort fallback: LATIN1 never errors on arbitrary bytes (except NUL),
+                -- which helps extract strings from non-UTF8 payloads (e.g. XML).
+                v_text := convert_from(p_body, 'LATIN1');
+            EXCEPTION
+                WHEN others THEN
+                    RETURN NULL;
+            END;
     END;
     RETURN v_text;
 END;
@@ -1055,6 +1062,10 @@ COMMENT ON COLUMN heuristic_alerts.reason IS 'Explanation for why this alert was
 -- These indexes optimize the common query pattern: WHERE host = X AND timestamp >= Y AND timestamp <= Z ORDER BY timestamp DESC
 CREATE INDEX IF NOT EXISTS idx_pl_host_start_ts_desc ON process_lifecycle(host, start_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_phe_host_ts_desc ON process_http_events(host, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_exec_events_host_exec_id ON exec_events(host, exec_id);
+CREATE INDEX IF NOT EXISTS idx_exec_events_host_p_exec_id ON exec_events(host, p_exec_id);
+CREATE INDEX IF NOT EXISTS idx_exec_events_host_pid ON exec_events(host, pid);
+CREATE INDEX IF NOT EXISTS idx_exec_events_host_ppid ON exec_events(host, ppid);
 
 -- Derived Postgres client events enriched with process lifecycle metadata.
 
@@ -1066,10 +1077,18 @@ RETURNS BYTEA
 LANGUAGE sql
 IMMUTABLE
 AS $$
+    -- NOTE:
+    -- - Postgres does not provide strpos(bytea, bytea). Use a hex view to locate the first 0x00.
+    -- - Avoid E'\\x00' which can embed a NUL in a text literal and fail under UTF-8 client encodings.
     SELECT CASE
         WHEN p_data IS NULL THEN NULL
-        WHEN strpos(p_data, E'\x00'::bytea) > 0 THEN substring(p_data from 1 for strpos(p_data, E'\x00'::bytea) - 1)
-        ELSE p_data
+        ELSE (
+            SELECT CASE
+                WHEN s.pos > 0 THEN substring(p_data FROM 1 FOR ((s.pos - 1) / 2))
+                ELSE p_data
+            END
+            FROM (SELECT strpos(encode(p_data, 'hex'), '00') AS pos) s
+        )
     END;
 $$;
 
@@ -1104,3 +1123,44 @@ CREATE INDEX IF NOT EXISTS idx_process_pg_events_sql_hash ON process_pg_events(s
 COMMENT ON TABLE process_pg_events IS 'Postgres client events enriched with process lifecycle (exec/root) and decoded SQL for Q messages';
 COMMENT ON COLUMN process_pg_events.sql_text IS 'Decoded SQL text for msg_type=Q (NUL-terminated bytes trimmed before UTF-8 decode)';
 COMMENT ON COLUMN process_pg_events.sql_hash IS 'Hash of normalized sql_text for grouping/top queries';
+
+-- Derived S3 access events enriched with process lifecycle metadata.
+-- A single S3 response is treated as one "access record" because status_code and
+-- x-amz-request-id are best observed on the response side. The gateway derivation
+-- microbatch links the nearest request (same host+pid) to recover method/url and
+-- extract bucket/object_key when possible.
+CREATE TABLE IF NOT EXISTS process_s3_events (
+    host TEXT NOT NULL,
+    response_id UUID NOT NULL,
+    request_id UUID,
+    timestamp TIMESTAMPTZ NOT NULL,
+    pid INTEGER,
+    tid INTEGER,
+    comm TEXT,
+    method TEXT,
+    url TEXT,
+    status_code INTEGER,
+    bucket TEXT,
+    bucket_region TEXT,
+    object_key TEXT,
+    request_bytes BIGINT,
+    response_bytes BIGINT,
+    container_id TEXT,
+    exec_id TEXT,
+    root_exec_id TEXT,
+    root_pid BIGINT,
+    depth INTEGER,
+    operation TEXT,
+    PRIMARY KEY (host, response_id)
+);
+
+ALTER TABLE process_s3_events
+    ADD COLUMN IF NOT EXISTS bucket_region TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_process_s3_events_host_ts ON process_s3_events(host, timestamp);
+CREATE INDEX IF NOT EXISTS idx_process_s3_events_host_root_ts ON process_s3_events(host, root_exec_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_process_s3_events_host_bucket_ts ON process_s3_events(host, bucket, timestamp) WHERE bucket IS NOT NULL AND bucket <> '';
+CREATE INDEX IF NOT EXISTS idx_process_s3_events_status_code ON process_s3_events(status_code);
+
+COMMENT ON TABLE process_s3_events IS 'S3 access events derived from client HTTP telemetry and enriched with process lifecycle (exec/root)';
+COMMENT ON COLUMN process_s3_events.operation IS 'S3 API operation type inferred from response (PutObject, GetObject, ListObjectsV2, DeleteObject, HeadObject)';

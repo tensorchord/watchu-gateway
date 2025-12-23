@@ -15,7 +15,21 @@ import {
     fetchSecurityLLMAnalysis,
     fetchAgentRuns,
     fetchTraceGraph,
+    fetchDataSourceSummary,
+    fetchDataSourceByRoot,
+    fetchS3Buckets,
+    fetchS3Events,
+    fetchS3Operations,
+    fetchPostgresQueries,
+    fetchPostgresEvents,
     ProcessTreeParams
+} from "../api/analytics";
+import type {
+    DataSourceByRootResponse,
+    DataSourceSummaryResponse,
+    PostgresEventResponse,
+    PostgresQueryTopResponse,
+    S3EventResponse
 } from "../api/analytics";
 
 export function useSecurityAnalysis(host: string, semanticLimit: number, promptLimit: number) {
@@ -113,5 +127,81 @@ export function useTraceGraph(host: string, agentRunId?: string): UseQueryResult
             return fetchTraceGraph(host, agentRunId);
         },
         enabled: Boolean(host) && Boolean(agentRunId)
+    });
+}
+
+export function useDataSourceSummary(host: string, since: Dayjs, until: Dayjs, limit: number, rootExecId?: string | null) {
+    return useQuery<DataSourceSummaryResponse>({
+        queryKey: ["data-sources-summary", host, since.toISOString(), until.toISOString(), limit, rootExecId ?? ""],
+        queryFn: () => fetchDataSourceSummary(host, since, until, limit, rootExecId ?? undefined),
+        enabled: Boolean(host)
+    });
+}
+
+export function useDataSourceByRoot(host: string, since: Dayjs, until: Dayjs, limit: number) {
+    return useQuery<DataSourceByRootResponse[]>({
+        queryKey: ["data-sources-by-root", host, since.toISOString(), until.toISOString(), limit],
+        queryFn: () => fetchDataSourceByRoot(host, since, until, limit),
+        enabled: Boolean(host)
+    });
+}
+
+export function useS3Buckets(host: string, since: Dayjs, until: Dayjs, limit: number, rootExecId?: string | null) {
+    return useQuery<Array<{ bucket: string; hits: number }>>({
+        queryKey: ["s3-buckets", host, since.toISOString(), until.toISOString(), limit, rootExecId ?? ""],
+        queryFn: () => fetchS3Buckets(host, since, until, limit, rootExecId ?? undefined),
+        enabled: Boolean(host)
+    });
+}
+
+export function useS3Events(host: string, since: Dayjs, until: Dayjs, limit: number, params?: { rootExecId?: string | null; bucket?: string | null; operation?: string | null }) {
+    return useQuery<S3EventResponse[]>({
+        queryKey: ["s3-events", host, since.toISOString(), until.toISOString(), limit, params?.rootExecId ?? "", params?.bucket ?? "", params?.operation ?? ""],
+        queryFn: () => fetchS3Events(host, since, until, limit, { rootExecId: params?.rootExecId ?? undefined, bucket: params?.bucket ?? undefined, operation: params?.operation ?? undefined }),
+        enabled: Boolean(host)
+    });
+}
+
+export function useS3Operations(host: string, since: Dayjs, until: Dayjs, limit: number, rootExecId?: string | null) {
+    return useQuery<Array<{ operation?: string; hits: number }>>({
+        queryKey: ["s3-operations", host, since.toISOString(), until.toISOString(), limit, rootExecId ?? ""],
+        queryFn: () => fetchS3Operations(host, since, until, limit, rootExecId ?? undefined),
+        enabled: Boolean(host)
+    });
+}
+
+export function usePostgresQueries(host: string, since: Dayjs, until: Dayjs, limit: number, rootExecId?: string | null) {
+    return useQuery<PostgresQueryTopResponse[]>({
+        queryKey: ["pg-queries", host, since.toISOString(), until.toISOString(), limit, rootExecId ?? ""],
+        queryFn: () => fetchPostgresQueries(host, since, until, limit, rootExecId ?? undefined),
+        enabled: Boolean(host)
+    });
+}
+
+export function usePostgresEvents(
+    host: string,
+    since: Dayjs,
+    until: Dayjs,
+    limit: number,
+    params?: { rootExecId?: string | null; msgType?: string | null; sqlHash?: string | null }
+) {
+    return useQuery<PostgresEventResponse[]>({
+        queryKey: [
+            "pg-events",
+            host,
+            since.toISOString(),
+            until.toISOString(),
+            limit,
+            params?.rootExecId ?? "",
+            params?.msgType ?? "",
+            params?.sqlHash ?? ""
+        ],
+        queryFn: () =>
+            fetchPostgresEvents(host, since, until, limit, {
+                rootExecId: params?.rootExecId ?? undefined,
+                msgType: params?.msgType ?? undefined,
+                sqlHash: params?.sqlHash ?? undefined
+            }),
+        enabled: Boolean(host)
     });
 }

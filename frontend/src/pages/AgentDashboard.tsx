@@ -61,29 +61,6 @@ interface ModelAggregate {
     outputTokens: number;
 }
 
-function extractMcpNames(trace: TraceNodeResponse): { server: string; tool: string } {
-    const serverFromApi = (trace.mcp?.server ?? "").trim();
-    const toolFromApi = (trace.mcp?.tool ?? "").trim();
-
-    const entryTool = trace.mcp?.entries?.reduce<string | null>((acc, entry) => {
-        if (acc) return acc;
-        const params = entry.params as { name?: unknown; tool_name?: unknown } | undefined;
-        const fromParams = [params?.name, params?.tool_name]
-            .map((v) => (typeof v === "string" ? v.trim() : ""))
-            .find((v) => v);
-        if (fromParams) return fromParams;
-        const result = entry.result as { tool?: { name?: unknown }; name?: unknown } | undefined;
-        const fromResult = [result?.tool?.name, result?.name]
-            .map((v) => (typeof v === "string" ? v.trim() : ""))
-            .find((v) => v);
-        return fromResult || null;
-    }, null);
-
-    const server = serverFromApi || "unknown";
-    const tool = toolFromApi || entryTool || "unknown";
-    return { server, tool };
-}
-
 export default function AgentDashboard() {
     const navigate = useNavigate();
     const { host, since, until, limit } = useSettings();

@@ -1,5 +1,5 @@
 import { ArrowLeftOutlined } from "@ant-design/icons";
-import { Card, Col, Descriptions, Empty, Flex, Result, Row, Skeleton, Space, Tabs, Tag, Typography } from "antd";
+import { Card, Descriptions, Empty, Flex, Result, Skeleton, Space, Tabs, Tag, Typography } from "antd";
 import dayjs from "dayjs";
 import { useMemo, type CSSProperties } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -8,6 +8,7 @@ import ProcessEventsTable from "../components/ProcessEventsTable";
 import ProcessTimeline from "../components/ProcessTimeline";
 import ProcessTreePanel from "../components/ProcessTreePanel";
 import ThreatAnalysis from "../components/ThreatAnalysis";
+import DataSourcesPanel from "../components/DataSourcesPanel";
 import { useSettings } from "../context/SettingsContext";
 import { useProcessEvents, useProcessHttpEvents, useProcessSummary, useProcessTree } from "../hooks/useAnalytics";
 import { HeuristicAlertResponse, ProcessEventResponse, ProcessHTTPEventResponse, ProcessSummaryMeta } from "../types/api";
@@ -28,12 +29,6 @@ const CARD_HEAD_STYLE: CSSProperties = {
     fontWeight: 600,
     fontSize: 18,
     background: "linear-gradient(135deg, rgba(248,250,252,1) 0%, rgba(255,255,255,1) 100%)"
-};
-
-const COLUMN_STACK_STYLE: CSSProperties = {
-    display: "flex",
-    flexDirection: "column",
-    gap: 24
 };
 
 function renderSeverityTag(severity?: string) {
@@ -121,6 +116,16 @@ export default function ProcessDetails() {
         return (eventsQuery.data ?? []).filter((item: ProcessEventResponse) => item.root_pid === rootPid);
     }, [eventsQuery.data, isValidRootPid, rootPid]);
 
+    // Get root_exec_id for standalone Threat Analysis card + Data Source filtering.
+    const rootExecId = useMemo(
+        () =>
+            treeQuery.data?.[0]?.root_exec_id ??
+            lifecycleEventsForRoot[0]?.root_exec_id ??
+            summaryQuery.data?.meta?.exec_id ??
+            null,
+        [treeQuery.data, lifecycleEventsForRoot, summaryQuery.data?.meta?.exec_id]
+    );
+
     const tabs = useMemo(() => {
         if (!isValidRootPid) {
             return [];
@@ -148,17 +153,18 @@ export default function ProcessDetails() {
                         <ProcessEventsTable events={lifecycleEventsForRoot} loading={eventsQuery.isFetching} />
                     </div>
                 )
+            },
+            {
+                key: "data-sources",
+                label: "Data Sources",
+                children: (
+                    <div style={{ padding: "0 24px 24px 24px" }}>
+                        <DataSourcesPanel rootExecId={rootExecId} hideRootSelector />
+                    </div>
+                )
             }
         ];
-    }, [eventsQuery.isFetching, httpEventsForRoot, httpEventsQuery.isFetching, isValidRootPid, lifecycleEventsForRoot]);
-
-    // Get root_exec_id for standalone Threat Analysis card
-    const rootExecId = useMemo(() =>
-        treeQuery.data?.[0]?.root_exec_id ??
-        lifecycleEventsForRoot[0]?.root_exec_id ??
-        summaryQuery.data?.meta?.exec_id ??
-        null
-        , [treeQuery.data, lifecycleEventsForRoot, summaryQuery.data?.meta?.exec_id]);
+    }, [eventsQuery.isFetching, httpEventsForRoot, httpEventsQuery.isFetching, isValidRootPid, lifecycleEventsForRoot, rootExecId]);
 
     const alertsInRange = useMemo(() => {
         const alerts = summaryQuery.data?.alerts ?? [];

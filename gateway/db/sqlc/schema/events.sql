@@ -67,6 +67,20 @@ CREATE TABLE IF NOT EXISTS mcp_stdio_event (
     container_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS pg_event (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    host TEXT NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL,
+    pid INTEGER NOT NULL CHECK (pid >= 0),
+    tid INTEGER NOT NULL CHECK (tid >= 0),
+    uid INTEGER NOT NULL CHECK (uid >= 0),
+    gid INTEGER NOT NULL CHECK (gid >= 0),
+    comm TEXT,
+    msg_type TEXT CHECK (msg_type IN ('Q', 'P', 'B', 'E', 'C', 'X')),
+    data BYTEA,
+    container_id TEXT
+);
+
 CREATE VIEW mcp_events_normalized AS
 WITH stdio_enriched AS (
     SELECT

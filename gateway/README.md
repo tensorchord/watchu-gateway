@@ -44,6 +44,7 @@ Environment variables control runtime behavior. Values shown below are defaults 
 | `ANALYSIS_HOST_LOOKBACK` | `1m` | Window used to pick “active” hosts. |
 | `ANALYSIS_HORIZON` | `1m` | Extra overlap applied when refreshing historical windows. |
 | `ANALYSIS_LAG` | `1s` | Delay applied to “until” timestamps to avoid racing new data. |
+| `ANALYSIS_MAX_WINDOW` | `10m` | Max time window processed per tick to prevent long catch-up scans. |
 
 ### Prompt injection detection
 

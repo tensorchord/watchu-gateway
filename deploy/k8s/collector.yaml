@@ -45,7 +45,7 @@ spec:
         args:
         - "--gateway"
         - "http://gateway.watchu.svc.cluster.local:8080"
-        - "--tetragon-socket"
+        - "--tetragon-path"
         - "unix:///var/run/tetragon/tetragon.sock"
         securityContext:
           privileged: true
@@ -55,13 +55,17 @@ spec:
             fieldRef:
               fieldPath: spec.nodeName
         volumeMounts:
-        # Mount /proc to access process information
+        - name: debugfs
+          mountPath: /sys/kernel/debug
+        - name: tracefs
+          mountPath: /sys/kernel/tracing
+        # Mount host /proc so the collector can scan container PIDs & maps.
         - name: proc
-          mountPath: /host/proc
+          mountPath: /proc
           readOnly: true
-        # Mount /sys/fs/cgroup to list container pids
+        # Mount host cgroup to enumerate container cgroup.procs.
         - name: cgroup
-          mountPath: /host/sys/fs/cgroup
+          mountPath: /sys/fs/cgroup
           readOnly: true
         # Mount Tetragon socket to receive events
         - name: tetragon-socket
@@ -74,6 +78,14 @@ spec:
             cpu: 500m
             memory: 512Mi
       volumes:
+      - name: debugfs
+        hostPath:
+          path: /sys/kernel/debug
+          type: Directory
+      - name: tracefs
+        hostPath:
+          path: /sys/kernel/tracing
+          type: Directory
       - name: proc
         hostPath:
           path: /proc

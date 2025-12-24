@@ -19,6 +19,7 @@ import {
 import {
     buildSeries,
     buildSeverityBadge,
+    decodePayload,
     extractProcessEventFromTooltip,
     getHttpCategoryLabel,
     getGroupLabel,
@@ -28,6 +29,7 @@ import {
     mapHttpEvents,
     mapProcessEvents,
     matchesSelectedRootPid,
+    preparePayloadContent,
     renderTooltipContent,
     toExportRows,
     toSeverityFilterKey
@@ -43,6 +45,27 @@ import type {
 } from "./processTimeline/types";
 
 const { CheckableTag } = Tag;
+const MAX_TIMELINE_POINTS = 5000;
+
+function downsampleByTime<T extends { timestampMs: number }>(items: T[], limit: number): T[] {
+    if (items.length <= limit) {
+        return items;
+    }
+    if (limit <= 1) {
+        return [items[Math.floor(items.length / 2)]];
+    }
+    const sorted = [...items].sort((a, b) => a.timestampMs - b.timestampMs);
+    const step = (sorted.length - 1) / (limit - 1);
+    const result: T[] = [];
+    for (let i = 0; i < limit; i += 1) {
+        const index = i === limit - 1 ? sorted.length - 1 : Math.floor(i * step);
+        const next = sorted[index];
+        if (!result.length || result[result.length - 1] !== next) {
+            result.push(next);
+        }
+    }
+    return result;
+}
 
 interface ProcessTimelineProps {
     httpEvents?: ProcessHTTPEventResponse[];
@@ -263,7 +286,31 @@ export default function ProcessTimeline({
 
     const hasRequestEvents = useMemo(() => timelineEvents.some((event) => event.httpType === "REQUEST"), [timelineEvents]);
 
-    const totalEvents = filteredEvents.length + (groupBy === "httpType" ? filteredProcessEvents.length : 0);
+    const activeProcessEvents = useMemo(
+        () => (groupBy === "httpType" ? filteredProcessEvents : []),
+        [filteredProcessEvents, groupBy]
+    );
+    const totalEvents = filteredEvents.length + activeProcessEvents.length;
+
+    const { displayEvents, displayProcessEvents, sampledTotal } = useMemo(() => {
+        if (totalEvents <= MAX_TIMELINE_POINTS) {
+            return {
+                displayEvents: filteredEvents,
+                displayProcessEvents: activeProcessEvents,
+                sampledTotal: totalEvents
+            };
+        }
+        const ratio = MAX_TIMELINE_POINTS / totalEvents;
+        const httpBudget = Math.max(1, Math.floor(filteredEvents.length * ratio));
+        const procBudget = Math.max(1, Math.floor(activeProcessEvents.length * ratio));
+        const sampledHttp = downsampleByTime(filteredEvents, httpBudget);
+        const sampledProc = downsampleByTime(activeProcessEvents, procBudget);
+        return {
+            displayEvents: sampledHttp,
+            displayProcessEvents: sampledProc,
+            sampledTotal: sampledHttp.length + sampledProc.length
+        };
+    }, [activeProcessEvents, filteredEvents, totalEvents]);
 
     const grouped = useMemo(() => {
         const map = new Map<string, CombinedEvent[]>();
@@ -272,7 +319,7 @@ export default function ProcessTimeline({
             HTTP_CATEGORY_ORDER.forEach((label) => {
                 map.set(label, []);
             });
-            filteredEvents.forEach((event) => {
+            displayEvents.forEach((event) => {
                 const categoryLabel = getHttpCategoryLabel(event);
                 const bucket = map.get(categoryLabel);
                 if (bucket) {
@@ -284,12 +331,12 @@ export default function ProcessTimeline({
 
             const processBucket = map.get(PROCESS_LABEL);
             if (processBucket) {
-                filteredProcessEvents.forEach((event) => {
+                displayProcessEvents.forEach((event) => {
                     processBucket.push(event);
                 });
             }
         } else {
-            filteredEvents.forEach((event) => {
+            displayEvents.forEach((event) => {
                 const label = getGroupLabel(event, groupBy);
                 if (!map.has(label)) {
                     map.set(label, []);
@@ -300,7 +347,7 @@ export default function ProcessTimeline({
 
         map.forEach((value) => value.sort((a, b) => a.timestampMs - b.timestampMs));
         return map;
-    }, [filteredEvents, filteredProcessEvents, groupBy]);
+    }, [displayEvents, displayProcessEvents, groupBy]);
 
     const categories = useMemo(() => {
         if (groupBy === "httpType") {
@@ -319,7 +366,7 @@ export default function ProcessTimeline({
     }, [groupBy, grouped]);
 
     const timeRange = useMemo<TimeRange>(() => {
-        const combined: Array<TimelineEvent | ProcessEvent> = [...timelineEvents, ...timelineProcessEvents];
+        const combined: Array<TimelineEvent | ProcessEvent> = [...displayEvents, ...displayProcessEvents];
         if (!combined.length) {
             return null;
         }
@@ -333,7 +380,7 @@ export default function ProcessTimeline({
             return null;
         }
         return { min, max };
-    }, [timelineEvents, timelineProcessEvents]);
+    }, [displayEvents, displayProcessEvents]);
 
     const axisLabelFormatter = useMemo(() => buildAxisLabelFormatter(timeRange), [timeRange]);
     const zoomLabelFormatter = useMemo(() => buildZoomLabelFormatter(timeRange), [timeRange]);
@@ -361,6 +408,10 @@ export default function ProcessTimeline({
                     const timeLabel = data.timestamp ?? "n/a";
                     if (isHttpEvent(data)) {
                         const isRequest = data.httpType === "REQUEST";
+                        const headers = decodePayload(data.headers);
+                        const headersEscaped = preparePayloadContent(headers);
+                        const body = decodePayload(data.body);
+                        const bodyEscaped = preparePayloadContent(body);
                         const rows = [
                             { label: "Type", value: data.httpType },
                             { label: "Method", value: data.method ? data.method.toUpperCase() : null },
@@ -374,8 +425,8 @@ export default function ProcessTimeline({
                             { label: "Root Exec", value: data.rootExecId, monospace: true }
                         ];
                         return renderTooltipContent(timeLabel, rows, [
-                            { label: "Headers", content: data.headersEscaped },
-                            { label: "Body", content: data.bodyEscaped }
+                            { label: "Headers", content: headersEscaped },
+                            { label: "Body", content: bodyEscaped }
                         ]);
                     }
 
@@ -457,6 +508,11 @@ export default function ProcessTimeline({
                     <Tag color="blue" style={{ borderRadius: 999, fontWeight: 600 }}>
                         {totalEvents} events
                     </Tag>
+                    {sampledTotal < totalEvents ? (
+                        <Tag color="gold" style={{ borderRadius: 999, fontWeight: 600 }}>
+                            Sampled to {sampledTotal}
+                        </Tag>
+                    ) : null}
                 </Flex>
             }
             extra={

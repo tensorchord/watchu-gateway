@@ -19,10 +19,8 @@ export interface TimelineEvent {
     rootPid: number | null;
     execId: string | null;
     rootExecId: string | null;
-    headers: string | null;
-    headersEscaped: string | null;
-    body: string | null;
-    bodyEscaped: string | null;
+    headers: unknown | null;
+    body: unknown | null;
     severityLevel: SeverityLevel | null;
     severityCategories: string | null;
 }

@@ -35,16 +35,19 @@ var (
 type ContainerLibsDetector struct {
 	mu sync.RWMutex
 	re *regexp.Regexp
+	// scanHostProc toggles scanning host /proc directly (non-container processes).
+	scanHostProc bool
 	// <proc:path>
 	procLib  map[string]string
 	procSkip map[string]struct{}
 }
 
-func NewContainerLibsDetector() *ContainerLibsDetector {
+func NewContainerLibsDetector(scanHostProc bool) *ContainerLibsDetector {
 	return &ContainerLibsDetector{
-		re:       regexp.MustCompile(REGEX_CONTAINER_ID),
-		procLib:  make(map[string]string),
-		procSkip: make(map[string]struct{}),
+		re:           regexp.MustCompile(REGEX_CONTAINER_ID),
+		scanHostProc: scanHostProc,
+		procLib:      make(map[string]string),
+		procSkip:     make(map[string]struct{}),
 	}
 }
 
@@ -70,7 +73,26 @@ func (cld *ContainerLibsDetector) Start(ctx context.Context, ch chan ContainerOp
 func (cld *ContainerLibsDetector) scan() error {
 	newProcLib := make(map[string]string)
 	newProcSkip := make(map[string]struct{})
-	if err := filepath.WalkDir(CGROUP_DIR, func(path string, d fs.DirEntry, err error) error {
+	if cld.scanHostProc {
+		if err := cld.scanHostProcs(newProcLib, newProcSkip); err != nil {
+			log.Error().Err(err).Msg("failed to scan host proc")
+			return err
+		}
+	} else {
+		if err := cld.scanCgroupProcs(newProcLib, newProcSkip); err != nil {
+			log.Error().Str("cgroup_dir", CGROUP_DIR).Err(err).Msg("failed to walk the cgroup dir")
+			return err
+		}
+	}
+	cld.mu.Lock()
+	cld.procLib = newProcLib
+	cld.procSkip = newProcSkip
+	cld.mu.Unlock()
+	return nil
+}
+
+func (cld *ContainerLibsDetector) scanCgroupProcs(newProcLib map[string]string, newProcSkip map[string]struct{}) error {
+	return filepath.WalkDir(CGROUP_DIR, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return nil
 		}
@@ -88,54 +110,81 @@ func (cld *ContainerLibsDetector) scan() error {
 			if len(proc) == 0 {
 				continue
 			}
-			cld.mu.RLock()
-			if lib, ok := cld.procLib[string(proc)]; ok {
-				newProcLib[string(proc)] = lib
-				cld.mu.RUnlock()
-				continue
-			}
-			if lib, ok := cld.procSkip[string(proc)]; ok {
-				newProcSkip[string(proc)] = lib
-				cld.mu.RUnlock()
-				continue
-			}
-			cld.mu.RUnlock()
-			path, err := os.Readlink(fmt.Sprintf(PROC_EXE_FORMAT, proc))
-			if err != nil {
-				log.Warn().Err(err).Bytes("proc", proc).Msg("failed to readlink")
-				continue
-			}
-			absPath := filepath.Join("/proc", string(proc), "root", path)
-			libsslPath, err := findLibSSLInMaps(fmt.Sprintf(PROC_MAPS_FORMAT, proc))
-			if err != nil {
-				continue
-			}
-			if libsslPath == "" {
-				// check if the binary has libssl statically linked
-				hasOpenSSL, err := findOpenSSLSymbols(absPath)
-				if err != nil {
-					continue
-				}
-				if !hasOpenSSL {
-					newProcSkip[string(proc)] = struct{}{}
-					continue
-				}
-				libsslPath = absPath
-			} else {
-				libsslPath = filepath.Join("/proc", string(proc), "root", libsslPath)
-			}
-			newProcLib[string(proc)] = libsslPath
+			cld.scanProc(string(proc), newProcLib, newProcSkip)
 		}
 		return nil
-	}); err != nil {
-		log.Error().Str("cgroup_dir", CGROUP_DIR).Err(err).Msg("failed to walk the cgroup dir")
+	})
+}
+
+func (cld *ContainerLibsDetector) scanHostProcs(newProcLib map[string]string, newProcSkip map[string]struct{}) error {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
 		return err
 	}
-	cld.mu.Lock()
-	cld.procLib = newProcLib
-	cld.procSkip = newProcSkip
-	cld.mu.Unlock()
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid := entry.Name()
+		if !isNumericPID(pid) {
+			continue
+		}
+		cld.scanProc(pid, newProcLib, newProcSkip)
+	}
 	return nil
+}
+
+func isNumericPID(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		if value[i] < '0' || value[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func (cld *ContainerLibsDetector) scanProc(proc string, newProcLib map[string]string, newProcSkip map[string]struct{}) {
+	cld.mu.RLock()
+	if lib, ok := cld.procLib[proc]; ok {
+		newProcLib[proc] = lib
+		cld.mu.RUnlock()
+		return
+	}
+	if _, ok := cld.procSkip[proc]; ok {
+		newProcSkip[proc] = struct{}{}
+		cld.mu.RUnlock()
+		return
+	}
+	cld.mu.RUnlock()
+
+	path, err := os.Readlink(fmt.Sprintf(PROC_EXE_FORMAT, proc))
+	if err != nil {
+		log.Warn().Err(err).Str("proc", proc).Msg("failed to readlink")
+		return
+	}
+	absPath := filepath.Join("/proc", proc, "root", path)
+	libsslPath, err := findLibSSLInMaps(fmt.Sprintf(PROC_MAPS_FORMAT, proc))
+	if err != nil {
+		return
+	}
+	if libsslPath == "" {
+		// check if the binary has libssl statically linked
+		hasOpenSSL, err := findOpenSSLSymbols(absPath)
+		if err != nil {
+			return
+		}
+		if !hasOpenSSL {
+			newProcSkip[proc] = struct{}{}
+			return
+		}
+		libsslPath = absPath
+	} else {
+		libsslPath = filepath.Join("/proc", proc, "root", libsslPath)
+	}
+	newProcLib[proc] = libsslPath
 }
 
 func findLibSSLInMaps(filename string) (string, error) {

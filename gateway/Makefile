@@ -31,10 +31,10 @@ docker-build:
 	docker build -t watchu/gateway:latest .
 
 compose-up: fmt lint test swagger
-	docker compose up --build
+	docker compose -f ../deploy/docker/docker-compose.yaml up --build
 
 compose-down:
-	docker compose down
+	docker compose -f ../deploy/docker/docker-compose.yaml down
 
 clean:
 	rm -rf $(BIN_DIR)

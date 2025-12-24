@@ -38,10 +38,10 @@ type SSLProbe struct {
 	respChan chan *collector.RawResponse
 }
 
-func NewSSLProbe(sslPath, rustlsPath *string, client *collector.GatewayClient) *SSLProbe {
+func NewSSLProbe(sslPath, rustlsPath *string, scanHostProc bool, client *collector.GatewayClient) *SSLProbe {
 	probs := []TLSProbe{}
 
-	openssl, err := NewOpenSSLProbe(sslPath)
+	openssl, err := NewOpenSSLProbe(sslPath, scanHostProc)
 	if err != nil {
 		log.Panic().Err(err).Msg("failed to create OpenSSL probe")
 	}

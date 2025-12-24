@@ -4,7 +4,7 @@ Hey, Agent! :honeybee: The bees are watching you! :honeybee:
 
 ## Highlights
 
-- Full‑stack telemetry: TLS, HTTP, process, MCP StdIO, and Postgres client events with host/container context.
+- eBPF‑powered telemetry: TLS, HTTP, process, MCP StdIO, and Postgres client events with host/container context.
 - Agent monitoring for claude-code, gemini-cli, and codex (runs, traces, tool use visibility).
 - Zero‑config OpenSSL tracing: auto‑discover libssl in containers and attach uprobes (dynamic or static).
 - Incremental analytics: process lifecycle, correlation, and ready‑to‑query derived tables.
@@ -12,11 +12,25 @@ Hey, Agent! :honeybee: The bees are watching you! :honeybee:
 - LLM‑powered safety signals: prompt‑injection checks, heuristic alerts, and evidence‑backed security insights.
 - Insightful UI: process explorer, traces/agent runs, alerts, and data‑source dashboards.
 
-## Collector Usage
+## Usage
 
-- SSL read/write
-- MCP StdIO
-- Process
+### Local (Docker Required)
+
+```bash
+cd deploy/docker
+# You can customize the following environment variables as needed
+ROMPT_INJECTION_API_BASE=http://host.docker.internal:4000 PROMPT_INJECTION_API_KEY=dump PROMPT_INJECTION_MODEL=github_copilot/gpt-4o PROMPT_INJECTION_MODE=prompt_based THREAT_INSIGHT_BASE_URL=http://host.docker.internal:4000 THREAT_INSIGHT_API_KEY=dump THREAT_INSIGHT_MODEL=github_copilot/gpt-4o docker compose -f docker-compose.yaml up --build
+# Only initialize watchu service or need to migrate the database schema
+atlas migrate apply --url "postgres://watchu:watchu@localhost:5432/watchu?sslmode=disable" --dir "file://../../gateway/db/migrations" -c "file://../../gateway/atlas.hcl"   
+```
+
+### Kubernetes
+
+See [deploy/k8s/README.md](deploy/k8s/README.md) for instructions on deploying WatchU to Kubernetes.
+
+## Development
+
+### Collector
 
 ```bash
 cd collector && make build
@@ -35,7 +49,7 @@ sudo ./collector/bin/app -tetragon-path unix:///var/run/tetragon/tetragon.sock
 sudo ./collector/bin/app
 ```
 
-## Gateway & Frontend Usage
+### Gateway & Frontend Usage
 
 ```bash
 cd gateway && make compose-up

@@ -565,8 +565,8 @@ export function toExportRows(httpEvents: TimelineEvent[], processEvents: Process
         root_exec_id: event.rootExecId,
         severity_level: event.severityLevel ?? "",
         severity_categories: event.severityCategories ?? "",
-        headers: event.headers ?? "",
-        body: event.body ?? "",
+        headers: decodePayload(event.headers) ?? toDisplayString(event.headers) ?? "",
+        body: decodePayload(event.body) ?? toDisplayString(event.body) ?? "",
         comm: "",
         args: ""
     }));
@@ -660,10 +660,6 @@ export function mapHttpEvents(events: ProcessHTTPEventResponse[] | undefined): T
             if (timestampMs == null) {
                 return null;
             }
-            const headers = decodePayload(event.headers);
-            const headersEscaped = preparePayloadContent(headers);
-            const body = decodePayload(event.body);
-            const bodyEscaped = preparePayloadContent(body);
             const httpTypeRaw = toPrimitiveString(event.http_type);
             const httpType = httpTypeRaw ? httpTypeRaw.toUpperCase() : "UNKNOWN";
             const method = toPrimitiveString(event.method);
@@ -690,10 +686,8 @@ export function mapHttpEvents(events: ProcessHTTPEventResponse[] | undefined): T
                 rootPid,
                 execId,
                 rootExecId,
-                headers,
-                headersEscaped,
-                body,
-                bodyEscaped,
+                headers: event.headers ?? null,
+                body: event.body ?? null,
                 severityLevel,
                 severityCategories: categoriesText
             } satisfies TimelineEvent;

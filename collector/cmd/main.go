@@ -27,6 +27,7 @@ func main() {
 	SSLPath := flag.String("ssl-path", "", "extra user binary path to attach SSL uprobes (optional)")
 	// TODO: rustls gets the encrypted data, we need to decrypt with the session key
 	rustlsPath := flag.String("rustls-path", "", "extra user binary path to attach rustls uprobes (optional)")
+	scanHostProc := flag.Bool("scan-host-proc", false, "scan host /proc to detect libssl in non-container processes (optional)")
 	address := flag.String("gateway", "", "the gateway address, e.g., 'http://localhost:8080' (optional). Leave it empty to disable pushing events to the gateway")
 	tetragonPath := flag.String("tetragon-path", "",
 		fmt.Sprintf("the Tetragon gRPC path (Unix domain socket or HTTP) (optional). e.g., '%s'. Leave it empty to disable Tetragon integration", TETRAGON_SOCKET))
@@ -46,7 +47,7 @@ func main() {
 		log.Panic().Err(err).Msg("failed to initialize eBPF")
 	}
 
-	sslProbe := sslsniff.NewSSLProbe(SSLPath, rustlsPath, gatewayClient)
+	sslProbe := sslsniff.NewSSLProbe(SSLPath, rustlsPath, *scanHostProc, gatewayClient)
 	go sslProbe.Start(ctx)
 
 	stdioProbe := stdio.NewStdioProbe(gatewayClient)

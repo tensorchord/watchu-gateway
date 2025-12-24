@@ -50,7 +50,7 @@ spec:
         securityContext:
           privileged: true
         env:
-        - name: NODE_NAME
+        - name: POD_UID
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName

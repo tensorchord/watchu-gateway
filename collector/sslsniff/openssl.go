@@ -147,7 +147,7 @@ type OpenSSLProbe struct {
 	libDetector   *container.ContainerLibsDetector
 }
 
-func NewOpenSSLProbe(sslPath *string) (*OpenSSLProbe, error) {
+func NewOpenSSLProbe(sslPath *string, scanHostProc bool) (*OpenSSLProbe, error) {
 	links := []link.Link{}
 	obj, err := addSSLProbe(sslPath, &links)
 	if obj == nil {
@@ -166,7 +166,7 @@ func NewOpenSSLProbe(sslPath *string) (*OpenSSLProbe, error) {
 		obj:           obj,
 		rb:            rb,
 		dynamicProbes: make(map[container.LibKey]string),
-		libDetector:   container.NewContainerLibsDetector(),
+		libDetector:   container.NewContainerLibsDetector(scanHostProc),
 	}, nil
 }
 

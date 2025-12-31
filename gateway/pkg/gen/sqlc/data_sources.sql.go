@@ -418,10 +418,10 @@ WITH enriched_events AS (
             )
         ) AS inferred_region
     FROM process_s3_events
-    WHERE host = $2
-      AND timestamp >= $3
-      AND timestamp <= $4
-      AND ($5::text IS NULL OR root_exec_id = $5::text)
+    WHERE host = $3
+      AND timestamp >= $4
+      AND timestamp <= $5
+      AND ($6::text IS NULL OR root_exec_id = $6::text)
       AND ($7::text IS NULL OR operation = $7::text)
 )
 SELECT
@@ -448,21 +448,21 @@ SELECT
     operation
 FROM enriched_events
 WHERE (
-    $6::text IS NULL
-    OR ($6::text = '(unknown)' AND (inferred_bucket IS NULL OR inferred_bucket = ''))
-    OR inferred_bucket = $6::text
+    $1::text IS NULL
+    OR ($1::text = '(unknown)' AND (inferred_bucket IS NULL OR inferred_bucket = ''))
+    OR inferred_bucket = $1::text
 )
 ORDER BY timestamp DESC
-LIMIT $1
+LIMIT $2
 `
 
 type ListProcessS3EventsByHostRangeParams struct {
+	Bucket     pgtype.Text
 	Limit      int32
 	Host       string
 	Since      pgtype.Timestamptz
 	Until      pgtype.Timestamptz
 	RootExecID pgtype.Text
-	Bucket     pgtype.Text
 	Operation  pgtype.Text
 }
 
@@ -492,12 +492,12 @@ type ListProcessS3EventsByHostRangeRow struct {
 
 func (q *Queries) ListProcessS3EventsByHostRange(ctx context.Context, arg ListProcessS3EventsByHostRangeParams) ([]ListProcessS3EventsByHostRangeRow, error) {
 	rows, err := q.db.Query(ctx, listProcessS3EventsByHostRange,
+		arg.Bucket,
 		arg.Limit,
 		arg.Host,
 		arg.Since,
 		arg.Until,
 		arg.RootExecID,
-		arg.Bucket,
 		arg.Operation,
 	)
 	if err != nil {
@@ -552,10 +552,10 @@ WITH enriched AS (
             )
         ) AS inferred_bucket
     FROM process_s3_events
-    WHERE process_s3_events.host = $1
-      AND process_s3_events.timestamp >= $2
-      AND process_s3_events.timestamp <= $3
-      AND ($4::text IS NULL OR process_s3_events.root_exec_id = $4::text)
+    WHERE process_s3_events.host = $2
+      AND process_s3_events.timestamp >= $3
+      AND process_s3_events.timestamp <= $4
+      AND ($5::text IS NULL OR process_s3_events.root_exec_id = $5::text)
 )
 SELECT
     COALESCE(NULLIF(inferred_bucket, ''), '(unknown)') AS bucket,
@@ -563,29 +563,29 @@ SELECT
 FROM enriched
 GROUP BY COALESCE(NULLIF(inferred_bucket, ''), '(unknown)')
 ORDER BY hits DESC, bucket ASC
-LIMIT $5
+LIMIT $1
 `
 
 type ListS3BucketsTopNByHostRangeParams struct {
+	Limit      int32
 	Host       string
 	Since      pgtype.Timestamptz
 	Until      pgtype.Timestamptz
 	RootExecID pgtype.Text
-	Limit      int32
 }
 
 type ListS3BucketsTopNByHostRangeRow struct {
-	Bucket pgtype.Text
+	Bucket interface{}
 	Hits   int64
 }
 
 func (q *Queries) ListS3BucketsTopNByHostRange(ctx context.Context, arg ListS3BucketsTopNByHostRangeParams) ([]ListS3BucketsTopNByHostRangeRow, error) {
 	rows, err := q.db.Query(ctx, listS3BucketsTopNByHostRange,
+		arg.Limit,
 		arg.Host,
 		arg.Since,
 		arg.Until,
 		arg.RootExecID,
-		arg.Limit,
 	)
 	if err != nil {
 		return nil, err

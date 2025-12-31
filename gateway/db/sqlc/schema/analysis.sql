@@ -210,6 +210,24 @@ CREATE TABLE IF NOT EXISTS security_analysis_results (
     raw_json JSONB
 );
 
+CREATE TABLE IF NOT EXISTS skill_security_runs (
+    id UUID PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    source_type TEXT NOT NULL,
+    source_ref TEXT NOT NULL,
+    resolved_ref TEXT,
+    artifact_path TEXT,
+    agent_type TEXT NOT NULL,
+    runner_mode TEXT NOT NULL,
+    prompt_strategy TEXT NOT NULL,
+    prompt_input TEXT,
+    status TEXT NOT NULL,
+    error TEXT,
+    root_exec_id TEXT,
+    agent_run_id UUID REFERENCES agent_run(id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS llm_prompt_injection_results (
     request_id UUID NOT NULL,
     host TEXT NOT NULL,

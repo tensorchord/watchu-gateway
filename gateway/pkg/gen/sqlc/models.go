@@ -319,6 +319,24 @@ type SecurityAnalysisResult struct {
 	RawJson         []byte
 }
 
+type SkillSecurityRun struct {
+	ID             pgtype.UUID
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+	SourceType     string
+	SourceRef      string
+	ResolvedRef    pgtype.Text
+	ArtifactPath   pgtype.Text
+	AgentType      string
+	RunnerMode     string
+	PromptStrategy string
+	PromptInput    pgtype.Text
+	Status         string
+	Error          pgtype.Text
+	RootExecID     pgtype.Text
+	AgentRunID     pgtype.UUID
+}
+
 type Trace struct {
 	ID            pgtype.UUID
 	AgentRunID    pgtype.UUID

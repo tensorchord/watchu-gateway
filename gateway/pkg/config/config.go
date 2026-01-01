@@ -41,6 +41,9 @@ type Config struct {
 	ThreatInsightAPIKey  string
 	ThreatInsightModel   string
 	ThreatInsightTimeout time.Duration
+
+	SkillRunnerBaseURL string
+	SkillRunnerTimeout time.Duration
 }
 
 const (
@@ -87,6 +90,9 @@ func Load() (Config, error) {
 		ThreatInsightAPIKey:  os.Getenv("THREAT_INSIGHT_API_KEY"),
 		ThreatInsightModel:   getEnv("THREAT_INSIGHT_MODEL", "gpt-4o"),
 		ThreatInsightTimeout: parseDurationEnv("THREAT_INSIGHT_TIMEOUT", 120*time.Second),
+
+		SkillRunnerBaseURL: strings.TrimSpace(os.Getenv("SKILL_RUNNER_BASE_URL")),
+		SkillRunnerTimeout: parseDurationEnv("SKILL_RUNNER_TIMEOUT", 30*time.Second),
 	}
 
 	if cfg.DatabaseURL == "" {

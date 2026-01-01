@@ -39,6 +39,36 @@ func (q *Queries) GetAgentRunByID(ctx context.Context, id pgtype.UUID) (AgentRun
 	return i, err
 }
 
+const getAgentRunByRootExecID = `-- name: GetAgentRunByRootExecID :one
+SELECT
+    id,
+    host,
+    root_exec_id,
+    root_pid,
+    provider,
+    started_at,
+    ended_at
+FROM agent_run
+WHERE root_exec_id = $1
+ORDER BY started_at DESC NULLS LAST
+LIMIT 1
+`
+
+func (q *Queries) GetAgentRunByRootExecID(ctx context.Context, rootExecID pgtype.Text) (AgentRun, error) {
+	row := q.db.QueryRow(ctx, getAgentRunByRootExecID, rootExecID)
+	var i AgentRun
+	err := row.Scan(
+		&i.ID,
+		&i.Host,
+		&i.RootExecID,
+		&i.RootPid,
+		&i.Provider,
+		&i.StartedAt,
+		&i.EndedAt,
+	)
+	return i, err
+}
+
 const getHTTPRequestByHostAndID = `-- name: GetHTTPRequestByHostAndID :one
 SELECT
     id,

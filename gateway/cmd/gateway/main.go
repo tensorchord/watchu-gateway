@@ -18,6 +18,7 @@ import (
 	"github.com/tensorchord/watchu/gateway/pkg/ingest"
 	"github.com/tensorchord/watchu/gateway/pkg/securityinsight"
 	"github.com/tensorchord/watchu/gateway/pkg/server"
+	"github.com/tensorchord/watchu/gateway/pkg/skillsecurity"
 )
 
 func main() {
@@ -70,11 +71,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	var skillSecuritySvc *skillsecurity.Service
+	if cfg.SkillRunnerBaseURL != "" {
+		runnerClient := skillsecurity.NewRunnerClient(cfg.SkillRunnerBaseURL, cfg.SkillRunnerTimeout)
+		skillSecuritySvc = skillsecurity.NewService(queries, runnerClient, securityInsightSvc, slog.Default())
+	}
+
 	router := httpapi.NewRouter(httpapi.Dependencies{
 		Ingest:          ingestService,
 		Queries:         queries,
 		Pool:            pool,
 		SecurityInsight: securityInsightSvc,
+		SkillSecurity:   skillSecuritySvc,
 	})
 	srv := server.New(cfg.Address, router)
 

@@ -16,6 +16,7 @@ import (
 	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
 	"github.com/tensorchord/watchu/gateway/pkg/ingest"
 	"github.com/tensorchord/watchu/gateway/pkg/securityinsight"
+	"github.com/tensorchord/watchu/gateway/pkg/skillsecurity"
 )
 
 // Dependencies captures services the HTTP layer relies on.
@@ -24,6 +25,7 @@ type Dependencies struct {
 	Queries         *sqlc.Queries
 	Pool            *pgxpool.Pool
 	SecurityInsight *securityinsight.Service
+	SkillSecurity   *skillsecurity.Service
 }
 
 // PromptReadiness exposes readiness for prompt injection integrations.
@@ -74,6 +76,10 @@ func NewRouter(deps Dependencies) *gin.Engine {
 
 	if deps.SecurityInsight != nil {
 		registerSecurityInsightRoutes(api, deps.SecurityInsight)
+	}
+
+	if deps.SkillSecurity != nil {
+		registerSkillSecurityRoutes(api, deps.SkillSecurity)
 	}
 
 	return engine

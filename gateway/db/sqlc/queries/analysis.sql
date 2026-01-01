@@ -221,6 +221,20 @@ SELECT
 FROM agent_run
 WHERE id = $1;
 
+-- name: GetAgentRunByRootExecID :one
+SELECT
+    id,
+    host,
+    root_exec_id,
+    root_pid,
+    provider,
+    started_at,
+    ended_at
+FROM agent_run
+WHERE root_exec_id = $1
+ORDER BY started_at DESC NULLS LAST
+LIMIT 1;
+
 -- name: ListTracesByAgentRun :many
 SELECT
     id,

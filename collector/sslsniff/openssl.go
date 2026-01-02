@@ -18,7 +18,7 @@ import (
 
 const MAX_DYNAMIC_CHANNEL_SIZE = 16
 
-func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links *[]link.Link) error {
+func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string) ([]link.Link, error) {
 	probes := []struct {
 		symbol string
 		prog   *ebpf.Program
@@ -49,10 +49,9 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links
 		for _, link := range newLinks {
 			_ = link.Close()
 		}
-		return fmt.Errorf("failed to inject the prog %d/%d", failedProbes, len(probes))
+		return nil, fmt.Errorf("failed to inject the prog %d/%d", failedProbes, len(probes))
 	}
-	*links = append(*links, newLinks...)
-	return nil
+	return newLinks, nil
 }
 
 var libSSLCandidates = []string{
@@ -129,8 +128,11 @@ func addSSLProbe(sslPath *string, links *[]link.Link) (*sslObjects, error) {
 		if err != nil {
 			final = errors.Join(final, fmt.Errorf("failed to open OpenSSL file %s: %w", p, err))
 		}
-		if err = attachSSLProbes(exec, &sslObjs, p, links); err != nil {
+		newLinks, err := attachSSLProbes(exec, &sslObjs, p)
+		if err != nil {
 			final = errors.Join(final, fmt.Errorf("failed to inject OpenSSL probes to %s: %w", p, err))
+		} else if len(newLinks) > 0 {
+			*links = append(*links, newLinks...)
 		}
 		log.Info().Str("path", p).Msg("attaching SSL uprobes")
 	}
@@ -142,7 +144,7 @@ type OpenSSLProbe struct {
 	links         []link.Link
 	obj           *sslObjects
 	rb            *ringbuf.Reader
-	mu            sync.Mutex
+	mu            sync.Mutex // protect the links & probes during the dynamic detection
 	dynamicProbes map[container.LibKey]string
 	libDetector   *container.ContainerLibsDetector
 }
@@ -176,17 +178,23 @@ func (op *OpenSSLProbe) Start(ctx context.Context) {
 	for containerLibs := range channel {
 		for key, path := range containerLibs.Libs {
 			op.mu.Lock()
-			if _, ok := op.dynamicProbes[key]; ok {
+			_, exist := op.dynamicProbes[key]
+			op.mu.Unlock()
+			if exist {
 				continue
 			}
 			exec, err := link.OpenExecutable(path)
 			if err != nil {
 				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to open the SSL lib")
 			}
-			if err = attachSSLProbes(exec, op.obj, path, &op.links); err != nil {
+			newLinks, err := attachSSLProbes(exec, op.obj, path)
+			if err != nil {
 				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to attach SSL probes to the lib")
+				continue
 			}
 			log.Info().Str("path", path).Any("key", key).Msg("attaching dynamic SSL uprobes")
+			op.mu.Lock()
+			op.links = append(op.links, newLinks...)
 			op.dynamicProbes[key] = path
 			op.mu.Unlock()
 		}

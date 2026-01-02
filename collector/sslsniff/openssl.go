@@ -186,7 +186,10 @@ func (op *OpenSSLProbe) Start(ctx context.Context) {
 			exec, err := link.OpenExecutable(path)
 			if err != nil {
 				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to open the SSL lib")
+				continue
 			}
+			// There is no Time-of-Check to Time-of-Use (TOCTOU) issue here because
+			// this loop on the channel can only be consumed by one goroutine.
 			newLinks, err := attachSSLProbes(exec, op.obj, path)
 			if err != nil {
 				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to attach SSL probes to the lib")

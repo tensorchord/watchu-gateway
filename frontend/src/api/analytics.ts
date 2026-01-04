@@ -12,7 +12,9 @@ import {
     SecurityLLMAnalysisResponse,
     AgentRunResponse,
     TraceGraphResponse,
-    ThreatAnalysisResponse
+    ThreatAnalysisResponse,
+    SkillSecurityRunCreateRequest,
+    SkillSecurityRunResponse
 } from "../types/api";
 
 function toQueryTimestamp(value: Dayjs): string {
@@ -393,5 +395,27 @@ export async function fetchTraceGraph(host: string, agentRunId: string) {
     const { data } = await apiClient.get<TraceGraphResponse>(`/analysis/agent_runs/${agentRunId}/traces`, {
         params: { host }
     });
+    return data;
+}
+
+export async function createSkillSecurityRun(payload: SkillSecurityRunCreateRequest) {
+    const { data } = await apiClient.post<SkillSecurityRunResponse>("/skill-security/runs", payload);
+    return data;
+}
+
+export async function fetchSkillSecurityRuns(params?: { status?: string; sourceType?: string; limit?: number; offset?: number }) {
+    const { data } = await apiClient.get<SkillSecurityRunResponse[]>("/skill-security/runs", {
+        params: {
+            status: params?.status,
+            source_type: params?.sourceType,
+            limit: params?.limit,
+            offset: params?.offset
+        }
+    });
+    return data;
+}
+
+export async function fetchSkillSecurityRun(id: string) {
+    const { data } = await apiClient.get<SkillSecurityRunResponse>(`/skill-security/runs/${encodeURIComponent(id)}`);
     return data;
 }

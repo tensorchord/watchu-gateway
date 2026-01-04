@@ -1,11 +1,12 @@
 import { useMemo } from "react";
 import { Layout, Menu, Typography } from "antd";
-import { ApartmentOutlined, BranchesOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined, RobotOutlined, SafetyCertificateOutlined, ShareAltOutlined } from "@ant-design/icons";
+import { ApartmentOutlined, BranchesOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined, RobotOutlined, SafetyCertificateOutlined, ShareAltOutlined, ShieldOutlined } from "@ant-design/icons";
 import { Link, Route, Routes, useLocation } from "react-router-dom";
 
 import Dashboard from "./pages/Dashboard";
 import DataSources from "./pages/DataSources";
 import AgentDashboard from "./pages/AgentDashboard";
+import SkillSecurity from "./pages/SkillSecurity";
 import ProcessIndex from "./pages/ProcessIndex";
 import ProcessDetails from "./pages/ProcessDetails";
 import HeuristicAlerts from "./pages/HeuristicAlerts";
@@ -35,7 +36,8 @@ const menuItems: NonNullable<MenuItem> = [
         type: "group" as const,
         children: [
             { key: "/trace", icon: <ShareAltOutlined />, label: <Link to="/trace">Agent Trace Explorer</Link> },
-            { key: "/agent-dashboard", icon: <DashboardOutlined />, label: <Link to="/agent-dashboard">Agent Dashboard</Link> }
+            { key: "/agent-dashboard", icon: <DashboardOutlined />, label: <Link to="/agent-dashboard">Agent Dashboard</Link> },
+            { key: "/skill-security", icon: <ShieldOutlined />, label: <Link to="/skill-security">Skill Security</Link> }
         ]
     }
 ];
@@ -56,7 +58,8 @@ function AppShell() {
             "/alerts",
             "/data-sources",
             "/trace",
-            "/agent-dashboard"
+            "/agent-dashboard",
+            "/skill-security"
         ];
         return flatKeys.find((key) => location.pathname.startsWith(key)) ?? location.pathname;
     }, [location.pathname]);
@@ -85,6 +88,7 @@ function AppShell() {
                         <Route path="/security" element={<Dashboard view="security" />} />
                         <Route path="/data-sources" element={<DataSources />} />
                         <Route path="/agent-dashboard" element={<AgentDashboard />} />
+                        <Route path="/skill-security" element={<SkillSecurity />} />
                         <Route path="/processes" element={<ProcessIndex />} />
                         <Route path="/processes/:rootPid" element={<ProcessDetails />} />
                         <Route path="/alerts" element={<HeuristicAlerts />} />

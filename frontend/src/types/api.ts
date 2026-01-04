@@ -123,3 +123,32 @@ export interface ThreatAnalysisResponse {
     recommendations: string[];
     evidence: Record<string, unknown>[];
 }
+
+export interface SkillSecurityRunCreateRequest {
+    source_type: string;
+    source_ref: string;
+    runner_mode: string;
+    agent_type?: string | null;
+    prompt_strategy?: string | null;
+    prompt_input?: string | null;
+    resolved_ref?: string | null;
+    artifact_path?: string | null;
+}
+
+export interface SkillSecurityRunResponse {
+    id: string;
+    created_at?: string | null;
+    updated_at?: string | null;
+    source_type: string;
+    source_ref: string;
+    resolved_ref?: string | null;
+    artifact_path?: string | null;
+    agent_type: string;
+    runner_mode: string;
+    prompt_strategy: string;
+    prompt_input?: string | null;
+    status: string;
+    error?: string | null;
+    root_exec_id?: string | null;
+    agent_run_id?: string | null;
+}

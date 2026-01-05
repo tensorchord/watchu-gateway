@@ -65,14 +65,14 @@ func NewSSLProbe(sslPath, rustlsPath *string, client *collector.GatewayClient) *
 		if _, exist := probes[*key]; exist {
 			continue
 		}
-		prob, err := NewOpenSSLProbe(path)
+		probe, err := NewOpenSSLProbe(path)
 		if err != nil {
 			log.Error().Err(err).Str("path", path).Msg("failed to create OpenSSL probe")
 			continue
 		}
-		if prob != nil {
+		if probe != nil {
 			log.Info().Any("key", key).Int("index", i).Str("path", path).Msg("attached OpenSSL library")
-			probes[*key] = prob
+			probes[*key] = probe
 		}
 	}
 
@@ -97,13 +97,13 @@ func NewSSLProbe(sslPath, rustlsPath *string, client *collector.GatewayClient) *
 	}
 }
 
-func handle(key container.LibKey, prob TLSProbe, store *SSLStore) {
+func handle(key container.LibKey, probe TLSProbe, store *SSLStore) {
 	logger := log.DefaultLogger
 	logger.Context = log.NewContext(nil).Any("key", key).Value()
 	var event sslEvent
 
 	for {
-		record, err := prob.ReadBuffer()
+		record, err := probe.ReadBuffer()
 		if err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
 				logger.Info().Msg("SSL ringbuf closed")
@@ -163,6 +163,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 	go container.NewContainerLibsDetector().Start(ctx, channel)
 	for containerLibs := range channel {
 		for key, path := range containerLibs.Libs {
+			// there is no Time-of-Check to Time-of-Use (TOCTOU) here
 			sp.mu.Lock()
 			_, exist := sp.probes[key]
 			sp.mu.Unlock()

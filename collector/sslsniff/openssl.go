@@ -4,14 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"sync"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
 
-	"github.com/tensorchord/watchu/collector/internal/container"
 	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
@@ -115,12 +113,9 @@ func addSSLProbe(sslPath string) ([]link.Link, *sslObjects, error) {
 }
 
 type OpenSSLProbe struct {
-	links         []link.Link
-	obj           *sslObjects
-	rb            *ringbuf.Reader
-	mu            sync.Mutex // protect the links & probes during the dynamic detection
-	dynamicProbes map[container.LibKey]string
-	libDetector   *container.ContainerLibsDetector
+	links []link.Link
+	obj   *sslObjects
+	rb    *ringbuf.Reader
 }
 
 func NewOpenSSLProbe(sslPath string) (*OpenSSLProbe, error) {
@@ -133,11 +128,9 @@ func NewOpenSSLProbe(sslPath string) (*OpenSSLProbe, error) {
 		return nil, fmt.Errorf("failed to open OpenSSL ringbuf reader: %w", err)
 	}
 	return &OpenSSLProbe{
-		links:         links,
-		obj:           obj,
-		rb:            rb,
-		dynamicProbes: make(map[container.LibKey]string),
-		libDetector:   container.NewContainerLibsDetector(),
+		links: links,
+		obj:   obj,
+		rb:    rb,
 	}, nil
 }
 
@@ -153,12 +146,10 @@ func (op *OpenSSLProbe) Close() error {
 	if err := op.rb.Close(); err != nil {
 		final = errors.Join(final, fmt.Errorf("failed to close OpenSSL ringbuf reader: %w", err))
 	}
-	op.mu.Lock()
 	for i, l := range op.links {
 		if err := l.Close(); err != nil {
 			final = errors.Join(final, fmt.Errorf("failed to close %d-OpenSSL link: %w", i, err))
 		}
 	}
-	op.mu.Unlock()
 	return final
 }

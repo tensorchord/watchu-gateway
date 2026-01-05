@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Layout, Menu, Typography } from "antd";
-import { ApartmentOutlined, BranchesOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined, RobotOutlined, SafetyCertificateOutlined, ShareAltOutlined, ShieldOutlined } from "@ant-design/icons";
+import { ApartmentOutlined, BranchesOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined, RobotOutlined, SafetyCertificateOutlined, ShareAltOutlined } from "@ant-design/icons";
 import { Link, Route, Routes, useLocation } from "react-router-dom";
 
 import Dashboard from "./pages/Dashboard";
@@ -37,7 +37,7 @@ const menuItems: NonNullable<MenuItem> = [
         children: [
             { key: "/trace", icon: <ShareAltOutlined />, label: <Link to="/trace">Agent Trace Explorer</Link> },
             { key: "/agent-dashboard", icon: <DashboardOutlined />, label: <Link to="/agent-dashboard">Agent Dashboard</Link> },
-            { key: "/skill-security", icon: <ShieldOutlined />, label: <Link to="/skill-security">Skill Security</Link> }
+            { key: "/skill-security", icon: <SafetyCertificateOutlined />, label: <Link to="/skill-security">Skill Security</Link> }
         ]
     }
 ];

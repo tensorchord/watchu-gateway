@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -189,7 +190,7 @@ func (h analyticsHandlers) getDataSourceSummary(c *gin.Context) {
 	bucketsTop := make([]S3BucketTopResponse, 0, len(s3Buckets))
 	for _, row := range s3Buckets {
 		bucketsTop = append(bucketsTop, S3BucketTopResponse{
-			Bucket: row.Bucket.String,
+			Bucket: bucketString(row.Bucket),
 			Hits:   row.Hits,
 		})
 	}
@@ -291,9 +292,25 @@ func (h analyticsHandlers) getS3Buckets(c *gin.Context) {
 
 	resp := make([]S3BucketTopResponse, 0, len(rows))
 	for _, row := range rows {
-		resp = append(resp, S3BucketTopResponse{Bucket: row.Bucket.String, Hits: row.Hits})
+		resp = append(resp, S3BucketTopResponse{Bucket: bucketString(row.Bucket), Hits: row.Hits})
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+func bucketString(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	switch v := value.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	case fmt.Stringer:
+		return v.String()
+	default:
+		return fmt.Sprint(v)
+	}
 }
 
 func (h analyticsHandlers) getS3Operations(c *gin.Context) {

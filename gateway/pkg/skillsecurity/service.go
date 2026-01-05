@@ -120,7 +120,7 @@ func (s *Service) CreateRun(ctx context.Context, input CreateRunInput) (sqlc.Ski
 			RootExecID: textOrNull(rootExecID),
 			AgentRunID: agentRunID,
 			Status:     status,
-			UpdatedAt:  timestamptzNow(s.now()),
+			UpdatedAt:  timestamptzNow(s.now),
 		})
 	} else {
 		_ = s.updateStatus(ctx, run.ID, status, resp.Error)
@@ -157,7 +157,7 @@ func (s *Service) updateStatus(ctx context.Context, id pgtype.UUID, status, errM
 		ID:        id,
 		Status:    status,
 		Error:     textOrNull(errMsg),
-		UpdatedAt: timestamptzNow(s.now()),
+		UpdatedAt: timestamptzNow(s.now),
 	})
 }
 

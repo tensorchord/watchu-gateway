@@ -1,7 +1,6 @@
 package sslsniff
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
@@ -35,8 +34,6 @@ func NewRusTLSProbe(rustlsPath *string) (*RusTLSProbe, error) {
 		rb:    rb,
 	}, nil
 }
-
-func (rp *RusTLSProbe) Start(ctx context.Context) {}
 
 func (rp *RusTLSProbe) ReadBuffer() (ringbuf.Record, error) {
 	return rp.rb.Read()

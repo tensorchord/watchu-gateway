@@ -1,7 +1,6 @@
 package sslsniff
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -71,7 +70,7 @@ var libSDirs = []string{
 	"/usr/local/lib64",
 }
 
-func findLibSSLPath() (string, error) {
+func findLibOpenSSLPath() (string, error) {
 	for _, path := range libSSLCandidates {
 		if ok, err := tool.IsFilePath(path); err == nil && ok {
 			return path, nil
@@ -92,52 +91,28 @@ func findLibSSLPath() (string, error) {
 	return "", fmt.Errorf("libssl not found, please set the path via args `--ssl-path`")
 }
 
-func addSSLProbe(sslPath *string, links *[]link.Link) (*sslObjects, error) {
-	attachPaths := []string{}
-	libPaths, err := findLibSSLPath()
-	if err != nil {
-		log.Warn().Err(err).Msg("cannot find the libssl path from the common paths")
-	} else {
-		attachPaths = append(attachPaths, libPaths)
-	}
-
-	if sslPath != nil && len(*sslPath) > 0 {
-		if ok, err := tool.IsFilePath(*sslPath); err != nil || !ok {
-			return nil, fmt.Errorf("invalid SSL file path: %w", err)
-		}
-		attachPaths = append(attachPaths, *sslPath)
-	}
-	if len(attachPaths) == 0 {
-		log.Warn().Msg("no valid libssl path to attach")
-	}
-	log.Info().Any("default_path", attachPaths).Msg("using libssl")
-
+func addSSLProbe(sslPath string) ([]link.Link, *sslObjects, error) {
 	sslObjs := sslObjects{}
 	SSLSpec, err := ebpf.LoadCollectionSpec(sslSpecPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load eBPF spec: %w", err)
+		return nil, nil, fmt.Errorf("failed to load eBPF spec: %w", err)
 	}
 
 	if err := SSLSpec.LoadAndAssign(&sslObjs, nil); err != nil {
-		return nil, fmt.Errorf("failed to load and assign eBPF objects: %w", err)
+		return nil, nil, fmt.Errorf("failed to load and assign eBPF objects: %w", err)
 	}
 
 	var final error
-	for _, p := range attachPaths {
-		exec, err := link.OpenExecutable(p)
-		if err != nil {
-			final = errors.Join(final, fmt.Errorf("failed to open OpenSSL file %s: %w", p, err))
-		}
-		newLinks, err := attachSSLProbes(exec, &sslObjs, p)
-		if err != nil {
-			final = errors.Join(final, fmt.Errorf("failed to inject OpenSSL probes to %s: %w", p, err))
-		} else if len(newLinks) > 0 {
-			*links = append(*links, newLinks...)
-		}
-		log.Info().Str("path", p).Msg("attaching SSL uprobes")
+	exec, err := link.OpenExecutable(sslPath)
+	if err != nil {
+		final = errors.Join(final, fmt.Errorf("failed to open OpenSSL file %s: %w", sslPath, err))
+	}
+	links, err := attachSSLProbes(exec, &sslObjs, sslPath)
+	if err != nil {
+		final = errors.Join(final, fmt.Errorf("failed to inject OpenSSL probes to %s: %w", sslPath, err))
 	}
 
-	return &sslObjs, final
+	return links, &sslObjs, final
 }
 
 type OpenSSLProbe struct {
@@ -149,15 +124,10 @@ type OpenSSLProbe struct {
 	libDetector   *container.ContainerLibsDetector
 }
 
-func NewOpenSSLProbe(sslPath *string) (*OpenSSLProbe, error) {
-	links := []link.Link{}
-	obj, err := addSSLProbe(sslPath, &links)
-	if obj == nil {
-		return nil, fmt.Errorf("failed to create OpenSSL probe: %w", err)
-	}
-	// continuous as long as some probes work
+func NewOpenSSLProbe(sslPath string) (*OpenSSLProbe, error) {
+	links, obj, err := addSSLProbe(sslPath)
 	if err != nil {
-		log.Warn().Err(err).Msg("some errors occurred while attaching OpenSSL probes")
+		return nil, fmt.Errorf("failed to create OpenSSL probe: %w", err)
 	}
 	rb, err := ringbuf.NewReader(obj.Events)
 	if err != nil {
@@ -170,38 +140,6 @@ func NewOpenSSLProbe(sslPath *string) (*OpenSSLProbe, error) {
 		dynamicProbes: make(map[container.LibKey]string),
 		libDetector:   container.NewContainerLibsDetector(),
 	}, nil
-}
-
-func (op *OpenSSLProbe) Start(ctx context.Context) {
-	channel := make(chan container.ContainerOpenSSL, MAX_DYNAMIC_CHANNEL_SIZE)
-	go op.libDetector.Start(ctx, channel)
-	for containerLibs := range channel {
-		for key, path := range containerLibs.Libs {
-			op.mu.Lock()
-			_, exist := op.dynamicProbes[key]
-			op.mu.Unlock()
-			if exist {
-				continue
-			}
-			exec, err := link.OpenExecutable(path)
-			if err != nil {
-				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to open the SSL lib")
-				continue
-			}
-			// There is no Time-of-Check to Time-of-Use (TOCTOU) issue here because
-			// this loop on the channel can only be consumed by one goroutine.
-			newLinks, err := attachSSLProbes(exec, op.obj, path)
-			if err != nil {
-				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to attach SSL probes to the lib")
-				continue
-			}
-			log.Info().Str("path", path).Any("key", key).Msg("attaching dynamic SSL uprobes")
-			op.mu.Lock()
-			op.links = append(op.links, newLinks...)
-			op.dynamicProbes[key] = path
-			op.mu.Unlock()
-		}
-	}
 }
 
 func (op *OpenSSLProbe) ReadBuffer() (ringbuf.Record, error) {

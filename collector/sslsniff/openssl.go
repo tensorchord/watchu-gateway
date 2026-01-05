@@ -102,17 +102,16 @@ func addSSLProbe(sslPath string) ([]link.Link, *sslObjects, error) {
 		return nil, nil, fmt.Errorf("failed to load and assign eBPF objects: %w", err)
 	}
 
-	var final error
 	exec, err := link.OpenExecutable(sslPath)
 	if err != nil {
-		final = errors.Join(final, fmt.Errorf("failed to open OpenSSL file %s: %w", sslPath, err))
+		return nil, nil, fmt.Errorf("failed to open OpenSSL file %s: %w", sslPath, err)
 	}
 	links, err := attachSSLProbes(exec, &sslObjs, sslPath)
 	if err != nil {
-		final = errors.Join(final, fmt.Errorf("failed to inject OpenSSL probes to %s: %w", sslPath, err))
+		return nil, nil, fmt.Errorf("failed to inject OpenSSL probes to %s: %w", sslPath, err)
 	}
 
-	return links, &sslObjs, final
+	return links, &sslObjs, nil
 }
 
 type OpenSSLProbe struct {

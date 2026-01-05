@@ -190,6 +190,22 @@ type LibKey struct {
 	INode    uint64
 }
 
+func FindLibKey(path string) (*LibKey, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat libssl path: %w", err)
+	}
+	stat, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil, fmt.Errorf("failed to get stat_t for libssl path")
+	}
+	key := LibKey{
+		DeviceID: stat.Dev,
+		INode:    stat.Ino,
+	}
+	return &key, nil
+}
+
 type ContainerOpenSSL struct {
 	Libs map[LibKey]string
 }
@@ -201,21 +217,12 @@ func (cld *ContainerLibsDetector) Export() ContainerOpenSSL {
 		Libs: make(map[LibKey]string),
 	}
 	for _, libPath := range cld.procLib {
-		fi, err := os.Stat(libPath)
+		key, err := FindLibKey(libPath)
 		if err != nil {
-			log.Warn().Err(err).Str("path", libPath).Msg("failed to stat libssl path")
+			log.Error().Err(err).Str("lib_path", libPath).Msg("failed to find lib key")
 			continue
 		}
-		stat, ok := fi.Sys().(*syscall.Stat_t)
-		if !ok {
-			log.Warn().Str("path", libPath).Msg("failed to get stat_t")
-			continue
-		}
-		key := LibKey{
-			DeviceID: stat.Dev,
-			INode:    stat.Ino,
-		}
-		res.Libs[key] = libPath
+		res.Libs[*key] = libPath
 	}
 	return res
 }

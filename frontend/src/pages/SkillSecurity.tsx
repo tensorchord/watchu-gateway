@@ -1,10 +1,13 @@
-import { Button, Card, Col, Form, Input, message, Row, Select, Space, Table, Tag, Typography } from "antd";
-import { useMemo, useState } from "react";
+import { Button, Card, Col, Form, Input, message, Row, Select, Space, Table, Tag, Typography, Upload } from "antd";
+import type { UploadFile, UploadProps } from "antd";
+import type { RcFile } from "antd/es/upload";
+import { UploadOutlined } from "@ant-design/icons";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 
-import { createSkillSecurityRun, fetchSkillSecurityRun, fetchSkillSecurityRuns, fetchTraceGraph } from "../api/analytics";
-import type { SkillSecurityRunCreateRequest, SkillSecurityRunResponse, TraceGraphResponse } from "../types/api";
+import { createSkillSecurityRun, fetchSkillSecurityRun, fetchSkillSecurityRuns, fetchTraceGraph, uploadSkillSecurityArtifact } from "../api/analytics";
+import type { SkillSecurityRunCreateRequest, SkillSecurityRunResponse, SkillSecurityUploadResponse, TraceGraphResponse } from "../types/api";
 import { useSettings } from "../context/SettingsContext";
 import ThreatAnalysis from "../components/ThreatAnalysis";
 
@@ -43,6 +46,8 @@ export default function SkillSecurity() {
     const queryClient = useQueryClient();
     const { host } = useSettings();
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [fileList, setFileList] = useState<UploadFile[]>([]);
+    const sourceType = Form.useWatch("source_type", form);
 
     const runsQuery = useQuery({
         queryKey: ["skill-security-runs"],
@@ -72,6 +77,39 @@ export default function SkillSecurity() {
             message.error(err.message);
         }
     });
+
+    useEffect(() => {
+        if (sourceType !== "upload") {
+            setFileList([]);
+            form.setFieldsValue({ artifact_path: undefined });
+        }
+    }, [sourceType, form]);
+
+    const uploadProps: UploadProps = {
+        fileList,
+        maxCount: 1,
+        beforeUpload: () => false,
+        customRequest: async (options) => {
+            try {
+                const file = options.file as RcFile;
+                const resp: SkillSecurityUploadResponse = await uploadSkillSecurityArtifact(file as File);
+                form.setFieldsValue({
+                    artifact_path: resp.artifact_path,
+                    source_ref: resp.source_ref
+                });
+                setFileList([{ uid: file.uid, name: resp.source_ref, status: "done" }]);
+                options.onSuccess?.(resp, new XMLHttpRequest());
+            } catch (err) {
+                options.onError?.(err as Error);
+                message.error("Upload failed");
+            }
+        },
+        onRemove: () => {
+            setFileList([]);
+            form.setFieldsValue({ artifact_path: undefined, source_ref: undefined });
+            return true;
+        }
+    };
 
     const columns = useMemo(() => [
         {
@@ -139,15 +177,24 @@ export default function SkillSecurity() {
             <Card title="Create Run">
                 <Form form={form} layout="vertical" onFinish={onSubmit} initialValues={{ source_type: "github", runner_mode: "local", prompt_strategy: "auto" }}>
                     <Row gutter={16}>
+                        <Form.Item name="source_ref" hidden />
                         <Col xs={24} md={6}>
                             <Form.Item label="Source Type" name="source_type" rules={[{ required: true }]}> 
                                 <Select options={sourceOptions} />
                             </Form.Item>
                         </Col>
                         <Col xs={24} md={10}>
-                            <Form.Item label="Source Ref" name="source_ref" rules={[{ required: true }]}> 
-                                <Input placeholder="GitHub URL or local path" />
-                            </Form.Item>
+                            {sourceType === "upload" ? (
+                                <Form.Item label="Skill Upload" required>
+                                    <Upload {...uploadProps}>
+                                        <Button icon={<UploadOutlined />}>Upload Skill</Button>
+                                    </Upload>
+                                </Form.Item>
+                            ) : (
+                                <Form.Item label="Source Ref" name="source_ref" rules={[{ required: true }]}>
+                                    <Input placeholder="GitHub URL or local path" />
+                                </Form.Item>
+                            )}
                         </Col>
                         <Col xs={24} md={8}>
                             <Form.Item label="Runner Mode" name="runner_mode" rules={[{ required: true }]}> 
@@ -167,8 +214,8 @@ export default function SkillSecurity() {
                             </Form.Item>
                         </Col>
                         <Col xs={24} md={8}>
-                            <Form.Item label="Artifact Path" name="artifact_path"> 
-                                <Input placeholder="Optional resolved path" />
+                            <Form.Item label="Artifact Path" name="artifact_path">
+                                <Input placeholder="Optional resolved path" disabled={sourceType === "upload"} />
                             </Form.Item>
                         </Col>
                     </Row>

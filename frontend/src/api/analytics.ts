@@ -14,7 +14,8 @@ import {
     TraceGraphResponse,
     ThreatAnalysisResponse,
     SkillSecurityRunCreateRequest,
-    SkillSecurityRunResponse
+    SkillSecurityRunResponse,
+    SkillSecurityUploadResponse
 } from "../types/api";
 
 function toQueryTimestamp(value: Dayjs): string {
@@ -417,5 +418,16 @@ export async function fetchSkillSecurityRuns(params?: { status?: string; sourceT
 
 export async function fetchSkillSecurityRun(id: string) {
     const { data } = await apiClient.get<SkillSecurityRunResponse>(`/skill-security/runs/${encodeURIComponent(id)}`);
+    return data;
+}
+
+export async function uploadSkillSecurityArtifact(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    const { data } = await apiClient.post<SkillSecurityUploadResponse>("/skill-security/uploads", formData, {
+        headers: {
+            "Content-Type": "multipart/form-data"
+        }
+    });
     return data;
 }

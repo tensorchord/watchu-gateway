@@ -44,6 +44,7 @@ type Config struct {
 
 	SkillRunnerBaseURL string
 	SkillRunnerTimeout time.Duration
+	SkillUploadDir     string
 }
 
 const (
@@ -93,6 +94,7 @@ func Load() (Config, error) {
 
 		SkillRunnerBaseURL: strings.TrimSpace(os.Getenv("SKILL_RUNNER_BASE_URL")),
 		SkillRunnerTimeout: parseDurationEnv("SKILL_RUNNER_TIMEOUT", 30*time.Second),
+		SkillUploadDir:     getEnv("SKILL_UPLOAD_DIR", "/tmp/watchu-skill-uploads"),
 	}
 
 	if cfg.DatabaseURL == "" {

@@ -26,6 +26,7 @@ type Dependencies struct {
 	Pool            *pgxpool.Pool
 	SecurityInsight *securityinsight.Service
 	SkillSecurity   *skillsecurity.Service
+	SkillUploadDir  string
 }
 
 // PromptReadiness exposes readiness for prompt injection integrations.
@@ -79,7 +80,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	}
 
 	if deps.SkillSecurity != nil {
-		registerSkillSecurityRoutes(api, deps.SkillSecurity)
+		registerSkillSecurityRoutes(api, deps.SkillSecurity, deps.SkillUploadDir)
 	}
 
 	return engine

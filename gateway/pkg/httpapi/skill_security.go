@@ -2,7 +2,10 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,7 +19,8 @@ import (
 )
 
 type skillSecurityHandlers struct {
-	service *skillsecurity.Service
+	service   *skillsecurity.Service
+	uploadDir string
 }
 
 type SkillSecurityRunCreateRequest struct {
@@ -46,6 +50,12 @@ type SkillSecurityRunResponse struct {
 	Error          *string    `json:"error,omitempty"`
 	RootExecID     *string    `json:"root_exec_id,omitempty"`
 	AgentRunID     *string    `json:"agent_run_id,omitempty"`
+}
+
+type SkillSecurityUploadResponse struct {
+	ArtifactPath string `json:"artifact_path"`
+	SourceRef    string `json:"source_ref"`
+	SizeBytes    int64  `json:"size_bytes"`
 }
 
 // createSkillSecurityRun godoc
@@ -164,15 +174,62 @@ func (h skillSecurityHandlers) listRuns(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-func registerSkillSecurityRoutes(group *gin.RouterGroup, service *skillsecurity.Service) {
+// uploadSkillSecurityArtifact godoc
+// @Summary      Upload skill artifact
+// @Description  Uploads a skill archive and returns its server-side path.
+// @Tags         skill-security
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        file formData file true "Skill archive"
+// @Success      200  {object}  SkillSecurityUploadResponse
+// @Failure      400  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /api/v1/skill-security/uploads [post]
+func (h skillSecurityHandlers) uploadArtifact(c *gin.Context) {
+	if strings.TrimSpace(h.uploadDir) == "" {
+		respondError(c, http.StatusServiceUnavailable, "uploads_disabled", "skill uploads are not configured", nil)
+		return
+	}
+
+	file, err := c.FormFile("file")
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "bad_request", "file is required", nil)
+		return
+	}
+
+	if err := os.MkdirAll(h.uploadDir, 0o750); err != nil {
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
+		return
+	}
+
+	filename := strings.TrimSpace(filepath.Base(file.Filename))
+	if filename == "" || filename == "." || filename == string(filepath.Separator) {
+		filename = "skill.zip"
+	}
+
+	target := filepath.Join(h.uploadDir, fmt.Sprintf("%s-%s", uuid.NewString(), filename))
+	if err := c.SaveUploadedFile(file, target); err != nil {
+		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
+		return
+	}
+
+	c.JSON(http.StatusOK, SkillSecurityUploadResponse{
+		ArtifactPath: target,
+		SourceRef:    filename,
+		SizeBytes:    file.Size,
+	})
+}
+
+func registerSkillSecurityRoutes(group *gin.RouterGroup, service *skillsecurity.Service, uploadDir string) {
 	if service == nil {
 		return
 	}
-	h := skillSecurityHandlers{service: service}
+	h := skillSecurityHandlers{service: service, uploadDir: uploadDir}
 	securityGroup := group.Group("/skill-security")
 	securityGroup.POST("/runs", h.createRun)
 	securityGroup.GET("/runs", h.listRuns)
 	securityGroup.GET("/runs/:id", h.getRun)
+	securityGroup.POST("/uploads", h.uploadArtifact)
 }
 
 func convertSkillSecurityRun(run sqlc.SkillSecurityRun) SkillSecurityRunResponse {

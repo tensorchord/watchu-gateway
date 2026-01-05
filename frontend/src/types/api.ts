@@ -152,3 +152,9 @@ export interface SkillSecurityRunResponse {
     root_exec_id?: string | null;
     agent_run_id?: string | null;
 }
+
+export interface SkillSecurityUploadResponse {
+    artifact_path: string;
+    source_ref: string;
+    size_bytes: number;
+}

@@ -83,6 +83,7 @@ func main() {
 		Pool:            pool,
 		SecurityInsight: securityInsightSvc,
 		SkillSecurity:   skillSecuritySvc,
+		SkillUploadDir:  cfg.SkillUploadDir,
 	})
 	srv := server.New(cfg.Address, router)
 

@@ -16,6 +16,12 @@ import (
 	"github.com/phuslu/log"
 )
 
+const (
+	HTTP2_FRAME_HEADER_LEN = 9
+	HTTP2_FRAME_MAX_CODE   = 0x9
+	HTTP2_FLAGS_MASK       = 0x1 | 0x4 | 0x8 | 0x20
+)
+
 type HTTP2Parser struct {
 	dec *hpack.Decoder
 }

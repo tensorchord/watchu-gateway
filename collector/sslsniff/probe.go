@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"sync"
 
@@ -120,14 +119,7 @@ func handle(key container.LibKey, probe TLSProbe, store *SSLStore) {
 
 		store.Add(&event)
 		if logger.Debug().Enabled() {
-			var data, protocol string
-			if isHTTP2Protocol(event.Data[:event.DataLen]) {
-				data = hex.EncodeToString(event.Data[:event.DataLen])
-				protocol = "HTTP/2"
-			} else {
-				data = string(event.Data[:event.DataLen])
-				protocol = "HTTP/1"
-			}
+			data := event.Data[:event.DataLen]
 			logger.Debug().
 				Uint64("timestamp", event.TimestampNs).
 				Uint64("req_len", event.ReqLen).
@@ -138,9 +130,8 @@ func handle(key container.LibKey, probe TLSProbe, store *SSLStore) {
 				Uint64("data_len", event.DataLen).
 				Uint8("rw", event.Rw).
 				Str("comm", tool.CharsToString(event.Comm[:])).
-				Str("data", data).
-				Str("protocol", protocol).
-				Msg("HTTP event")
+				Bytes("data", data).
+				Msg("TLS event")
 		}
 	}
 }

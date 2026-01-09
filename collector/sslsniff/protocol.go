@@ -29,14 +29,20 @@ const (
 	SSL_RW_WRITE       = 2
 
 	// HTTP
-	HTTP1_DELIMITER_LEN    = 4
-	HTTP2_FRAME_HEADER_LEN = 9
-	HTTP2_FRAME_MAX_CODE   = 0x9
-	HTTP2_FLAGS_MASK       = 0x1 | 0x4 | 0x8 | 0x20
-	CRLF_LEN               = 2
-	ChunkedEncodingValue   = "chunked"
-	SSEHeaderPrefix        = "text/event-stream"
-	StreamEndChunkLength   = uint64(len("0")) + 2*CRLF_LEN // "0\r\n\r\n"
+	ChunkedEncodingValue = "chunked"
+	StreamEndChunkLength = uint64(len("0")) + 2*CRLF_LEN // "0\r\n\r\n"
+
+	// Postgres
+	PostgresStartupMessageMaxLength = 4096
+)
+
+type ProtocolType int
+
+const (
+	ProtocolHTTP1 ProtocolType = iota
+	ProtocolHTTP2
+	ProtocolPostgres
+	ProtocolUnknown
 )
 
 var (
@@ -96,59 +102,6 @@ func isBinary(data []uint8) bool {
 	return false
 }
 
-func isHTTP2Protocol(buf []uint8) bool {
-	logger := log.DefaultLogger
-	logger.Context = log.NewContext(nil).Str("ctx", "[Protocol]").Value()
-
-	if bytes.HasPrefix(buf, HTTP2PREFACE) {
-		logger.Trace().Msg("detect HTTP/2 preface")
-		return true
-	}
-	if bytes.HasPrefix(buf, HTTP1RESPONSE_PREFIX) || bytes.HasPrefix(buf, HTTP1CHUNK_END) {
-		logger.Trace().Msg("detect HTTP/1.x response")
-		return false
-	}
-	for _, method := range HTTP1REQUEST_METHODS {
-		if bytes.HasPrefix(buf, method) {
-			logger.Trace().Str("method", string(method)).Msg("detect HTTP/1.x request method")
-			return false
-		}
-	}
-	// HTTP/1.x are text based, unless compression is used
-	if !isBinary(buf) {
-		logger.Trace().Msg("plain text detected, likely HTTP/1.x")
-		return false
-	}
-	// check if it's chunked encoding
-	_, consumed, err := parseStream(buf)
-	if err == nil && consumed > 0 {
-		logger.Trace().Msg("detect HTTP/1.x chunked encoding")
-		return false
-	}
-	// it's very likely HTTP/2 if no HTTP/1.x signature found
-	if len(buf) < HTTP2_FRAME_HEADER_LEN {
-		logger.Error().Str("buf", hex.EncodeToString(buf)).Msg("cannot determine the protocol version")
-		return false
-	}
-	// try to parse the frame header according to https://datatracker.ietf.org/doc/html/rfc7540
-	length := (uint32(buf[0])<<16 | uint32(buf[1])<<8 | uint32(buf[2]))
-	frameType := buf[3]
-	flags := buf[4]
-	streamID := binary.BigEndian.Uint32(buf[5:]) & (1<<31 - 1)
-	if length > SSL_MAX_DATA_SIZE || frameType > HTTP2_FRAME_MAX_CODE || flags&^HTTP2_FLAGS_MASK != 0 {
-		logger.Trace().Uint32("length", length).Uint8("frame", frameType).Uint8("flags", flags).Msg("invalid HTTP/2 frame header")
-		return false
-	}
-	//nolint:staticcheck
-	if streamID == 0 && !(frameType == uint8(http2.FrameSettings) || frameType == uint8(http2.FramePing) || frameType == uint8(http2.FrameGoAway) || frameType == uint8(http2.FrameWindowUpdate)) {
-		logger.Trace().Uint32("stream_id", streamID).Uint8("frame", frameType).Msg("invalid HTTP/2 stream ID with non-control frame")
-		return false
-	}
-
-	logger.Trace().Msg("guess HTTP2 by default")
-	return true
-}
-
 type SSLKey struct {
 	PidTgid  uint64
 	UidGid   uint64
@@ -175,23 +128,106 @@ func (r *SSLRecord) Append(data []uint8, info *EventInfo) {
 }
 
 type SSLStore struct {
-	Request     map[SSLKey]*SSLRecord
-	Response    map[SSLKey]*SSLRecord
-	reqMu       sync.Mutex
-	respMu      sync.Mutex
-	interval    time.Duration
-	http1Parser *HTTP1Parser
-	http2Parser *HTTP2Parser
+	Request        map[SSLKey]*SSLRecord
+	Response       map[SSLKey]*SSLRecord
+	protocol       map[SSLKey]ProtocolType
+	reqMu          sync.Mutex
+	respMu         sync.Mutex
+	interval       time.Duration
+	http1Parser    *HTTP1Parser
+	http2Parser    *HTTP2Parser
+	postgresParser *PostgresParser
 }
 
 func NewSSLStore() *SSLStore {
 	return &SSLStore{
-		interval:    time.Second,
-		Request:     make(map[SSLKey]*SSLRecord),
-		Response:    make(map[SSLKey]*SSLRecord),
-		http1Parser: &HTTP1Parser{},
-		http2Parser: NewHTTP2Parser(),
+		interval:       time.Second,
+		Request:        make(map[SSLKey]*SSLRecord),
+		Response:       make(map[SSLKey]*SSLRecord),
+		protocol:       make(map[SSLKey]ProtocolType),
+		http1Parser:    &HTTP1Parser{},
+		http2Parser:    NewHTTP2Parser(),
+		postgresParser: &PostgresParser{},
 	}
+}
+
+// detectProtocol tries to determine the protocol type based on the initial bytes of the stream.
+// This assumption should be consistent throughout the lifetime of the SSL+Pid+Uid tuple.
+func (ss *SSLStore) detectProtocol(key SSLKey, record *SSLRecord) ProtocolType {
+	pt, ok := ss.protocol[key]
+	if ok {
+		return pt
+	}
+
+	logger := log.DefaultLogger
+	logger.Context = log.NewContext(nil).Str("ctx", "[Protocol]").Value()
+	buf := record.Stream
+
+	if bytes.HasPrefix(buf, HTTP2PREFACE) {
+		logger.Trace().Msg("detect HTTP/2 preface")
+		ss.protocol[key] = ProtocolHTTP2
+		return ProtocolHTTP2
+	}
+	if bytes.HasPrefix(buf, HTTP1RESPONSE_PREFIX) || bytes.HasPrefix(buf, HTTP1CHUNK_END) {
+		logger.Trace().Msg("detect HTTP/1.x response")
+		ss.protocol[key] = ProtocolHTTP1
+		return ProtocolHTTP1
+	}
+	for _, method := range HTTP1REQUEST_METHODS {
+		if bytes.HasPrefix(buf, method) {
+			logger.Trace().Str("method", string(method)).Msg("detect HTTP/1.x request method")
+			ss.protocol[key] = ProtocolHTTP1
+			return ProtocolHTTP1
+		}
+	}
+	if len(buf) > 8 {
+		// this only detects the Postgres startup message from the client side
+		length := binary.BigEndian.Uint32(buf[:4])
+		protocolVersion := binary.BigEndian.Uint32(buf[4:8])
+		if length <= PostgresStartupMessageMaxLength && (protocolVersion>>16) == 3 {
+			data := buf[8:min(length, uint32(len(buf)))]
+			logger.Debug().Uint32("length", length).Uint32("protocol_version", protocolVersion).Bytes("data", data).Msg("detect Postgres startup message")
+			ss.protocol[key] = ProtocolPostgres
+			// need to consume the startup message
+			record.Stream = record.Stream[length:]
+			return ProtocolPostgres
+		}
+	}
+	// check if it's chunked encoding
+	_, consumed, err := parseStream(buf)
+	if err == nil && consumed > 0 {
+		logger.Trace().Msg("detect HTTP/1.x chunked encoding")
+		ss.protocol[key] = ProtocolHTTP1
+		return ProtocolHTTP1
+	}
+	// HTTP/1.x are text based, unless compression is used
+	if !isBinary(buf) {
+		logger.Trace().Msg("plain text detected, likely HTTP/1.x")
+		ss.protocol[key] = ProtocolHTTP1
+		return ProtocolHTTP1
+	}
+	// it's very likely HTTP/2 if no HTTP/1.x signature found
+	if len(buf) < HTTP2_FRAME_HEADER_LEN {
+		logger.Error().Str("buf", hex.EncodeToString(buf)).Msg("cannot determine the protocol version")
+		return ProtocolUnknown
+	}
+	// try to parse the frame header according to https://datatracker.ietf.org/doc/html/rfc7540
+	length := (uint32(buf[0])<<16 | uint32(buf[1])<<8 | uint32(buf[2]))
+	frameType := buf[3]
+	flags := buf[4]
+	streamID := binary.BigEndian.Uint32(buf[5:]) & (1<<31 - 1)
+	if length > SSL_MAX_DATA_SIZE || frameType > HTTP2_FRAME_MAX_CODE || flags&^HTTP2_FLAGS_MASK != 0 {
+		logger.Trace().Uint32("length", length).Uint8("frame", frameType).Uint8("flags", flags).Msg("invalid HTTP/2 frame header")
+		return ProtocolUnknown
+	}
+	//nolint:staticcheck
+	if streamID == 0 && !(frameType == uint8(http2.FrameSettings) || frameType == uint8(http2.FramePing) || frameType == uint8(http2.FrameGoAway) || frameType == uint8(http2.FrameWindowUpdate)) {
+		logger.Trace().Uint32("stream_id", streamID).Uint8("frame", frameType).Msg("invalid HTTP/2 stream ID with non-control frame")
+		return ProtocolUnknown
+	}
+	logger.Trace().Msg("guess HTTP2 by default")
+	ss.protocol[key] = ProtocolHTTP2
+	return ProtocolHTTP2
 }
 
 func (s *SSLStore) Add(event *sslEvent) {
@@ -234,17 +270,24 @@ func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 
 	var parser ProtocolParser
 	for key, record := range s.Request {
-		if isHTTP2Protocol(record.Stream) {
+		switch s.detectProtocol(key, record) {
+		case ProtocolHTTP2:
 			parser = s.http2Parser
-		} else {
+		case ProtocolHTTP1:
 			parser = s.http1Parser
+		case ProtocolPostgres:
+			parser = s.postgresParser
+		default:
+			log.Warn().Any("key", &key).Msg("unknown protocol, skipping parsing")
+			delete(s.Request, key)
+			continue
 		}
 		if len(record.Stream) == 0 {
 			continue
 		}
 		request, consumed, err := parser.ParseRequest(record)
 		if err != nil {
-			log.Error().Any("key", &key).Bytes("buf", record.Stream[:consumed]).Err(err).Msg("failed to parse HTTP request")
+			log.Error().Any("key", &key).Bytes("buf", record.Stream[:consumed]).Err(err).Msg("failed to parse TLS request")
 			delete(s.Request, key)
 			continue
 		}
@@ -288,7 +331,7 @@ func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 			record.Info = record.Info[index:]
 		}
 		if request == nil {
-			// could be a GoAwayFrame
+			// could be a GoAwayFrame (HTTP2) or unrelated Postgres events
 			continue
 		}
 		body, err := readDecodeBytes(request.Body, request.Header.Get("Content-Encoding"))
@@ -300,9 +343,11 @@ func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 		if request.URL != nil {
 			url = request.URL.String()
 		}
-		request.Header.Add("Host", request.Host)
+		if len(request.Host) > 0 && request.Header != nil {
+			request.Header.Add("Host", request.Host)
+		}
 		headers := flattenMaskedHeader(request.Header)
-		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("")
+		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("TLS request")
 		record.EndOfStream = false
 		record.LastResp = nil
 		select {
@@ -332,16 +377,23 @@ func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 
 	var parser ProtocolParser
 	for key, record := range s.Response {
-		if isHTTP2Protocol(record.Stream) {
+		switch s.detectProtocol(key, record) {
+		case ProtocolHTTP2:
 			parser = s.http2Parser
-		} else {
+		case ProtocolHTTP1:
 			parser = s.http1Parser
+		case ProtocolPostgres:
+			parser = s.postgresParser
+		default:
+			log.Warn().Any("key", &key).Msg("unknown protocol, skipping parsing")
+			delete(s.Response, key)
+			continue
 		}
 		for len(record.Stream) > 0 {
 			//nolint:bodyclose // io.NopCloser
 			response, consumed, err := parser.ParseResponse(record)
 			if err != nil {
-				log.Error().Any("key", &key).Bytes("buf", record.Stream[:consumed]).Err(err).Msg("failed to parse HTTP response")
+				log.Error().Any("key", &key).Bytes("buf", record.Stream[:consumed]).Err(err).Msg("failed to parse TLS response")
 				delete(s.Response, key)
 				break
 			}
@@ -388,7 +440,6 @@ func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 			}
 			if record.EndOfStream {
 				if response == nil {
-					log.Warn().Int("consumed", consumed).Err(err).Msg("unexpected nil response")
 					break
 				}
 				body, err := readDecodeBytes(response.Body, response.Header.Get("Content-Encoding"))
@@ -397,7 +448,7 @@ func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 					continue
 				}
 				headers := flattenMaskedHeader(response.Header)
-				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("")
+				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("TLS response")
 				record.EndOfStream = false
 				record.LastResp = nil
 				select {

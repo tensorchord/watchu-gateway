@@ -12,6 +12,11 @@ import (
 	"github.com/phuslu/log"
 )
 
+const (
+	HTTP1_DELIMITER_LEN = 4
+	CRLF_LEN            = 2
+)
+
 type HTTP1Parser struct{}
 
 func (h1 *HTTP1Parser) ParseRequest(record *SSLRecord) (*http.Request, int, error) {

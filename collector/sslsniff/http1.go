@@ -41,14 +41,14 @@ func (h1 *HTTP1Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 		return req, len(record.Stream), fmt.Errorf("cannot find the end of HTTP header")
 	}
 	// check if the body is fully received
-	length_to_consume := idx + HTTP1_DELIMITER_LEN + int(req.ContentLength)
-	if req.ContentLength >= 0 && length_to_consume > len(record.Stream) {
+	lengthToConsume := idx + HTTP1_DELIMITER_LEN + int(req.ContentLength)
+	if req.ContentLength >= 0 && lengthToConsume > len(record.Stream) {
 		// when the data is too large to be handled, returned the truncated body
-		if length_to_consume > SSL_MAX_DATA_SIZE && len(record.Stream)+SSL_MAX_EVENT_SIZE > SSL_MAX_DATA_SIZE {
+		if lengthToConsume > SSL_MAX_DATA_SIZE && len(record.Stream)+SSL_MAX_EVENT_SIZE > SSL_MAX_DATA_SIZE {
 			log.Debug().Int("content_length", int(req.ContentLength)).Int("received", len(record.Stream)-idx-HTTP1_DELIMITER_LEN).Msg("truncate HTTP/1 request body")
 			record.EndOfStream = true
-			length_to_consume = min(SSL_MAX_DATA_SIZE, len(record.Stream))
-			return req, length_to_consume, nil
+			lengthToConsume = min(SSL_MAX_DATA_SIZE, len(record.Stream))
+			return req, lengthToConsume, nil
 		}
 		// wait for more data, do not return the half-received request body
 		log.Debug().Int("content_length", int(req.ContentLength)).Int("received", len(record.Stream)-idx-HTTP1_DELIMITER_LEN).Msg("incomplete HTTP request body, wait for more data")
@@ -56,7 +56,7 @@ func (h1 *HTTP1Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 		return nil, 0, nil
 	}
 	record.EndOfStream = true
-	return req, length_to_consume, nil
+	return req, lengthToConsume, nil
 }
 
 func parseStream(data []uint8) ([]uint8, uint64, error) {

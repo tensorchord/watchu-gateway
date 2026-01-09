@@ -189,7 +189,7 @@ func (ss *SSLStore) detectProtocol(key SSLKey, record *SSLRecord) ProtocolType {
 			logger.Debug().Uint32("length", length).Uint32("protocol_version", protocolVersion).Bytes("data", data).Msg("detect Postgres startup message")
 			ss.protocol[key] = ProtocolPostgres
 			// need to consume the startup message
-			record.Stream = record.Stream[length:]
+			record.Stream = record.Stream[min(length, uint32(len(buf))):]
 			return ProtocolPostgres
 		}
 	}
@@ -287,7 +287,7 @@ func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 		}
 		request, consumed, err := parser.ParseRequest(record)
 		if err != nil {
-			log.Error().Any("key", &key).Bytes("buf", record.Stream[:consumed]).Err(err).Msg("failed to parse TLS request")
+			log.Error().Any("key", &key).Bytes("buf", record.Stream[:min(len(record.Stream), consumed)]).Err(err).Msg("failed to parse TLS request")
 			delete(s.Request, key)
 			continue
 		}
@@ -393,7 +393,7 @@ func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 			//nolint:bodyclose // io.NopCloser
 			response, consumed, err := parser.ParseResponse(record)
 			if err != nil {
-				log.Error().Any("key", &key).Bytes("buf", record.Stream[:consumed]).Err(err).Msg("failed to parse TLS response")
+				log.Error().Any("key", &key).Bytes("buf", record.Stream[:min(len(record.Stream), consumed)]).Err(err).Msg("failed to parse TLS response")
 				delete(s.Response, key)
 				break
 			}

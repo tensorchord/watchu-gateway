@@ -134,7 +134,7 @@ int tracepoint_enter_sendto(struct sendto_ctx *ctx) {
         u32 length = ((hdr[1] << 24) | (hdr[2] << 16) | (hdr[3] << 8) | hdr[4]) - 4;
         if (length > MAX_BUF_SIZE)
             length = MAX_BUF_SIZE;
-        if (length <= 0)
+        if (length == 0)
             return 0;
         if (length + 5 > total_length)
             // incomplete message, ignore

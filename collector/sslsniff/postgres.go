@@ -33,7 +33,7 @@ func (pp *PostgresParser) ParseRequest(record *SSLRecord) (*http.Request, int, e
 	body, tag, length := parsePostgresStatement(record)
 	var req *http.Request
 	// only collect useful postgres events
-	if tag == 'Q' || tag == 'P' || tag == 'B' || tag == 'E' {
+	if body != nil && (tag == 'Q' || tag == 'P' || tag == 'B' || tag == 'E') {
 		req = &http.Request{
 			Method:        string(tag),
 			Proto:         "Postgres",

@@ -402,7 +402,7 @@ func (s *Service) inferRootExecID(ctx context.Context, pid int, startedAt time.T
 	}
 
 	bestRoot := ""
-	var bestTime time.Time
+	var bestDiff time.Duration
 	bestMatch := rootExecMatch{}
 	for _, host := range hosts {
 		rows, err := s.queries.ListProcessEventsByHostRange(ctx, sqlc.ListProcessEventsByHostRangeParams{
@@ -421,9 +421,15 @@ func (s *Service) inferRootExecID(ctx context.Context, pid int, startedAt time.T
 			if !strings.Contains(strings.ToLower(row.Comm.String), "claude") {
 				continue
 			}
-			if bestRoot == "" || row.StartTs.Time.After(bestTime) {
+			// Choose the process closest to the run creation time (window)
+			// This prevents multiple runs in overlapping time windows from matching the same process
+			diff := row.StartTs.Time.Sub(window)
+			if diff < 0 {
+				diff = -diff
+			}
+			if bestRoot == "" || diff < bestDiff {
 				bestRoot = strings.TrimSpace(row.RootExecID.String)
-				bestTime = row.StartTs.Time
+				bestDiff = diff
 				bestMatch = rootExecMatch{
 					RootExecID: bestRoot,
 					Host:       host,

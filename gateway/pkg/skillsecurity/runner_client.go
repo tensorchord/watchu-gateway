@@ -28,10 +28,23 @@ type RunnerRequest struct {
 }
 
 type RunnerResponse struct {
-	RunID      string `json:"run_id"`
-	Status     string `json:"status"`
-	RootExecID string `json:"root_exec_id"`
-	Error      string `json:"error,omitempty"`
+	RunID       string `json:"run_id"`
+	Status      string `json:"status"`
+	RootExecID  string `json:"root_exec_id"`
+	Error       string `json:"error,omitempty"`
+	PromptInput string `json:"prompt_input,omitempty"`
+}
+
+type RunnerRunDetail struct {
+	ID          string    `json:"id"`
+	Status      string    `json:"status"`
+	RootExecID  string    `json:"root_exec_id,omitempty"`
+	Error       string    `json:"error,omitempty"`
+	Output      string    `json:"output,omitempty"`
+	ExitCode    int       `json:"exit_code,omitempty"`
+	Pid         int       `json:"pid,omitempty"`
+	StartedAt   time.Time `json:"started_at,omitempty"`
+	PromptInput string    `json:"prompt_input,omitempty"`
 }
 
 func NewRunnerClient(baseURL string, timeout time.Duration) *RunnerClient {
@@ -78,6 +91,39 @@ func (c *RunnerClient) StartRun(ctx context.Context, req RunnerRequest) (*Runner
 	}
 
 	var parsed RunnerResponse
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+
+func (c *RunnerClient) GetRun(ctx context.Context, runID string) (*RunnerRunDetail, error) {
+	if c == nil || c.baseURL == "" {
+		return nil, ErrRunnerNotConfigured
+	}
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, fmt.Errorf("runner run id is required")
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/runs/"+runID, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("runner error %d: %s", resp.StatusCode, string(data))
+	}
+
+	var parsed RunnerRunDetail
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		return nil, err
 	}

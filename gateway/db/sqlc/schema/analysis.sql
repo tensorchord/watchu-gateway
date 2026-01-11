@@ -224,6 +224,9 @@ CREATE TABLE IF NOT EXISTS skill_security_runs (
     prompt_input TEXT,
     status TEXT NOT NULL,
     error TEXT,
+    runner_run_id TEXT,
+    runner_output TEXT,
+    runner_exit_code INTEGER,
     root_exec_id TEXT,
     agent_run_id UUID REFERENCES agent_run(id) ON DELETE SET NULL
 );
@@ -255,4 +258,28 @@ CREATE TABLE IF NOT EXISTS prompt_injection_errors (
     retry_count INTEGER NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (host, request_id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_threat_reports (
+    id UUID PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    host TEXT NOT NULL,
+    root_exec_id TEXT,
+    agent_type TEXT NOT NULL,
+    agent_version TEXT,
+    session_id TEXT,
+    threat_type TEXT NOT NULL,
+    threat_level INTEGER NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+    title TEXT NOT NULL,
+    description TEXT,
+    evidence JSONB,
+    detection_method TEXT,
+    file_path TEXT,
+    code_snippet TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    reviewed_at TIMESTAMPTZ,
+    reviewed_by TEXT,
+    metadata JSONB
 );

@@ -235,6 +235,26 @@ WHERE root_exec_id = $1
 ORDER BY started_at DESC NULLS LAST
 LIMIT 1;
 
+-- name: UpsertAgentRunProvider :exec
+INSERT INTO agent_run (host, root_exec_id, root_pid, provider, started_at, ended_at)
+VALUES (
+    sqlc.arg('host'),
+    sqlc.arg('root_exec_id'),
+    sqlc.arg('root_pid'),
+    sqlc.arg('provider'),
+    sqlc.arg('started_at'),
+    sqlc.arg('ended_at')
+)
+ON CONFLICT (host, root_exec_id) DO UPDATE
+SET provider = EXCLUDED.provider,
+    root_pid = COALESCE(agent_run.root_pid, EXCLUDED.root_pid),
+    started_at = LEAST(agent_run.started_at, EXCLUDED.started_at),
+    ended_at = CASE
+        WHEN agent_run.ended_at IS NULL THEN EXCLUDED.ended_at
+        WHEN EXCLUDED.ended_at IS NULL THEN agent_run.ended_at
+        ELSE GREATEST(agent_run.ended_at, EXCLUDED.ended_at)
+    END;
+
 -- name: ListTracesByAgentRun :many
 SELECT
     id,
@@ -308,3 +328,88 @@ FROM mcp_events_normalized m
 WHERE m.host = $1
   AND m.corr_id = ANY($2::text[])
 ORDER BY m.corr_id, m.timestamp;
+
+-- name: GetAgentThreatReportsByRootExecID :many
+SELECT
+    id,
+    created_at,
+    host,
+    root_exec_id,
+    agent_type,
+    agent_version,
+    session_id,
+    threat_type,
+    threat_level,
+    confidence,
+    title,
+    description,
+    evidence,
+    detection_method,
+    file_path,
+    code_snippet,
+    status
+FROM agent_threat_reports
+WHERE root_exec_id = $1
+  AND status = 'active'
+ORDER BY threat_level DESC, created_at DESC;
+
+-- name: UpsertAgentThreatReport :one
+SELECT upsert_agent_threat_report(
+    $1::text,   -- host
+    $2::text,   -- root_exec_id
+    $3::text,   -- agent_type
+    $4::text,   -- agent_version
+    $5::text,   -- session_id
+    $6::text,   -- threat_type
+    $7::int,    -- threat_level
+    $8::real,   -- confidence
+    $9::text,   -- title
+    $10::text,  -- description
+    $11::jsonb, -- evidence
+    $12::text,  -- detection_method
+    $13::text,  -- file_path
+    $14::text,  -- code_snippet
+    $15::jsonb  -- metadata
+)::uuid AS report_id;
+
+-- name: InsertAgentThreatReport :one
+INSERT INTO agent_threat_reports (
+    id,
+    created_at,
+    updated_at,
+    host,
+    root_exec_id,
+    agent_type,
+    agent_version,
+    session_id,
+    threat_type,
+    threat_level,
+    confidence,
+    title,
+    description,
+    evidence,
+    detection_method,
+    file_path,
+    code_snippet,
+    status
+) VALUES (
+    sqlc.arg('id'),
+    sqlc.arg('created_at'),
+    sqlc.arg('updated_at'),
+    sqlc.arg('host'),
+    sqlc.arg('root_exec_id'),
+    sqlc.arg('agent_type'),
+    sqlc.arg('agent_version'),
+    sqlc.arg('session_id'),
+    sqlc.arg('threat_type'),
+    sqlc.arg('threat_level'),
+    sqlc.arg('confidence'),
+    sqlc.arg('title'),
+    sqlc.arg('description'),
+    sqlc.arg('evidence'),
+    sqlc.arg('detection_method'),
+    sqlc.arg('file_path'),
+    sqlc.arg('code_snippet'),
+    sqlc.arg('status')
+)
+RETURNING id;

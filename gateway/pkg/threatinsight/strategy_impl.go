@@ -48,6 +48,16 @@ func (s *LLMBasedStrategy) Analyze(ctx context.Context, rootExecID string) (*Ana
 		return nil, fmt.Errorf("failed to get heuristic alerts: %w", err)
 	}
 
+	// Fetch agent threat reports - these are threats the AI agent itself detected
+	// These should be populated by a separate agent insight extraction process
+	rootExecIDForQuery := pgtype.Text{String: rootExecID, Valid: true}
+	agentReports, err := s.queries.GetAgentThreatReportsByRootExecID(ctx, rootExecIDForQuery)
+	if err != nil {
+		// Non-fatal error - log and continue without agent reports
+		// This allows the analysis to work even if the table doesn't exist yet
+		agentReports = []sqlc.GetAgentThreatReportsByRootExecIDRow{}
+	}
+
 	if len(events) == 0 {
 		return &AnalysisResult{
 			ThreatLevel:     1,
@@ -61,7 +71,7 @@ func (s *LLMBasedStrategy) Analyze(ctx context.Context, rootExecID string) (*Ana
 	}
 
 	// Build the analysis prompt
-	prompt, err := s.buildPrompt(events, alerts)
+	prompt, err := s.buildPrompt(events, alerts, agentReports)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build prompt: %w", err)
 	}
@@ -147,8 +157,46 @@ func alertToMap(a sqlc.GetHeuristicAlertsByRootExecIDRow) map[string]interface{}
 	return m
 }
 
+// agentReportToMap converts a sqlc agent threat report row to map[string]interface{}
+func agentReportToMap(r sqlc.GetAgentThreatReportsByRootExecIDRow) map[string]interface{} {
+	m := map[string]interface{}{
+		"id":            fmt.Sprintf("%x", r.ID.Bytes),
+		"created_at":    r.CreatedAt.Time,
+		"host":          r.Host,
+		"root_exec_id":  r.RootExecID.String,
+		"agent_type":    r.AgentType,
+		"threat_type":   r.ThreatType,
+		"threat_level":  r.ThreatLevel,
+		"confidence":    r.Confidence,
+		"title":         r.Title,
+		"status":        r.Status,
+	}
+	if r.AgentVersion.Valid {
+		m["agent_version"] = r.AgentVersion.String
+	}
+	if r.SessionID.Valid {
+		m["session_id"] = r.SessionID.String
+	}
+	if r.Description.Valid {
+		m["description"] = r.Description.String
+	}
+	if len(r.Evidence) > 0 {
+		m["evidence"] = string(r.Evidence)
+	}
+	if r.DetectionMethod.Valid {
+		m["detection_method"] = r.DetectionMethod.String
+	}
+	if r.FilePath.Valid {
+		m["file_path"] = r.FilePath.String
+	}
+	if r.CodeSnippet.Valid {
+		m["code_snippet"] = r.CodeSnippet.String
+	}
+	return m
+}
+
 // buildPrompt constructs the analysis prompt from telemetry data
-func (s *LLMBasedStrategy) buildPrompt(events []sqlc.GetEventsByRootExecIDRow, alerts []sqlc.GetHeuristicAlertsByRootExecIDRow) (string, error) {
+func (s *LLMBasedStrategy) buildPrompt(events []sqlc.GetEventsByRootExecIDRow, alerts []sqlc.GetHeuristicAlertsByRootExecIDRow, agentReports []sqlc.GetAgentThreatReportsByRootExecIDRow) (string, error) {
 	// Convert to maps for processing
 	eventMaps := make([]map[string]interface{}, len(events))
 	for i, e := range events {
@@ -157,6 +205,10 @@ func (s *LLMBasedStrategy) buildPrompt(events []sqlc.GetEventsByRootExecIDRow, a
 	alertMaps := make([]map[string]interface{}, len(alerts))
 	for i, a := range alerts {
 		alertMaps[i] = alertToMap(a)
+	}
+	agentReportMaps := make([]map[string]interface{}, len(agentReports))
+	for i, r := range agentReports {
+		agentReportMaps[i] = agentReportToMap(r)
 	}
 
 	// Summarize telemetry
@@ -169,6 +221,7 @@ func (s *LLMBasedStrategy) buildPrompt(events []sqlc.GetEventsByRootExecIDRow, a
 		"telemetry_summary":  summary,
 		"heuristic_findings": alertSummary,
 		"event_samples":      eventSamples,
+		"agent_insights":     agentReportMaps,
 	}
 
 	instructions := `You are a senior security analyst reviewing AI agent telemetry captured by an observability pipeline.
@@ -177,17 +230,39 @@ DATA PROVIDED:
 - telemetry_summary: aggregate counts and execution timespan for the trace.
 - heuristic_findings: alert tallies, severity breakdown, and overall risk_score.
 - event_samples: chronologically sampled raw events illustrating representative behavior.
+- agent_insights: THREAT DETECTIONS BY THE AI AGENT ITSELF - highest priority evidence.
 
 TASKS:
-1. Assign threat_level on a 1-5 scale (1=benign, 5=critical) using severity trends, risk_score, and event context.
-2. Identify the primary threat_type (prompt_injection, reasoning_loop, data_exfiltration, resource_abuse, coordination_failure, none, or other).
-3. Provide a confidence value between 0.0 and 1.0 reflecting evidence strength.
-4. Summarize key findings in 1-3 sentences referencing concrete signals.
-5. Deliver detailed analysis that ties telemetry facts to your conclusions; cite specific alert_id or event details when possible.
-6. Recommend prioritized remediation or monitoring actions that address the observed risks.
-7. List evidence entries with type/description/severity, noting timestamps or identifiers if available.
+1. **PRIORITY**: If agent_insights is non-empty, the AI agent has already detected threats.
+   - Use the agent's detection as the primary source of truth
+   - Set threat_level to at least the max reported in agent_insights
+   - Set threat_type to match the agent's findings (malicious_code, prompt_injection, etc.)
+   - Set confidence to high (≥0.8) when agent insights are present
+
+2. Assign threat_level on a 1-5 scale (1=benign, 5=critical) using:
+   - Agent insights (highest weight)
+   - Severity trends, risk_score, and event context
+
+3. Identify the primary threat_type:
+   - If agent reports malicious code → "malicious_code"
+   - If agent reports prompt injection → "prompt_injection"
+   - Otherwise: prompt_injection, reasoning_loop, data_exfiltration, resource_abuse, coordination_failure, none, or other
+
+4. Provide a confidence value between 0.0 and 1.0 reflecting evidence strength.
+   - Agent insights = boost confidence to ≥0.8
+
+5. Summarize key findings in 1-3 sentences referencing concrete signals.
+   - Explicitly mention if agent detected the threat
+
+6. Deliver detailed analysis that ties telemetry facts to your conclusions; cite specific alert_id, event details, or agent insights when possible.
+
+7. Recommend prioritized remediation or monitoring actions that address the observed risks.
+
+8. List evidence entries with type/description/severity, noting timestamps or identifiers if available.
+   - Include type="agent_insight" entries when agent reported threats
 
 FOCUS AREAS:
+- **AGENT BEHAVIOR**: When the AI agent itself refuses to execute code or identifies malicious patterns, this is a critical signal.
 - Prompt injection symptoms (unexpected system or network activity after LLM calls).
 - Reasoning loops or repetitive failures that waste resources.
 - Data exfiltration indicators (sensitive reads preceding outbound requests).

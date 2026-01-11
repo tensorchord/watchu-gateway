@@ -15,7 +15,8 @@ import {
     ThreatAnalysisResponse,
     SkillSecurityRunCreateRequest,
     SkillSecurityRunResponse,
-    SkillSecurityUploadResponse
+    SkillSecurityUploadResponse,
+    SkillSummaryResponse
 } from "../types/api";
 
 function toQueryTimestamp(value: Dayjs): string {
@@ -421,12 +422,43 @@ export async function fetchSkillSecurityRun(id: string) {
     return data;
 }
 
-export async function uploadSkillSecurityArtifact(file: File) {
+export async function uploadSkillSecurityArtifact(files: File[]) {
     const formData = new FormData();
-    formData.append("file", file);
+    let rootName = "";
+    files.forEach((file) => {
+        const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+        const name = relativePath && relativePath.length > 0 ? relativePath : file.name;
+        formData.append("files", file, name);
+        if (!rootName && relativePath && relativePath.includes("/")) {
+            rootName = relativePath.split("/")[0] ?? "";
+        }
+    });
+    if (rootName) {
+        formData.append("root_name", rootName);
+    }
     const { data } = await apiClient.post<SkillSecurityUploadResponse>("/skill-security/uploads", formData, {
         headers: {
             "Content-Type": "multipart/form-data"
+        }
+    });
+    return data;
+}
+
+export async function fetchSkills(params?: { sourceType?: string; limit?: number }) {
+    const { data } = await apiClient.get<SkillSummaryResponse[]>("/skill-security/skills", {
+        params: {
+            source_type: params?.sourceType,
+            limit: params?.limit
+        }
+    });
+    return data;
+}
+
+export async function fetchSkillRuns(sourceRef: string, artifactPath?: string) {
+    const { data } = await apiClient.get<SkillSecurityRunResponse[]>("/skill-security/skills/runs", {
+        params: {
+            source_ref: sourceRef,
+            artifact_path: artifactPath
         }
     });
     return data;

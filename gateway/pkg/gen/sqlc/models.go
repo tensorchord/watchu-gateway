@@ -18,6 +18,30 @@ type AgentRun struct {
 	EndedAt    pgtype.Timestamptz
 }
 
+type AgentThreatReport struct {
+	ID              pgtype.UUID
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	Host            string
+	RootExecID      pgtype.Text
+	AgentType       string
+	AgentVersion    pgtype.Text
+	SessionID       pgtype.Text
+	ThreatType      string
+	ThreatLevel     int32
+	Confidence      float64
+	Title           string
+	Description     pgtype.Text
+	Evidence        []byte
+	DetectionMethod pgtype.Text
+	FilePath        pgtype.Text
+	CodeSnippet     pgtype.Text
+	Status          string
+	ReviewedAt      pgtype.Timestamptz
+	ReviewedBy      pgtype.Text
+	Metadata        []byte
+}
+
 type CorrelationSummary struct {
 	Host                  string
 	ResponseID            pgtype.UUID
@@ -333,6 +357,9 @@ type SkillSecurityRun struct {
 	PromptInput    pgtype.Text
 	Status         string
 	Error          pgtype.Text
+	RunnerRunID    pgtype.Text
+	RunnerOutput   pgtype.Text
+	RunnerExitCode pgtype.Int4
 	RootExecID     pgtype.Text
 	AgentRunID     pgtype.UUID
 }

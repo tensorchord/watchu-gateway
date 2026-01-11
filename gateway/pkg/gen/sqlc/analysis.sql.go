@@ -69,6 +69,89 @@ func (q *Queries) GetAgentRunByRootExecID(ctx context.Context, rootExecID pgtype
 	return i, err
 }
 
+const getAgentThreatReportsByRootExecID = `-- name: GetAgentThreatReportsByRootExecID :many
+SELECT
+    id,
+    created_at,
+    host,
+    root_exec_id,
+    agent_type,
+    agent_version,
+    session_id,
+    threat_type,
+    threat_level,
+    confidence,
+    title,
+    description,
+    evidence,
+    detection_method,
+    file_path,
+    code_snippet,
+    status
+FROM agent_threat_reports
+WHERE root_exec_id = $1
+  AND status = 'active'
+ORDER BY threat_level DESC, created_at DESC
+`
+
+type GetAgentThreatReportsByRootExecIDRow struct {
+	ID              pgtype.UUID
+	CreatedAt       pgtype.Timestamptz
+	Host            string
+	RootExecID      pgtype.Text
+	AgentType       string
+	AgentVersion    pgtype.Text
+	SessionID       pgtype.Text
+	ThreatType      string
+	ThreatLevel     int32
+	Confidence      float64
+	Title           string
+	Description     pgtype.Text
+	Evidence        []byte
+	DetectionMethod pgtype.Text
+	FilePath        pgtype.Text
+	CodeSnippet     pgtype.Text
+	Status          string
+}
+
+func (q *Queries) GetAgentThreatReportsByRootExecID(ctx context.Context, rootExecID pgtype.Text) ([]GetAgentThreatReportsByRootExecIDRow, error) {
+	rows, err := q.db.Query(ctx, getAgentThreatReportsByRootExecID, rootExecID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAgentThreatReportsByRootExecIDRow
+	for rows.Next() {
+		var i GetAgentThreatReportsByRootExecIDRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.Host,
+			&i.RootExecID,
+			&i.AgentType,
+			&i.AgentVersion,
+			&i.SessionID,
+			&i.ThreatType,
+			&i.ThreatLevel,
+			&i.Confidence,
+			&i.Title,
+			&i.Description,
+			&i.Evidence,
+			&i.DetectionMethod,
+			&i.FilePath,
+			&i.CodeSnippet,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getHTTPRequestByHostAndID = `-- name: GetHTTPRequestByHostAndID :one
 SELECT
     id,
@@ -178,6 +261,96 @@ func (q *Queries) GetProcessMetaByHostRoot(ctx context.Context, arg GetProcessMe
 		&i.EventCount,
 	)
 	return i, err
+}
+
+const insertAgentThreatReport = `-- name: InsertAgentThreatReport :one
+INSERT INTO agent_threat_reports (
+    id,
+    created_at,
+    updated_at,
+    host,
+    root_exec_id,
+    agent_type,
+    agent_version,
+    session_id,
+    threat_type,
+    threat_level,
+    confidence,
+    title,
+    description,
+    evidence,
+    detection_method,
+    file_path,
+    code_snippet,
+    status
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    $10,
+    $11,
+    $12,
+    $13,
+    $14,
+    $15,
+    $16,
+    $17,
+    $18
+)
+RETURNING id
+`
+
+type InsertAgentThreatReportParams struct {
+	ID              pgtype.UUID
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	Host            string
+	RootExecID      pgtype.Text
+	AgentType       string
+	AgentVersion    pgtype.Text
+	SessionID       pgtype.Text
+	ThreatType      string
+	ThreatLevel     int32
+	Confidence      float64
+	Title           string
+	Description     pgtype.Text
+	Evidence        []byte
+	DetectionMethod pgtype.Text
+	FilePath        pgtype.Text
+	CodeSnippet     pgtype.Text
+	Status          string
+}
+
+func (q *Queries) InsertAgentThreatReport(ctx context.Context, arg InsertAgentThreatReportParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, insertAgentThreatReport,
+		arg.ID,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+		arg.Host,
+		arg.RootExecID,
+		arg.AgentType,
+		arg.AgentVersion,
+		arg.SessionID,
+		arg.ThreatType,
+		arg.ThreatLevel,
+		arg.Confidence,
+		arg.Title,
+		arg.Description,
+		arg.Evidence,
+		arg.DetectionMethod,
+		arg.FilePath,
+		arg.CodeSnippet,
+		arg.Status,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const listAgentRunsByHostRange = `-- name: ListAgentRunsByHostRange :many
@@ -1023,4 +1196,107 @@ func (q *Queries) ListTracesByAgentRun(ctx context.Context, agentRunID pgtype.UU
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertAgentRunProvider = `-- name: UpsertAgentRunProvider :exec
+INSERT INTO agent_run (host, root_exec_id, root_pid, provider, started_at, ended_at)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6
+)
+ON CONFLICT (host, root_exec_id) DO UPDATE
+SET provider = EXCLUDED.provider,
+    root_pid = COALESCE(agent_run.root_pid, EXCLUDED.root_pid),
+    started_at = LEAST(agent_run.started_at, EXCLUDED.started_at),
+    ended_at = CASE
+        WHEN agent_run.ended_at IS NULL THEN EXCLUDED.ended_at
+        WHEN EXCLUDED.ended_at IS NULL THEN agent_run.ended_at
+        ELSE GREATEST(agent_run.ended_at, EXCLUDED.ended_at)
+    END
+`
+
+type UpsertAgentRunProviderParams struct {
+	Host       string
+	RootExecID pgtype.Text
+	RootPid    pgtype.Int8
+	Provider   pgtype.Text
+	StartedAt  pgtype.Timestamptz
+	EndedAt    pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertAgentRunProvider(ctx context.Context, arg UpsertAgentRunProviderParams) error {
+	_, err := q.db.Exec(ctx, upsertAgentRunProvider,
+		arg.Host,
+		arg.RootExecID,
+		arg.RootPid,
+		arg.Provider,
+		arg.StartedAt,
+		arg.EndedAt,
+	)
+	return err
+}
+
+const upsertAgentThreatReport = `-- name: UpsertAgentThreatReport :one
+SELECT upsert_agent_threat_report(
+    $1::text,   -- host
+    $2::text,   -- root_exec_id
+    $3::text,   -- agent_type
+    $4::text,   -- agent_version
+    $5::text,   -- session_id
+    $6::text,   -- threat_type
+    $7::int,    -- threat_level
+    $8::real,   -- confidence
+    $9::text,   -- title
+    $10::text,  -- description
+    $11::jsonb, -- evidence
+    $12::text,  -- detection_method
+    $13::text,  -- file_path
+    $14::text,  -- code_snippet
+    $15::jsonb  -- metadata
+)::uuid AS report_id
+`
+
+type UpsertAgentThreatReportParams struct {
+	Column1  string
+	Column2  string
+	Column3  string
+	Column4  string
+	Column5  string
+	Column6  string
+	Column7  int32
+	Column8  float32
+	Column9  string
+	Column10 string
+	Column11 []byte
+	Column12 string
+	Column13 string
+	Column14 string
+	Column15 []byte
+}
+
+func (q *Queries) UpsertAgentThreatReport(ctx context.Context, arg UpsertAgentThreatReportParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, upsertAgentThreatReport,
+		arg.Column1,
+		arg.Column2,
+		arg.Column3,
+		arg.Column4,
+		arg.Column5,
+		arg.Column6,
+		arg.Column7,
+		arg.Column8,
+		arg.Column9,
+		arg.Column10,
+		arg.Column11,
+		arg.Column12,
+		arg.Column13,
+		arg.Column14,
+		arg.Column15,
+	)
+	var report_id pgtype.UUID
+	err := row.Scan(&report_id)
+	return report_id, err
 }

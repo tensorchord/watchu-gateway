@@ -243,12 +243,27 @@ func (s *Scheduler) runAnalysis(ctx context.Context, host string) error {
 		_ = tx.Rollback(ctx)
 	}()
 
-	windowSince, _, err := s.ensureWatermark(ctx, tx, host, until)
+	windowSince, lastWatermark, err := s.ensureWatermark(ctx, tx, host, until)
 	if err != nil {
 		return err
 	}
-	if s.maxWindow > 0 {
-		maxUntil := windowSince.Add(s.maxWindow)
+
+	// Adaptive window: increase processing window based on backlog duration
+	// to catch up faster after collector downtime or scheduler restart.
+	backlogDuration := until.Sub(lastWatermark)
+	if backlogDuration < 0 {
+		backlogDuration = 0
+	}
+	effectiveMaxWindow := s.maxWindow
+	if backlogDuration > 2*time.Hour {
+		effectiveMaxWindow = 2 * time.Hour
+	} else if backlogDuration > 30*time.Minute {
+		effectiveMaxWindow = time.Hour
+	} else if backlogDuration > 5*time.Minute {
+		effectiveMaxWindow = 30 * time.Minute
+	}
+	if effectiveMaxWindow > 0 {
+		maxUntil := windowSince.Add(effectiveMaxWindow)
 		if maxUntil.Before(until) {
 			until = maxUntil
 		}
@@ -269,6 +284,8 @@ func (s *Scheduler) runAnalysis(ctx context.Context, host string) error {
 		slog.String("host", host),
 		slog.Time("since", windowSince),
 		slog.Time("until", until),
+		slog.Duration("backlog_duration", backlogDuration),
+		slog.Duration("effective_max_window", effectiveMaxWindow),
 	)
 
 	if err := s.refreshProcessLifecycle(ctx, tx, host, windowSince, until); err != nil {

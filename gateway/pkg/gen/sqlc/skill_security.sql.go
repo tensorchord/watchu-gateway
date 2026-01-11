@@ -11,6 +11,76 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getSkillRuns = `-- name: GetSkillRuns :many
+SELECT
+    id,
+    created_at,
+    updated_at,
+    source_type,
+    source_ref,
+    resolved_ref,
+    artifact_path,
+    agent_type,
+    runner_mode,
+    prompt_strategy,
+    prompt_input,
+    status,
+    error,
+    runner_run_id,
+    runner_output,
+    runner_exit_code,
+    root_exec_id,
+    agent_run_id
+FROM skill_security_runs
+WHERE source_ref = $1
+  AND ($2 = '' OR artifact_path = $2)
+ORDER BY created_at DESC
+`
+
+type GetSkillRunsParams struct {
+	SourceRef    string
+	ArtifactPath interface{}
+}
+
+func (q *Queries) GetSkillRuns(ctx context.Context, arg GetSkillRunsParams) ([]SkillSecurityRun, error) {
+	rows, err := q.db.Query(ctx, getSkillRuns, arg.SourceRef, arg.ArtifactPath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SkillSecurityRun
+	for rows.Next() {
+		var i SkillSecurityRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SourceType,
+			&i.SourceRef,
+			&i.ResolvedRef,
+			&i.ArtifactPath,
+			&i.AgentType,
+			&i.RunnerMode,
+			&i.PromptStrategy,
+			&i.PromptInput,
+			&i.Status,
+			&i.Error,
+			&i.RunnerRunID,
+			&i.RunnerOutput,
+			&i.RunnerExitCode,
+			&i.RootExecID,
+			&i.AgentRunID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getSkillSecurityRunByID = `-- name: GetSkillSecurityRunByID :one
 SELECT
     id,
@@ -26,6 +96,9 @@ SELECT
     prompt_input,
     status,
     error,
+    runner_run_id,
+    runner_output,
+    runner_exit_code,
     root_exec_id,
     agent_run_id
 FROM skill_security_runs
@@ -49,6 +122,61 @@ func (q *Queries) GetSkillSecurityRunByID(ctx context.Context, id pgtype.UUID) (
 		&i.PromptInput,
 		&i.Status,
 		&i.Error,
+		&i.RunnerRunID,
+		&i.RunnerOutput,
+		&i.RunnerExitCode,
+		&i.RootExecID,
+		&i.AgentRunID,
+	)
+	return i, err
+}
+
+const getSkillSecurityRunByRootExecID = `-- name: GetSkillSecurityRunByRootExecID :one
+SELECT
+    id,
+    created_at,
+    updated_at,
+    source_type,
+    source_ref,
+    resolved_ref,
+    artifact_path,
+    agent_type,
+    runner_mode,
+    prompt_strategy,
+    prompt_input,
+    status,
+    error,
+    runner_run_id,
+    runner_output,
+    runner_exit_code,
+    root_exec_id,
+    agent_run_id
+FROM skill_security_runs
+WHERE root_exec_id = $1
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+func (q *Queries) GetSkillSecurityRunByRootExecID(ctx context.Context, rootExecID pgtype.Text) (SkillSecurityRun, error) {
+	row := q.db.QueryRow(ctx, getSkillSecurityRunByRootExecID, rootExecID)
+	var i SkillSecurityRun
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SourceType,
+		&i.SourceRef,
+		&i.ResolvedRef,
+		&i.ArtifactPath,
+		&i.AgentType,
+		&i.RunnerMode,
+		&i.PromptStrategy,
+		&i.PromptInput,
+		&i.Status,
+		&i.Error,
+		&i.RunnerRunID,
+		&i.RunnerOutput,
+		&i.RunnerExitCode,
 		&i.RootExecID,
 		&i.AgentRunID,
 	)
@@ -67,6 +195,9 @@ INSERT INTO skill_security_runs (
     prompt_input,
     status,
     error,
+    runner_run_id,
+    runner_output,
+    runner_exit_code,
     root_exec_id,
     agent_run_id
 ) VALUES (
@@ -81,10 +212,13 @@ INSERT INTO skill_security_runs (
     $9,
     $10,
     $11,
-    $12
+    $12,
+    $13,
+    $14,
+    $15
 )
 RETURNING id, created_at, updated_at, source_type, source_ref, resolved_ref, artifact_path,
-          agent_type, runner_mode, prompt_strategy, prompt_input, status, error, root_exec_id, agent_run_id
+          agent_type, runner_mode, prompt_strategy, prompt_input, status, error, runner_run_id, runner_output, runner_exit_code, root_exec_id, agent_run_id
 `
 
 type InsertSkillSecurityRunParams struct {
@@ -98,6 +232,9 @@ type InsertSkillSecurityRunParams struct {
 	PromptInput    pgtype.Text
 	Status         string
 	Error          pgtype.Text
+	RunnerRunID    pgtype.Text
+	RunnerOutput   pgtype.Text
+	RunnerExitCode pgtype.Int4
 	RootExecID     pgtype.Text
 	AgentRunID     pgtype.UUID
 }
@@ -114,6 +251,9 @@ func (q *Queries) InsertSkillSecurityRun(ctx context.Context, arg InsertSkillSec
 		arg.PromptInput,
 		arg.Status,
 		arg.Error,
+		arg.RunnerRunID,
+		arg.RunnerOutput,
+		arg.RunnerExitCode,
 		arg.RootExecID,
 		arg.AgentRunID,
 	)
@@ -132,6 +272,9 @@ func (q *Queries) InsertSkillSecurityRun(ctx context.Context, arg InsertSkillSec
 		&i.PromptInput,
 		&i.Status,
 		&i.Error,
+		&i.RunnerRunID,
+		&i.RunnerOutput,
+		&i.RunnerExitCode,
 		&i.RootExecID,
 		&i.AgentRunID,
 	)
@@ -153,6 +296,9 @@ SELECT
     prompt_input,
     status,
     error,
+    runner_run_id,
+    runner_output,
+    runner_exit_code,
     root_exec_id,
     agent_run_id
 FROM skill_security_runs
@@ -198,6 +344,9 @@ func (q *Queries) ListSkillSecurityRuns(ctx context.Context, arg ListSkillSecuri
 			&i.PromptInput,
 			&i.Status,
 			&i.Error,
+			&i.RunnerRunID,
+			&i.RunnerOutput,
+			&i.RunnerExitCode,
 			&i.RootExecID,
 			&i.AgentRunID,
 		); err != nil {
@@ -209,6 +358,102 @@ func (q *Queries) ListSkillSecurityRuns(ctx context.Context, arg ListSkillSecuri
 		return nil, err
 	}
 	return items, nil
+}
+
+const listSkills = `-- name: ListSkills :many
+SELECT DISTINCT
+    source_type,
+    source_ref,
+    artifact_path,
+    MAX(created_at) as last_run_at,
+    COUNT(*) as run_count,
+    (ARRAY_AGG(runner_mode ORDER BY created_at DESC))[1] as last_runner_mode
+FROM skill_security_runs
+WHERE ($1 = '' OR source_type = $1)
+GROUP BY source_type, source_ref, artifact_path
+ORDER BY MAX(created_at) DESC
+LIMIT $2
+`
+
+type ListSkillsParams struct {
+	SourceType interface{}
+	Limit      int32
+}
+
+type ListSkillsRow struct {
+	SourceType     string
+	SourceRef      string
+	ArtifactPath   pgtype.Text
+	LastRunAt      interface{}
+	RunCount       int64
+	LastRunnerMode interface{}
+}
+
+func (q *Queries) ListSkills(ctx context.Context, arg ListSkillsParams) ([]ListSkillsRow, error) {
+	rows, err := q.db.Query(ctx, listSkills, arg.SourceType, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSkillsRow
+	for rows.Next() {
+		var i ListSkillsRow
+		if err := rows.Scan(
+			&i.SourceType,
+			&i.SourceRef,
+			&i.ArtifactPath,
+			&i.LastRunAt,
+			&i.RunCount,
+			&i.LastRunnerMode,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateSkillSecurityRunResult = `-- name: UpdateSkillSecurityRunResult :exec
+UPDATE skill_security_runs
+SET status = $1,
+    error = $2,
+    runner_output = $3,
+    runner_exit_code = $4,
+    root_exec_id = $5,
+    agent_run_id = $6,
+    prompt_input = $7,
+    updated_at = $8
+WHERE id = $9
+`
+
+type UpdateSkillSecurityRunResultParams struct {
+	Status         string
+	Error          pgtype.Text
+	RunnerOutput   pgtype.Text
+	RunnerExitCode pgtype.Int4
+	RootExecID     pgtype.Text
+	AgentRunID     pgtype.UUID
+	PromptInput    pgtype.Text
+	UpdatedAt      pgtype.Timestamptz
+	ID             pgtype.UUID
+}
+
+func (q *Queries) UpdateSkillSecurityRunResult(ctx context.Context, arg UpdateSkillSecurityRunResultParams) error {
+	_, err := q.db.Exec(ctx, updateSkillSecurityRunResult,
+		arg.Status,
+		arg.Error,
+		arg.RunnerOutput,
+		arg.RunnerExitCode,
+		arg.RootExecID,
+		arg.AgentRunID,
+		arg.PromptInput,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
 }
 
 const updateSkillSecurityRunRootExec = `-- name: UpdateSkillSecurityRunRootExec :exec
@@ -236,6 +481,24 @@ func (q *Queries) UpdateSkillSecurityRunRootExec(ctx context.Context, arg Update
 		arg.UpdatedAt,
 		arg.ID,
 	)
+	return err
+}
+
+const updateSkillSecurityRunRunner = `-- name: UpdateSkillSecurityRunRunner :exec
+UPDATE skill_security_runs
+SET runner_run_id = $1,
+    updated_at = $2
+WHERE id = $3
+`
+
+type UpdateSkillSecurityRunRunnerParams struct {
+	RunnerRunID pgtype.Text
+	UpdatedAt   pgtype.Timestamptz
+	ID          pgtype.UUID
+}
+
+func (q *Queries) UpdateSkillSecurityRunRunner(ctx context.Context, arg UpdateSkillSecurityRunRunnerParams) error {
+	_, err := q.db.Exec(ctx, updateSkillSecurityRunRunner, arg.RunnerRunID, arg.UpdatedAt, arg.ID)
 	return err
 }
 

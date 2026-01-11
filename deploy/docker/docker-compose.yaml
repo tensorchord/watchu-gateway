@@ -36,8 +36,12 @@ services:
       THREAT_INSIGHT_API_KEY: ${THREAT_INSIGHT_API_KEY}
       THREAT_INSIGHT_MODEL: ${THREAT_INSIGHT_MODEL:-gpt-4o-mini}
       THREAT_INSIGHT_TIMEOUT: ${THREAT_INSIGHT_TIMEOUT:-120s}
+      SKILL_RUNNER_BASE_URL: ${SKILL_RUNNER_BASE_URL}
+      SKILL_UPLOAD_DIR: /tmp/watchu-skill-uploads
     ports:
       - "8080:8080"
+    volumes:
+      - /tmp/watchu-skill-uploads:/tmp/watchu-skill-uploads
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -84,6 +88,8 @@ services:
       - http://gateway:8080
       - --tetragon-path
       - unix:///var/run/tetragon/tetragon.sock
+      - --ssl-path
+      - ${COLLECTOR_SSL_PATH:-/home/xieyuandong/.nvm/versions/node/v24.10.0/bin/node}
       - --scan-host-proc
     pid: "host"
     uts: "host"
@@ -96,6 +102,7 @@ services:
       - /sys/fs/bpf:/sys/fs/bpf
       - /sys/kernel/debug:/sys/kernel/debug
       - /sys/kernel/tracing:/sys/kernel/tracing
+      - /home/xieyuandong/.nvm:/home/xieyuandong/.nvm:ro
       - tetragon-socket:/var/run/tetragon
     depends_on:
       - gateway

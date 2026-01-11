@@ -1,16 +1,35 @@
 import { Button, Card, Flex, InputNumber, Result, Space, Tooltip, Typography } from "antd";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import ProcessTreePanel from "../components/ProcessTreePanel";
 import { useSettings } from "../context/SettingsContext";
 import { useProcessTree } from "../hooks/useAnalytics";
+import type { ProcessTreeNodeResponse } from "../types/api";
 
 const { Title, Paragraph, Text } = Typography;
 
 export default function ProcessIndex() {
     const navigate = useNavigate();
+    const location = useLocation();
     const { host, since, until, rootLimit, nodeLimit, setRootLimit, setNodeLimit } = useSettings();
-    const treeQuery = useProcessTree({ host, rootLimit, nodeLimit, since, until });
+    const rootExecQuery = useMemo(() => {
+        const params = new URLSearchParams(location.search);
+        const raw = params.get("root_exec_id");
+        return raw ? raw.trim() : "";
+    }, [location.search]);
+    const treeQuery = useProcessTree({ host, rootLimit, nodeLimit, since, until, rootExecId: rootExecQuery || undefined });
+    const autoNavRef = useRef(false);
+
+    useEffect(() => {
+        if (autoNavRef.current) return;
+        if (!rootExecQuery || treeQuery.isLoading || treeQuery.isFetching) return;
+        const rootPid = findRootPidByExec(treeQuery.data ?? [], rootExecQuery);
+        if (typeof rootPid === "number") {
+            autoNavRef.current = true;
+            navigate(`/processes/${rootPid}?root_exec_id=${encodeURIComponent(rootExecQuery)}`, { replace: true });
+        }
+    }, [rootExecQuery, treeQuery.data, treeQuery.isLoading, treeQuery.isFetching, navigate]);
 
     if (treeQuery.error) {
         const message = treeQuery.error instanceof Error ? treeQuery.error.message : "Unknown error";
@@ -92,4 +111,19 @@ export default function ProcessIndex() {
             />
         </Flex>
     );
+}
+
+function findRootPidByExec(nodes: ProcessTreeNodeResponse[], rootExecId: string): number | null {
+    for (const node of nodes) {
+        if (node.root_exec_id === rootExecId || node.exec_id === rootExecId) {
+            return node.root_pid ?? node.pid ?? null;
+        }
+        if (node.children && node.children.length > 0) {
+            const childPid = findRootPidByExec(node.children, rootExecId);
+            if (childPid != null) {
+                return childPid;
+            }
+        }
+    }
+    return null;
 }

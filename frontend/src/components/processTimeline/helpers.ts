@@ -655,7 +655,7 @@ export function mapHttpEvents(events: ProcessHTTPEventResponse[] | undefined): T
         return [];
     }
     return events
-        .map((event) => {
+        .map((event): TimelineEvent | null => {
             const timestampMs = toTimestampMillis(event.timestamp);
             if (timestampMs == null) {
                 return null;
@@ -672,7 +672,7 @@ export function mapHttpEvents(events: ProcessHTTPEventResponse[] | undefined): T
             const severityLevel = normalizeSeverityLevel((event as Record<string, unknown>).severity_level);
             const severityCategories = (event as Record<string, unknown>).severity_categories;
             const categoriesText = typeof severityCategories === "string" ? severityCategories : toPrimitiveString(severityCategories);
-            return {
+            const mapped: TimelineEvent = {
                 timestamp:
                     formatTimestamp(timestampMs) ?? (typeof event.timestamp === "string" ? event.timestamp : `${timestampMs}`),
                 timestampMs,
@@ -690,9 +690,10 @@ export function mapHttpEvents(events: ProcessHTTPEventResponse[] | undefined): T
                 body: event.body ?? null,
                 severityLevel,
                 severityCategories: categoriesText
-            } satisfies TimelineEvent;
+            };
+            return mapped;
         })
-        .filter((value): value is TimelineEvent => Boolean(value));
+        .filter((value): value is TimelineEvent => value !== null);
 }
 
 export function mapProcessEvents(events: ProcessEventResponse[] | undefined): ProcessEvent[] {

@@ -12,22 +12,22 @@ interface ThreatAnalysisProps {
 }
 
 function getThreatLevelColor(level: number): string {
-    if (level >= 80) return "#f5222d"; // critical - red
-    if (level >= 50) return "#fa8c16"; // high - orange
-    if (level >= 30) return "#faad14"; // medium - yellow
+    if (level >= 5) return "#f5222d"; // critical - red
+    if (level >= 4) return "#fa8c16"; // high - orange
+    if (level >= 3) return "#faad14"; // medium - yellow
     return "#52c41a"; // low - green
 }
 
 function getThreatLevelLabel(level: number): string {
-    if (level >= 80) return "Critical";
-    if (level >= 50) return "High";
-    if (level >= 30) return "Medium";
+    if (level >= 5) return "Critical";
+    if (level >= 4) return "High";
+    if (level >= 3) return "Medium";
     return "Low";
 }
 
 function getThreatLevelIcon(level: number) {
-    if (level >= 50) return <ExclamationCircleOutlined />;
-    if (level >= 30) return <WarningOutlined />;
+    if (level >= 4) return <ExclamationCircleOutlined />;
+    if (level >= 3) return <WarningOutlined />;
     return <InfoCircleOutlined />;
 }
 
@@ -112,8 +112,8 @@ export default function ThreatAnalysis({ rootExecId }: ThreatAnalysisProps) {
                         padding: "6px 16px",
                         height: "auto",
                         border: "1.5px solid #d9d9d9",
-                        color: result && threatLevel >= 50 ? threatColor : "#262626",
-                        background: result && threatLevel >= 50 ? `${threatColor}15` : "#ffffff",
+                        color: result && threatLevel >= 4 ? threatColor : "#262626",
+                        background: result && threatLevel >= 4 ? `${threatColor}15` : "#ffffff",
                         borderRadius: 6,
                         boxShadow: "0 2px 4px rgba(0, 0, 0, 0.05)",
                         transition: "all 0.3s ease"
@@ -141,7 +141,7 @@ export default function ThreatAnalysis({ rootExecId }: ThreatAnalysisProps) {
                             borderRadius: 4
                         }}
                     >
-                        {threatLabel} • {threatLevel}%
+                        {threatLabel} • Level {threatLevel}
                     </Tag>
                 )}
             </Space>
@@ -182,7 +182,7 @@ export default function ThreatAnalysis({ rootExecId }: ThreatAnalysisProps) {
                                         <Text type="secondary" strong>Threat Level</Text>
                                         <Progress
                                             type="circle"
-                                            percent={threatLevel}
+                                            percent={threatLevel * 20}
                                             strokeColor={threatColor}
                                             strokeWidth={6}
                                             width={100}

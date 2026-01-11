@@ -149,6 +149,9 @@ export interface SkillSecurityRunResponse {
     prompt_input?: string | null;
     status: string;
     error?: string | null;
+    runner_run_id?: string | null;
+    runner_output?: string | null;
+    runner_exit_code?: number | null;
     root_exec_id?: string | null;
     agent_run_id?: string | null;
 }
@@ -157,4 +160,13 @@ export interface SkillSecurityUploadResponse {
     artifact_path: string;
     source_ref: string;
     size_bytes: number;
+}
+
+export interface SkillSummaryResponse {
+    source_type: string;
+    source_ref: string;
+    artifact_path?: string;
+    last_run_at?: string;
+    run_count: number;
+    last_runner_mode?: string;
 }

@@ -9,6 +9,8 @@ import (
 	"github.com/phuslu/log"
 )
 
+const PostgresProtoRequest string = "Postgres"
+
 type PostgresParser struct{}
 
 func parsePostgresStatement(record *SSLRecord) (*bytes.Buffer, uint8, uint32) {
@@ -36,7 +38,7 @@ func (pp *PostgresParser) ParseRequest(record *SSLRecord) (*http.Request, int, e
 	if body != nil && (tag == 'Q' || tag == 'P' || tag == 'B' || tag == 'E') {
 		req = &http.Request{
 			Method:        string(tag),
-			Proto:         "Postgres",
+			Proto:         PostgresProtoRequest,
 			ProtoMajor:    3,
 			Body:          io.NopCloser(body),
 			ContentLength: int64(length - 5),

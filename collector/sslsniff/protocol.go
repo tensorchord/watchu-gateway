@@ -24,14 +24,14 @@ import (
 
 const (
 	// SSL
-	SSL_MAX_EVENT_SIZE = 64 * 1024               // 64 KiB
-	SSL_MAX_DATA_SIZE  = 64 * SSL_MAX_EVENT_SIZE // 4 MiB
-	SSL_RW_READ        = 4
-	SSL_RW_WRITE       = 2
+	SSLMaxEventSize = 64 * 1024            // 64 KiB
+	SSLMaxDataSize  = 64 * SSLMaxEventSize // 4 MiB
+	SSLRwRead       = 4
+	SSLRwWrite      = 2
 
 	// HTTP
 	ChunkedEncodingValue = "chunked"
-	StreamEndChunkLength = uint64(len("0")) + 2*CRLF_LEN // "0\r\n\r\n"
+	StreamEndChunkLength = uint64(len("0")) + 2*CRLFLen // "0\r\n\r\n"
 
 	// Postgres
 	PostgresStartupMessageMaxLength = 4096
@@ -222,7 +222,7 @@ func (ss *SSLStore) detectProtocol(key SSLKey, record *SSLRecord) ProtocolType {
 		return ProtocolHTTP1
 	}
 	// it's very likely HTTP/2 if no HTTP/1.x signature found
-	if len(buf) < HTTP2_FRAME_HEADER_LEN {
+	if len(buf) < HTTP2FrameHeaderLen {
 		logger.Error().Str("buf", hex.EncodeToString(buf)).Msg("cannot determine the protocol version")
 		return ProtocolUnknown
 	}
@@ -231,7 +231,7 @@ func (ss *SSLStore) detectProtocol(key SSLKey, record *SSLRecord) ProtocolType {
 	frameType := buf[3]
 	flags := buf[4]
 	streamID := binary.BigEndian.Uint32(buf[5:]) & (1<<31 - 1)
-	if length > SSL_MAX_DATA_SIZE || frameType > HTTP2_FRAME_MAX_CODE || flags&^HTTP2_FLAGS_MASK != 0 {
+	if length > SSLMaxDataSize || frameType > HTTP2FrameMaxCode || flags&^HTTP2FlagsMask != 0 {
 		logger.Trace().Uint32("length", length).Uint8("frame", frameType).Uint8("flags", flags).Msg("invalid HTTP/2 frame header")
 		return ProtocolUnknown
 	}
@@ -258,7 +258,7 @@ func (s *SSLStore) Add(event *sslEvent) {
 		Comm:        event.Comm,
 	}
 	switch event.Rw {
-	case SSL_RW_WRITE:
+	case SSLRwWrite:
 		s.reqMu.Lock()
 		record, ok := s.Request[key]
 		if !ok {
@@ -267,7 +267,7 @@ func (s *SSLStore) Add(event *sslEvent) {
 		}
 		record.Append(event.Data[:event.DataLen], info)
 		s.reqMu.Unlock()
-	case SSL_RW_READ:
+	case SSLRwRead:
 		s.respMu.Lock()
 		record, ok := s.Response[key]
 		if !ok {
@@ -279,7 +279,7 @@ func (s *SSLStore) Add(event *sslEvent) {
 	}
 }
 
-func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
+func (s *SSLStore) parseRequest(reqChan chan *collector.RawRequest, postgresChan chan *collector.RawPostgres) {
 	s.reqMu.Lock()
 	defer s.reqMu.Unlock()
 
@@ -318,7 +318,7 @@ func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 			comm = tool.CharsToString(record.Info[len(record.Info)-1].Comm[:])
 			delete(s.Request, key)
 		} else {
-			if consumed >= SSL_MAX_DATA_SIZE {
+			if consumed >= SSLMaxDataSize {
 				truncated = true
 			}
 			record.Stream = record.Stream[consumed:]
@@ -365,23 +365,40 @@ func (s *SSLStore) parseRequest(channel chan *collector.RawRequest) {
 		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("TLS request")
 		record.EndOfStream = false
 		record.LastResp = nil
-		select {
-		case channel <- &collector.RawRequest{
-			ElapsedNs:     timestamp,
-			PidTid:        key.PidTgid,
-			UidGid:        key.UidGid,
-			CgroupID:      key.CgroupID,
-			Comm:          comm,
-			Method:        request.Method,
-			URL:           url,
-			ContentLength: request.ContentLength,
-			Protocol:      request.Proto,
-			Headers:       headers,
-			Body:          body,
-			Truncated:     truncated,
-		}:
-		default:
-			log.Warn().Msg("request channel is full, dropping event")
+
+		if request.Proto == PostgresProtoRequest {
+			select {
+			case postgresChan <- &collector.RawPostgres{
+				ElapsedNs: timestamp,
+				PidTid:    key.PidTgid,
+				UidGid:    key.UidGid,
+				CgroupID:  key.CgroupID,
+				Comm:      comm,
+				Data:      body,
+				MsgType:   request.Method,
+			}:
+			default:
+				log.Warn().Msg("TLS postgres channel is full, dropping event")
+			}
+		} else {
+			select {
+			case reqChan <- &collector.RawRequest{
+				ElapsedNs:     timestamp,
+				PidTid:        key.PidTgid,
+				UidGid:        key.UidGid,
+				CgroupID:      key.CgroupID,
+				Comm:          comm,
+				Method:        request.Method,
+				URL:           url,
+				ContentLength: request.ContentLength,
+				Protocol:      request.Proto,
+				Headers:       headers,
+				Body:          body,
+				Truncated:     truncated,
+			}:
+			default:
+				log.Warn().Msg("request channel is full, dropping event")
+			}
 		}
 	}
 }
@@ -489,7 +506,7 @@ func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 	}
 }
 
-func (s *SSLStore) Parse(ctx context.Context, reqChan chan *collector.RawRequest, respChan chan *collector.RawResponse) {
+func (s *SSLStore) Parse(ctx context.Context, reqChan chan *collector.RawRequest, respChan chan *collector.RawResponse, postgresChan chan *collector.RawPostgres) {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
@@ -498,7 +515,8 @@ func (s *SSLStore) Parse(ctx context.Context, reqChan chan *collector.RawRequest
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.parseRequest(reqChan)
+			// we only collect the postgres Request events
+			s.parseRequest(reqChan, postgresChan)
 			s.parseResponse(respChan)
 		}
 	}

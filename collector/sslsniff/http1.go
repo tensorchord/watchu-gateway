@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	HTTP1_DELIMITER_LEN = 4
-	CRLF_LEN            = 2
+	HTTP1DelimiterLen = 4
+	CRLFLen           = 2
 )
 
 type HTTP1Parser struct{}
@@ -30,7 +30,7 @@ func (h1 *HTTP1Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 		}
 		// trim to the `\r\n\r\n`
 		if idx := bytes.Index(record.Stream, HTTP1DELIMITER); idx != -1 {
-			return nil, idx + HTTP1_DELIMITER_LEN, err
+			return nil, idx + HTTP1DelimiterLen, err
 		}
 		// have to throw away to avoid infinite loop
 		return nil, len(record.Stream), err
@@ -41,17 +41,17 @@ func (h1 *HTTP1Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 		return req, len(record.Stream), fmt.Errorf("cannot find the end of HTTP header")
 	}
 	// check if the body is fully received
-	lengthToConsume := idx + HTTP1_DELIMITER_LEN + int(req.ContentLength)
+	lengthToConsume := idx + HTTP1DelimiterLen + int(req.ContentLength)
 	if req.ContentLength >= 0 && lengthToConsume > len(record.Stream) {
 		// when the data is too large to be handled, returned the truncated body
-		if lengthToConsume > SSL_MAX_DATA_SIZE && len(record.Stream)+SSL_MAX_EVENT_SIZE > SSL_MAX_DATA_SIZE {
-			log.Debug().Int("content_length", int(req.ContentLength)).Int("received", len(record.Stream)-idx-HTTP1_DELIMITER_LEN).Msg("truncate HTTP/1 request body")
+		if lengthToConsume > SSLMaxDataSize && len(record.Stream)+SSLMaxEventSize > SSLMaxDataSize {
+			log.Debug().Int("content_length", int(req.ContentLength)).Int("received", len(record.Stream)-idx-HTTP1DelimiterLen).Msg("truncate HTTP/1 request body")
 			record.EndOfStream = true
-			lengthToConsume = min(SSL_MAX_DATA_SIZE, len(record.Stream))
+			lengthToConsume = min(SSLMaxDataSize, len(record.Stream))
 			return req, lengthToConsume, nil
 		}
 		// wait for more data, do not return the half-received request body
-		log.Debug().Int("content_length", int(req.ContentLength)).Int("received", len(record.Stream)-idx-HTTP1_DELIMITER_LEN).Msg("incomplete HTTP request body, wait for more data")
+		log.Debug().Int("content_length", int(req.ContentLength)).Int("received", len(record.Stream)-idx-HTTP1DelimiterLen).Msg("incomplete HTTP request body, wait for more data")
 		record.EndOfStream = false
 		return nil, 0, nil
 	}
@@ -65,12 +65,12 @@ func parseStream(data []uint8) ([]uint8, uint64, error) {
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to parse stream length: %w", err)
 		}
-		consumed := uint64(idx) + CRLF_LEN + length + CRLF_LEN
+		consumed := uint64(idx) + CRLFLen + length + CRLFLen
 		if consumed > uint64(len(data)) {
 			// wait for more data
 			return nil, 0, nil
 		}
-		return data[idx+CRLF_LEN : idx+CRLF_LEN+int(length)], consumed, nil
+		return data[idx+CRLFLen : idx+CRLFLen+int(length)], consumed, nil
 	}
 	return nil, 0, fmt.Errorf("failed to parse stream length: no CRLF found")
 }
@@ -108,7 +108,7 @@ func (h1 *HTTP1Parser) ParseResponse(record *SSLRecord) (*http.Response, int, er
 		}
 		// trim to the `\r\n\r\n`
 		if idx := bytes.Index(record.Stream, HTTP1DELIMITER); idx != -1 {
-			return nil, idx + HTTP1_DELIMITER_LEN, err
+			return nil, idx + HTTP1DelimiterLen, err
 		}
 		// have to throw away to avoid infinite loop
 		return nil, len(record.Stream), err
@@ -129,7 +129,7 @@ func (h1 *HTTP1Parser) ParseResponse(record *SSLRecord) (*http.Response, int, er
 		resp.Body = io.NopCloser(bytes.NewReader([]byte{})) // change to empty body, so next time will handle the chunk
 	} else {
 		// Non-Streaming response should end here if the body has been fully received
-		consumed := idx + HTTP1_DELIMITER_LEN + int(contentLength)
+		consumed := idx + HTTP1DelimiterLen + int(contentLength)
 		if consumed > len(record.Stream) {
 			// wait for more data
 			log.Debug().Int("consumed", consumed).Int("len_stream", len(record.Stream)).Msg("wait for more data to fill this response")
@@ -137,5 +137,5 @@ func (h1 *HTTP1Parser) ParseResponse(record *SSLRecord) (*http.Response, int, er
 		}
 		record.EndOfStream = true
 	}
-	return resp, idx + HTTP1_DELIMITER_LEN + int(contentLength), nil
+	return resp, idx + HTTP1DelimiterLen + int(contentLength), nil
 }

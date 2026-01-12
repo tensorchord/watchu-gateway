@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	HTTP2_FRAME_HEADER_LEN = 9
-	HTTP2_FRAME_MAX_CODE   = 0x9
-	HTTP2_FLAGS_MASK       = 0x1 | 0x4 | 0x8 | 0x20
+	HTTP2FrameHeaderLen = 9
+	HTTP2FrameMaxCode   = 0x9
+	HTTP2FlagsMask      = 0x1 | 0x4 | 0x8 | 0x20
 )
 
 type HTTP2Parser struct {
@@ -116,7 +116,7 @@ func (h2 *HTTP2Parser) parse(record *SSLRecord) (headers []hpack.HeaderField, bo
 			// ignore other connection-level frames
 			log.Trace().Bool("EOS", record.EndOfStream).Any("info", &record.Info).Str("frame", fmt.Sprintf("%T", f)).Msg("ignoring non-header/data frame")
 		}
-		lastPos += int(frame.Header().Length) + HTTP2_FRAME_HEADER_LEN
+		lastPos += int(frame.Header().Length) + HTTP2FrameHeaderLen
 		log.Trace().Bool("EOS", record.EndOfStream).Any("info", &record.Info).Int("lastPos", lastPos).Any("type", frame).Msg("parsed another HTTP/2 frame")
 	}
 	return
@@ -128,7 +128,7 @@ func (h2 *HTTP2Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 		return nil, lastPos, err
 	}
 
-	if !record.EndOfStream && lastPos+SSL_MAX_EVENT_SIZE > SSL_MAX_DATA_SIZE {
+	if !record.EndOfStream && lastPos+SSLMaxEventSize > SSLMaxDataSize {
 		// truncate the request body
 		log.Debug().Int("lastPos", lastPos).Msg("truncate HTTP/2 request body")
 		record.EndOfStream = true

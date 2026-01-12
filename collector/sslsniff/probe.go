@@ -31,11 +31,12 @@ type TLSProbe interface {
 }
 
 type SSLProbe struct {
-	mu       sync.Mutex // lock the probes
-	probes   map[container.LibKey]TLSProbe
-	client   *collector.GatewayClient
-	reqChan  chan *collector.RawRequest
-	respChan chan *collector.RawResponse
+	mu           sync.Mutex // lock the probes
+	probes       map[container.LibKey]TLSProbe
+	client       *collector.GatewayClient
+	reqChan      chan *collector.RawRequest
+	respChan     chan *collector.RawResponse
+	postgresChan chan *collector.RawPostgres
 }
 
 func NewSSLProbe(sslPath, rustlsPath *string, client *collector.GatewayClient) *SSLProbe {
@@ -89,10 +90,11 @@ func NewSSLProbe(sslPath, rustlsPath *string, client *collector.GatewayClient) *
 	}
 
 	return &SSLProbe{
-		probes:   probes,
-		client:   client,
-		reqChan:  make(chan *collector.RawRequest, collector.GatewayChannelSize),
-		respChan: make(chan *collector.RawResponse, collector.GatewayChannelSize),
+		probes:       probes,
+		client:       client,
+		reqChan:      make(chan *collector.RawRequest, collector.GatewayChannelSize),
+		respChan:     make(chan *collector.RawResponse, collector.GatewayChannelSize),
+		postgresChan: make(chan *collector.RawPostgres, collector.GatewayChannelSize),
 	}
 }
 
@@ -141,8 +143,9 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 
 	go sp.client.IngestRequestEvent(ctx, sp.reqChan)
 	go sp.client.IngestResponseEvent(ctx, sp.respChan)
+	go sp.client.IngestPostgresEvent(ctx, sp.postgresChan)
 	store := NewSSLStore()
-	go store.Parse(ctx, sp.reqChan, sp.respChan)
+	go store.Parse(ctx, sp.reqChan, sp.respChan, sp.postgresChan)
 
 	var wg sync.WaitGroup
 	for key, probe := range sp.probes {

@@ -43,7 +43,7 @@ jobs:
       run: docker run --rm -v "$PWD":/workspace -w /workspace $BUILDER bash -c "make build && make lint-ebpf"
 
     - name: golangci-lint
-      uses: golangci/golangci-lint-action@v8
+      uses: golangci/golangci-lint-action@v9
       with:
         working-directory: ./collector
 

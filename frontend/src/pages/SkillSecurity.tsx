@@ -10,6 +10,7 @@ import { createSkillSecurityRun, fetchSkillSecurityRun, fetchSkillSecurityRuns, 
 import type { SkillSecurityRunCreateRequest, SkillSecurityRunResponse, SkillSecurityUploadResponse, TraceGraphResponse, SkillSummaryResponse, ThreatAnalysisResponse } from "../types/api";
 import { useSettings } from "../context/SettingsContext";
 import ThreatAnalysis from "../components/ThreatAnalysis";
+import RunnerOutputViewer from "../components/RunnerOutputViewer";
 
 const { Title, Text } = Typography;
 
@@ -613,7 +614,7 @@ export default function SkillSecurity() {
                         {selected.runner_output && (
                             <Collapse defaultActiveKey={[]} size="small">
                                 <Collapse.Panel header="Runner Output" key="runner-output">
-                                    <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{selected.runner_output}</pre>
+                                    <RunnerOutputViewer output={selected.runner_output} />
                                 </Collapse.Panel>
                             </Collapse>
                         )}

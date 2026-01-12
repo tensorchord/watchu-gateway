@@ -10,6 +10,13 @@ updates:
           - "*"
     commit-message:
       prefix: "chore(deps:collector)"
+    assignees:
+      - "kemingy"
+    cooldown:
+      default-days: 5
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
 
   - package-ecosystem: "gomod"
     directory: "gateway/"
@@ -21,6 +28,13 @@ updates:
           - "*"
     commit-message:
       prefix: "chore(deps:gateway)"
+    assignees:
+      - "xieydd"
+    cooldown:
+      default-days: 5
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
 
   - package-ecosystem: "npm"
     directory: "frontend/"
@@ -32,6 +46,13 @@ updates:
           - "*"
     commit-message:
       prefix: "chore(deps:frontend)"
+    assignees:
+      - "xieydd"
+    cooldown:
+      default-days: 5
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -43,3 +64,7 @@ updates:
           - "*"
     commit-message:
       prefix: "chore(actions)"
+    assignees:
+      - "kemingy"
+    cooldown:
+      default-days: 7

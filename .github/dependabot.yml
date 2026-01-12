@@ -10,6 +10,8 @@ updates:
           - "*"
     commit-message:
       prefix: "chore(deps:collector)"
+    assignees:
+      - "kemingy"
 
   - package-ecosystem: "gomod"
     directory: "gateway/"
@@ -21,6 +23,8 @@ updates:
           - "*"
     commit-message:
       prefix: "chore(deps:gateway)"
+    assignees:
+      - "xieydd"
 
   - package-ecosystem: "npm"
     directory: "frontend/"
@@ -32,6 +36,8 @@ updates:
           - "*"
     commit-message:
       prefix: "chore(deps:frontend)"
+    assignees:
+      - "xieydd"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -43,3 +49,5 @@ updates:
           - "*"
     commit-message:
       prefix: "chore(actions)"
+    assignees:
+      - "kemingy"

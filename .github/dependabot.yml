@@ -1,0 +1,45 @@
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "collector/"
+    schedule:
+      interval: "monthly"
+    groups:
+      collector-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(deps:collector)"
+
+  - package-ecosystem: "gomod"
+    directory: "gateway/"
+    schedule:
+      interval: "monthly"
+    groups:
+      gateway-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(deps:gateway)"
+
+  - package-ecosystem: "npm"
+    directory: "frontend/"
+    schedule:
+      interval: "monthly"
+    groups:
+      root-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(deps:frontend)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      all-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(actions)"

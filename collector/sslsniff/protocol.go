@@ -133,6 +133,7 @@ type SSLStore struct {
 	protocol       map[SSLKey]ProtocolType
 	reqMu          sync.Mutex
 	respMu         sync.Mutex
+	protoMu        sync.Mutex
 	interval       time.Duration
 	http1Parser    *HTTP1Parser
 	http2Parser    *HTTP2Parser
@@ -153,7 +154,12 @@ func NewSSLStore() *SSLStore {
 
 // detectProtocol tries to determine the protocol type based on the initial bytes of the stream.
 // This assumption should be consistent throughout the lifetime of the SSL+Pid+Uid tuple.
+//
+// NOTE: This function is not idempotent, it will consume the stream if the Postgres StartupMessage
+// is detected.
 func (ss *SSLStore) detectProtocol(key SSLKey, record *SSLRecord) ProtocolType {
+	ss.protoMu.Lock()
+	defer ss.protoMu.Unlock()
 	pt, ok := ss.protocol[key]
 	if ok {
 		return pt
@@ -181,7 +187,7 @@ func (ss *SSLStore) detectProtocol(key SSLKey, record *SSLRecord) ProtocolType {
 		}
 	}
 	if len(buf) > 8 {
-		// this only detects the Postgres startup message from the client side
+		// detects the Postgres startup message during the init connection phase
 		length := binary.BigEndian.Uint32(buf[:4])
 		protocolVersion := binary.BigEndian.Uint32(buf[4:8])
 		if length <= PostgresStartupMessageMaxLength && (protocolVersion>>16) == 3 {

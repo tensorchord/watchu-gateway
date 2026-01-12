@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/maypok86/otter/v2"
 	"github.com/phuslu/log"
 	"golang.org/x/net/http2"
 
@@ -130,7 +131,7 @@ func (r *SSLRecord) Append(data []uint8, info *EventInfo) {
 type SSLStore struct {
 	Request        map[SSLKey]*SSLRecord
 	Response       map[SSLKey]*SSLRecord
-	protocol       map[SSLKey]ProtocolType
+	protocolCache  *otter.Cache[SSLKey, ProtocolType]
 	reqMu          sync.Mutex
 	respMu         sync.Mutex
 	protoMu        sync.Mutex
@@ -141,11 +142,19 @@ type SSLStore struct {
 }
 
 func NewSSLStore() *SSLStore {
+	cache := otter.Must(&otter.Options[SSLKey, ProtocolType]{
+		ExpiryCalculator: otter.ExpiryAccessingFunc(func(entry otter.Entry[SSLKey, ProtocolType]) time.Duration {
+			if entry.Value == ProtocolPostgres {
+				return 3 * time.Hour
+			}
+			return 10 * time.Minute
+		}),
+	})
 	return &SSLStore{
 		interval:       time.Second,
 		Request:        make(map[SSLKey]*SSLRecord),
 		Response:       make(map[SSLKey]*SSLRecord),
-		protocol:       make(map[SSLKey]ProtocolType),
+		protocolCache:  cache,
 		http1Parser:    &HTTP1Parser{},
 		http2Parser:    NewHTTP2Parser(),
 		postgresParser: &PostgresParser{},
@@ -160,7 +169,7 @@ func NewSSLStore() *SSLStore {
 func (ss *SSLStore) detectProtocol(key SSLKey, record *SSLRecord) ProtocolType {
 	ss.protoMu.Lock()
 	defer ss.protoMu.Unlock()
-	pt, ok := ss.protocol[key]
+	pt, ok := ss.protocolCache.GetIfPresent(key)
 	if ok {
 		return pt
 	}
@@ -171,18 +180,18 @@ func (ss *SSLStore) detectProtocol(key SSLKey, record *SSLRecord) ProtocolType {
 
 	if bytes.HasPrefix(buf, HTTP2PREFACE) {
 		logger.Trace().Msg("detect HTTP/2 preface")
-		ss.protocol[key] = ProtocolHTTP2
+		ss.protocolCache.Set(key, ProtocolHTTP2)
 		return ProtocolHTTP2
 	}
 	if bytes.HasPrefix(buf, HTTP1RESPONSE_PREFIX) || bytes.HasPrefix(buf, HTTP1CHUNK_END) {
 		logger.Trace().Msg("detect HTTP/1.x response")
-		ss.protocol[key] = ProtocolHTTP1
+		ss.protocolCache.Set(key, ProtocolHTTP1)
 		return ProtocolHTTP1
 	}
 	for _, method := range HTTP1REQUEST_METHODS {
 		if bytes.HasPrefix(buf, method) {
 			logger.Trace().Str("method", string(method)).Msg("detect HTTP/1.x request method")
-			ss.protocol[key] = ProtocolHTTP1
+			ss.protocolCache.Set(key, ProtocolHTTP1)
 			return ProtocolHTTP1
 		}
 	}
@@ -193,7 +202,7 @@ func (ss *SSLStore) detectProtocol(key SSLKey, record *SSLRecord) ProtocolType {
 		if length <= PostgresStartupMessageMaxLength && (protocolVersion>>16) == 3 {
 			data := buf[8:min(length, uint32(len(buf)))]
 			logger.Debug().Uint32("length", length).Uint32("protocol_version", protocolVersion).Bytes("data", data).Msg("detect Postgres startup message")
-			ss.protocol[key] = ProtocolPostgres
+			ss.protocolCache.Set(key, ProtocolPostgres)
 			// need to consume the startup message
 			record.Stream = record.Stream[min(length, uint32(len(buf))):]
 			return ProtocolPostgres
@@ -203,13 +212,13 @@ func (ss *SSLStore) detectProtocol(key SSLKey, record *SSLRecord) ProtocolType {
 	_, consumed, err := parseStream(buf)
 	if err == nil && consumed > 0 {
 		logger.Trace().Msg("detect HTTP/1.x chunked encoding")
-		ss.protocol[key] = ProtocolHTTP1
+		ss.protocolCache.Set(key, ProtocolHTTP1)
 		return ProtocolHTTP1
 	}
 	// HTTP/1.x are text based, unless compression is used
 	if !isBinary(buf) {
 		logger.Trace().Msg("plain text detected, likely HTTP/1.x")
-		ss.protocol[key] = ProtocolHTTP1
+		ss.protocolCache.Set(key, ProtocolHTTP1)
 		return ProtocolHTTP1
 	}
 	// it's very likely HTTP/2 if no HTTP/1.x signature found
@@ -232,7 +241,7 @@ func (ss *SSLStore) detectProtocol(key SSLKey, record *SSLRecord) ProtocolType {
 		return ProtocolUnknown
 	}
 	logger.Trace().Msg("guess HTTP2 by default")
-	ss.protocol[key] = ProtocolHTTP2
+	ss.protocolCache.Set(key, ProtocolHTTP2)
 	return ProtocolHTTP2
 }
 

@@ -134,7 +134,6 @@ type SSLStore struct {
 	protocolCache  *otter.Cache[SSLKey, ProtocolType]
 	reqMu          sync.Mutex
 	respMu         sync.Mutex
-	protoMu        sync.Mutex
 	interval       time.Duration
 	http1Parser    *HTTP1Parser
 	http2Parser    *HTTP2Parser
@@ -167,8 +166,6 @@ func NewSSLStore() *SSLStore {
 // NOTE: This function is not idempotent, it will consume the stream if the Postgres StartupMessage
 // is detected.
 func (ss *SSLStore) detectProtocol(key SSLKey, record *SSLRecord) ProtocolType {
-	ss.protoMu.Lock()
-	defer ss.protoMu.Unlock()
 	pt, ok := ss.protocolCache.GetIfPresent(key)
 	if ok {
 		return pt

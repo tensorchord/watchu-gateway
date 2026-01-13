@@ -10,7 +10,9 @@ import (
 	"regexp"
 	"sync"
 	"syscall"
+	"time"
 
+	"github.com/maypok86/otter/v2"
 	"github.com/phuslu/log"
 )
 
@@ -25,17 +27,19 @@ var (
 )
 
 type ContainerResolver struct {
-	mu      sync.RWMutex
-	cache   map[uint64]string
-	unknown map[uint64]struct{}
-	re      *regexp.Regexp
+	mu          sync.RWMutex
+	cgroupTable map[uint64]string
+	unknown     *otter.Cache[uint64, struct{}]
+	re          *regexp.Regexp
 }
 
 func NewContainerResolver() *ContainerResolver {
 	return &ContainerResolver{
-		cache:   make(map[uint64]string),
-		unknown: make(map[uint64]struct{}),
-		re:      regexp.MustCompile(REGEX_CONTAINER_ID),
+		cgroupTable: make(map[uint64]string),
+		unknown: otter.Must(&otter.Options[uint64, struct{}]{
+			ExpiryCalculator: otter.ExpiryAccessing[uint64, struct{}](10 * time.Minute),
+		}),
+		re: regexp.MustCompile(REGEX_CONTAINER_ID),
 	}
 }
 
@@ -65,17 +69,17 @@ func (cr *ContainerResolver) update() {
 	}
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	cr.cache = renew
+	cr.cgroupTable = renew
 }
 
 func (cr *ContainerResolver) load(cgroupID uint64) (string, error) {
 	cr.mu.RLock()
 	defer cr.mu.RUnlock()
-	cid, ok := cr.cache[cgroupID]
+	cid, ok := cr.cgroupTable[cgroupID]
 	if ok {
 		return cid, nil
 	}
-	_, ok = cr.unknown[cgroupID]
+	_, ok = cr.unknown.GetIfPresent(cgroupID)
 	if ok {
 		return "", ErrCgroupNotInContainer
 	}
@@ -92,8 +96,6 @@ func (cr *ContainerResolver) Resolve(cgroupID uint64) string {
 	if cid, err := cr.load(cgroupID); err == nil {
 		return cid
 	}
-	cr.mu.Lock()
-	cr.unknown[cgroupID] = struct{}{}
-	cr.mu.Unlock()
+	cr.unknown.Set(cgroupID, struct{}{})
 	return fmt.Sprintf("non-container-%d", cgroupID)
 }

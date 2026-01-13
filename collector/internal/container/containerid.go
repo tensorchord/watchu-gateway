@@ -3,12 +3,11 @@
 package container
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"io/fs"
 	"path/filepath"
 	"regexp"
-	"sync"
 	"syscall"
 	"time"
 
@@ -21,32 +20,38 @@ const (
 	REGEX_CONTAINER_ID = `-([0-9a-f]{32,64})\.scope`
 )
 
-var (
-	ErrCgroupIDNotFound     = errors.New("cgroup id not found")
-	ErrCgroupNotInContainer = errors.New("cgroup id not in container")
-)
-
 type ContainerResolver struct {
-	mu          sync.RWMutex
-	cgroupTable map[uint64]string
+	cgroupTable *otter.Cache[uint64, string]
 	unknown     *otter.Cache[uint64, struct{}]
 	re          *regexp.Regexp
+	loaderFn    otter.LoaderFunc[uint64, string]
 }
 
 func NewContainerResolver() *ContainerResolver {
-	return &ContainerResolver{
-		cgroupTable: make(map[uint64]string),
+	cr := ContainerResolver{
+		cgroupTable: otter.Must(&otter.Options[uint64, string]{
+			ExpiryCalculator: otter.ExpiryAccessing[uint64, string](10 * time.Minute),
+		}),
 		unknown: otter.Must(&otter.Options[uint64, struct{}]{
 			ExpiryCalculator: otter.ExpiryAccessing[uint64, struct{}](10 * time.Minute),
 		}),
 		re: regexp.MustCompile(REGEX_CONTAINER_ID),
 	}
+	cr.loaderFn = otter.LoaderFunc[uint64, string](cr.loader)
+	return &cr
 }
 
-func (cr *ContainerResolver) update() {
-	log.Debug().Msg("renew the cgroup <=> container table")
+func (cr *ContainerResolver) loader(ctx context.Context, key uint64) (string, error) {
+	if _, ok := cr.unknown.GetIfPresent(key); ok {
+		return "", otter.ErrNotFound
+	}
 	renew := make(map[uint64]string)
 	if err := filepath.WalkDir(CGROUP_DIR, func(path string, d fs.DirEntry, err error) error {
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		default:
+		}
 		if err != nil || !d.IsDir() {
 			return nil
 		}
@@ -65,37 +70,22 @@ func (cr *ContainerResolver) update() {
 	}); err != nil {
 		log.Error().Err(err).Msg("failed to walk the cgroup dir")
 		// DO NOT renew the cache
-		return
+		return "", otter.ErrNotFound
 	}
-	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	cr.cgroupTable = renew
-}
-
-func (cr *ContainerResolver) load(cgroupID uint64) (string, error) {
-	cr.mu.RLock()
-	defer cr.mu.RUnlock()
-	cid, ok := cr.cgroupTable[cgroupID]
-	if ok {
+	log.Info().Msg("update the cgroup <-> container table")
+	for k, v := range renew {
+		cr.cgroupTable.Set(k, v)
+	}
+	if cid, ok := renew[key]; ok {
 		return cid, nil
 	}
-	_, ok = cr.unknown.GetIfPresent(cgroupID)
-	if ok {
-		return "", ErrCgroupNotInContainer
-	}
-	return "", ErrCgroupIDNotFound
+	cr.unknown.Set(key, struct{}{})
+	return "", otter.ErrNotFound
 }
 
-func (cr *ContainerResolver) Resolve(cgroupID uint64) string {
-	if cid, err := cr.load(cgroupID); err == nil {
-		return cid
-	} else if errors.Is(err, ErrCgroupNotInContainer) {
-		return fmt.Sprintf("non-container-%d", cgroupID)
-	}
-	cr.update()
-	if cid, err := cr.load(cgroupID); err == nil {
+func (cr *ContainerResolver) Resolve(ctx context.Context, cgroupID uint64) string {
+	if cid, err := cr.cgroupTable.Get(ctx, cgroupID, cr.loaderFn); err == nil {
 		return cid
 	}
-	cr.unknown.Set(cgroupID, struct{}{})
 	return fmt.Sprintf("non-container-%d", cgroupID)
 }

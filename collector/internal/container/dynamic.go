@@ -42,7 +42,7 @@ type ContainerLibsDetector struct {
 
 func NewContainerLibsDetector() *ContainerLibsDetector {
 	return &ContainerLibsDetector{
-		re:       regexp.MustCompile(RegexContainerID),
+		re:       regexp.MustCompile(regexContainerID),
 		procLib:  make(map[string]string),
 		procSkip: make(map[string]struct{}),
 	}
@@ -70,7 +70,7 @@ func (cld *ContainerLibsDetector) Start(ctx context.Context, ch chan ContainerOp
 func (cld *ContainerLibsDetector) scan() error {
 	newProcLib := make(map[string]string)
 	newProcSkip := make(map[string]struct{})
-	if err := filepath.WalkDir(CgroupDir, func(path string, d fs.DirEntry, err error) error {
+	if err := filepath.WalkDir(cgroupDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return nil
 		}
@@ -128,7 +128,7 @@ func (cld *ContainerLibsDetector) scan() error {
 		}
 		return nil
 	}); err != nil {
-		log.Error().Str("cgroup_dir", CgroupDir).Err(err).Msg("failed to walk the cgroup dir")
+		log.Error().Str("cgroup_dir", cgroupDir).Err(err).Msg("failed to walk the cgroup dir")
 		return err
 	}
 	cld.mu.Lock()

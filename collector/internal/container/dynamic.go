@@ -22,14 +22,14 @@ import (
 )
 
 const (
-	SCAN_INTERVAL    = time.Second * 5
-	PROC_EXE_FORMAT  = "/proc/%s/exe"
-	PROC_MAPS_FORMAT = "/proc/%s/maps"
-	REGEX_LIBSSL     = `libssl\.so(\.\d+)*`
+	ScanInterval   = time.Second * 5
+	ProcExeFormat  = "/proc/%s/exe"
+	ProcMapsFormat = "/proc/%s/maps"
+	RegexLibSSL    = `libssl\.so(\.\d+)*`
 )
 
 var (
-	PATTERN_LIBSSL = regexp.MustCompile(REGEX_LIBSSL)
+	PATTERN_LIBSSL = regexp.MustCompile(RegexLibSSL)
 )
 
 type ContainerLibsDetector struct {
@@ -42,14 +42,14 @@ type ContainerLibsDetector struct {
 
 func NewContainerLibsDetector() *ContainerLibsDetector {
 	return &ContainerLibsDetector{
-		re:       regexp.MustCompile(REGEX_CONTAINER_ID),
+		re:       regexp.MustCompile(RegexContainerID),
 		procLib:  make(map[string]string),
 		procSkip: make(map[string]struct{}),
 	}
 }
 
 func (cld *ContainerLibsDetector) Start(ctx context.Context, ch chan ContainerOpenSSL) {
-	ticker := time.NewTicker(SCAN_INTERVAL)
+	ticker := time.NewTicker(ScanInterval)
 	defer ticker.Stop()
 
 	for {
@@ -70,7 +70,7 @@ func (cld *ContainerLibsDetector) Start(ctx context.Context, ch chan ContainerOp
 func (cld *ContainerLibsDetector) scan() error {
 	newProcLib := make(map[string]string)
 	newProcSkip := make(map[string]struct{})
-	if err := filepath.WalkDir(CGROUP_DIR, func(path string, d fs.DirEntry, err error) error {
+	if err := filepath.WalkDir(CgroupDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return nil
 		}
@@ -100,13 +100,13 @@ func (cld *ContainerLibsDetector) scan() error {
 				continue
 			}
 			cld.mu.RUnlock()
-			path, err := os.Readlink(fmt.Sprintf(PROC_EXE_FORMAT, proc))
+			path, err := os.Readlink(fmt.Sprintf(ProcExeFormat, proc))
 			if err != nil {
 				log.Warn().Err(err).Bytes("proc", proc).Msg("failed to readlink")
 				continue
 			}
 			absPath := filepath.Join("/proc", string(proc), "root", path)
-			libsslPath, err := findLibSSLInMaps(fmt.Sprintf(PROC_MAPS_FORMAT, proc))
+			libsslPath, err := findLibSSLInMaps(fmt.Sprintf(ProcMapsFormat, proc))
 			if err != nil {
 				continue
 			}
@@ -128,7 +128,7 @@ func (cld *ContainerLibsDetector) scan() error {
 		}
 		return nil
 	}); err != nil {
-		log.Error().Str("cgroup_dir", CGROUP_DIR).Err(err).Msg("failed to walk the cgroup dir")
+		log.Error().Str("cgroup_dir", CgroupDir).Err(err).Msg("failed to walk the cgroup dir")
 		return err
 	}
 	cld.mu.Lock()

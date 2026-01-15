@@ -34,9 +34,9 @@ func NewHTTP2Parser() *HTTP2Parser {
 
 func (h2 *HTTP2Parser) parse(record *SSLRecord) (headers []hpack.HeaderField, body bytes.Buffer, lastPos int, err error) {
 	data := record.Stream
-	if bytes.HasPrefix(record.Stream, HTTP2PREFACE) {
-		lastPos += HTTP2PREFACE_LEN
-		data = data[HTTP2PREFACE_LEN:]
+	if bytes.HasPrefix(record.Stream, HTTP2Preface) {
+		lastPos += HTTP2PrefaceLen
+		data = data[HTTP2PrefaceLen:]
 	}
 
 	reader := bytes.NewReader(data)

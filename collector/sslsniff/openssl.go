@@ -13,7 +13,7 @@ import (
 	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
-const MAX_DYNAMIC_CHANNEL_SIZE = 16
+const maxDynamicChannelSize = 16
 
 func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string) ([]link.Link, error) {
 	probes := []struct {

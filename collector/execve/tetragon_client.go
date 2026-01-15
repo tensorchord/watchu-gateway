@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	MAX_RETRY_COUNT        = 8
-	DEFAULT_SLEEP_DURATION = time.Second
+	maxRetryCount        = 8
+	defaultSleepDuration = time.Second
 )
 
 func sleepWithContext(ctx context.Context, d time.Duration) error {
@@ -35,7 +35,7 @@ func isServiceAvailable(client tetragon.FineGuidanceSensorsClient, ctx context.C
 	retry := 0
 	var health *tetragon.GetHealthStatusResponse
 	var errHealth error
-	for health == nil && retry < MAX_RETRY_COUNT {
+	for health == nil && retry < maxRetryCount {
 		health, errHealth = client.GetHealth(ctx, &tetragon.GetHealthStatusRequest{})
 		if errHealth == nil {
 			break
@@ -43,13 +43,13 @@ func isServiceAvailable(client tetragon.FineGuidanceSensorsClient, ctx context.C
 		log.Error().Err(errHealth).Msg("failed to get the health status of the tetragon")
 		health = nil
 		retry++
-		if err := sleepWithContext(ctx, DEFAULT_SLEEP_DURATION*time.Duration(retry)); err != nil {
+		if err := sleepWithContext(ctx, defaultSleepDuration*time.Duration(retry)); err != nil {
 			// context canceled, exit
 			break
 		}
 	}
 	if health == nil {
-		log.Error().Err(errHealth).Int("retry", MAX_RETRY_COUNT).Msg("failed to wait for the tetragon service to become available")
+		log.Error().Err(errHealth).Int("retry", maxRetryCount).Msg("failed to wait for the tetragon service to become available")
 		return false
 	}
 	log.Info().Str("status", health.String()).Msg("tetragon service is available")
@@ -60,7 +60,7 @@ func connectWithRetry(path string, ctx context.Context) (*grpc.ClientConn, error
 	retry := 0
 	var conn *grpc.ClientConn
 	var errDial error
-	for conn == nil && retry < MAX_RETRY_COUNT {
+	for conn == nil && retry < maxRetryCount {
 		conn, errDial = grpc.NewClient(path, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if errDial == nil {
 			break
@@ -68,13 +68,13 @@ func connectWithRetry(path string, ctx context.Context) (*grpc.ClientConn, error
 		log.Error().Err(errDial).Msg("failed to dial tetragon gRPC server")
 		conn = nil
 		retry++
-		if err := sleepWithContext(ctx, DEFAULT_SLEEP_DURATION*time.Duration(retry)); err != nil {
+		if err := sleepWithContext(ctx, defaultSleepDuration*time.Duration(retry)); err != nil {
 			// context canceled, exit
 			break
 		}
 	}
 	if conn == nil {
-		return nil, fmt.Errorf("failed to connect to tetragon gRPC server after %d retries: %w", MAX_RETRY_COUNT, errDial)
+		return nil, fmt.Errorf("failed to connect to tetragon gRPC server after %d retries: %w", maxRetryCount, errDial)
 	}
 	return conn, nil
 }

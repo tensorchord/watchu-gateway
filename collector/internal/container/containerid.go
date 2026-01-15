@@ -32,10 +32,10 @@ type cgroupContainer map[uint64]string
 
 type ContainerResolver struct {
 	cgroupTable    atomic.Pointer[cgroupContainer]
-	mu             sync.Mutex
 	nonContainer   *otter.Cache[uint64, struct{}]
+	mu             sync.Mutex
 	re             *regexp.Regexp
-	nextUpdateTime time.Time
+	nextUpdateTime atomic.Int64
 }
 
 func NewContainerResolver() *ContainerResolver {
@@ -45,9 +45,9 @@ func NewContainerResolver() *ContainerResolver {
 			// cgroup IDs could be reused
 			ExpiryCalculator: otter.ExpiryCreating[uint64, struct{}](10 * time.Minute),
 		}),
-		re:             regexp.MustCompile(regexContainerID),
-		nextUpdateTime: time.Now(),
+		re: regexp.MustCompile(regexContainerID),
 	}
+	cr.nextUpdateTime.Store(time.Now().UnixNano())
 	cr.cgroupTable.Store(&ct)
 	return &cr
 }
@@ -99,6 +99,11 @@ func (cr *ContainerResolver) Resolve(ctx context.Context, cgroupID uint64) strin
 	if cid, err := cr.load(cgroupID); err == nil {
 		return cid
 	}
+	now := time.Now().UnixNano()
+	if now < cr.nextUpdateTime.Load() {
+		// Assume it's a non-container cgroup ID but doesn't record this
+		return fmt.Sprintf(cgroupContainerUnknownFormat, cgroupID)
+	}
 	cr.mu.Lock()
 	// re-check to avoid cache stampede, it's intended to block all the cache miss
 	// requests here to avoid inconsistent cache state.
@@ -106,7 +111,8 @@ func (cr *ContainerResolver) Resolve(ctx context.Context, cgroupID uint64) strin
 		cr.mu.Unlock()
 		return cid
 	}
-	if time.Now().Before(cr.nextUpdateTime) {
+	now = time.Now().UnixNano()
+	if now < cr.nextUpdateTime.Load() {
 		cr.mu.Unlock()
 		// Assume it's a non-container cgroup ID but doesn't record this
 		return fmt.Sprintf(cgroupContainerUnknownFormat, cgroupID)
@@ -114,12 +120,12 @@ func (cr *ContainerResolver) Resolve(ctx context.Context, cgroupID uint64) strin
 	log.Info().Uint64("trigger", cgroupID).Msg("updating the cgroup <=> container table")
 	defer cr.mu.Unlock()
 	renew := cr.update(ctx)
-	now := time.Now()
+	now = time.Now().UnixNano()
 	if renew != nil {
 		cr.cgroupTable.Swap(&renew)
-		cr.nextUpdateTime = now.Add(updateInterval)
+		cr.nextUpdateTime.Store(now + updateInterval.Nanoseconds())
 	} else {
-		cr.nextUpdateTime = now.Add(updateIntervalOnError)
+		cr.nextUpdateTime.Store(now + updateIntervalOnError.Nanoseconds())
 	}
 	if cid, exist := (*cr.cgroupTable.Load())[cgroupID]; exist {
 		return cid

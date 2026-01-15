@@ -21,8 +21,8 @@ import (
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 stdio stdio.bpf.c -- -I../headers
 
 const (
-	stdIORead  = 4
-	stdIOWrite = 2
+	stdioRead  = 4
+	stdioWrite = 2
 )
 
 type MCPRequest struct {
@@ -43,9 +43,9 @@ func isValidMCPMessage(event *stdioEvent) bool {
 		return false
 	}
 	switch event.Rw {
-	case stdIORead:
+	case stdioRead:
 		return gjson.GetBytes(event.Data[:event.DataLen], "method").Exists()
-	case stdIOWrite:
+	case stdioWrite:
 		return gjson.GetBytes(event.Data[:event.DataLen], "result").Exists()
 	default:
 		log.Error().Uint8("rw", event.Rw).Msg("unknown RW type")
@@ -137,9 +137,9 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 
 		var msgType string
 		switch event.Rw {
-		case stdIORead:
+		case stdioRead:
 			msgType = "request"
-		case stdIOWrite:
+		case stdioWrite:
 			msgType = "response"
 		}
 		select {

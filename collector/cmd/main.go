@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	TETRAGON_SOCKET = "unix:///var/run/tetragon/tetragon.sock"
+	TetragonSocket = "unix:///var/run/tetragon/tetragon.sock"
 )
 
 func main() {
@@ -29,7 +29,7 @@ func main() {
 	rustlsPath := flag.String("rustls-path", "", "extra user binary path to attach rustls uprobes (optional)")
 	address := flag.String("gateway", "", "the gateway address, e.g., 'http://localhost:8080' (optional). Leave it empty to disable pushing events to the gateway")
 	tetragonPath := flag.String("tetragon-path", "",
-		fmt.Sprintf("the Tetragon gRPC path (Unix domain socket or HTTP) (optional). e.g., '%s'. Leave it empty to disable Tetragon integration", TETRAGON_SOCKET))
+		fmt.Sprintf("the Tetragon gRPC path (Unix domain socket or HTTP) (optional). e.g., '%s'. Leave it empty to disable Tetragon integration", TetragonSocket))
 	flag.Parse()
 
 	logger.SetUpLogger(*debug)

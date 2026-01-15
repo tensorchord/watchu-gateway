@@ -153,7 +153,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 	}
 
 	// dynamic probe
-	channel := make(chan container.ContainerOpenSSL, MAX_DYNAMIC_CHANNEL_SIZE)
+	channel := make(chan container.ContainerOpenSSL, maxDynamicChannelSize)
 	go container.NewContainerLibsDetector().Start(ctx, channel)
 	for containerLibs := range channel {
 		for key, path := range containerLibs.Libs {

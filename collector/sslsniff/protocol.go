@@ -48,11 +48,11 @@ const (
 
 var (
 	// HTTP
-	CRLF                 = []byte("\r\n")
-	HTTP1DELIMITER       = []byte("\r\n\r\n")
-	HTTP1CHUNK_END       = []byte("0\r\n\r\n")
-	HTTP1RESPONSE_PREFIX = []byte("HTTP/")
-	HTTP1REQUEST_METHODS = [][]byte{
+	CRLF                = []byte("\r\n")
+	HTTP1Delimiter      = []byte("\r\n\r\n")
+	HTTP1ChunkEnd       = []byte("0\r\n\r\n")
+	HTTP1ResponsePrefix = []byte("HTTP/")
+	HTTP1RequestMethods = [][]byte{
 		[]byte("GET"),
 		[]byte("POST"),
 		[]byte("PUT"),
@@ -63,9 +63,9 @@ var (
 		[]byte("TRACE"),
 		[]byte("CONNECT"),
 	}
-	HTTP2PREFACE     = []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
-	HTTP2PREFACE_LEN = len(HTTP2PREFACE)
-	HEADER_API_KEYS  = []string{
+	HTTP2Preface    = []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+	HTTP2PrefaceLen = len(HTTP2Preface)
+	HeaderAPIKeys   = []string{
 		"Authorization",
 		"X-API-Key",
 		"X-Auth-Token",
@@ -73,15 +73,15 @@ var (
 		"X-Session-Token",
 		"Cookie",
 	}
-	HEADER_TOKEN_SECRET = []byte("tensorchord-watchu-sslsniff-mask-secret-c0ffee")
+	HeaderTokenSecret = []byte("tensorchord-watchu-sslsniff-mask-secret-c0ffee")
 )
 
 func flattenMaskedHeader(h http.Header) map[string]string {
 	flat := make(map[string]string, len(h))
-	m := hmac.New(sha256.New, HEADER_TOKEN_SECRET)
+	m := hmac.New(sha256.New, HeaderTokenSecret)
 	for k, v := range h {
 		value := strings.Join(v, ",")
-		for _, apiKey := range HEADER_API_KEYS {
+		for _, apiKey := range HeaderAPIKeys {
 			if strings.Contains(k, apiKey) {
 				m.Reset()
 				m.Write([]byte(value))
@@ -175,17 +175,17 @@ func (ss *SSLStore) detectProtocol(key SSLKey, record *SSLRecord) ProtocolType {
 	logger.Context = log.NewContext(nil).Str("ctx", "[Protocol]").Value()
 	buf := record.Stream
 
-	if bytes.HasPrefix(buf, HTTP2PREFACE) {
+	if bytes.HasPrefix(buf, HTTP2Preface) {
 		logger.Trace().Msg("detect HTTP/2 preface")
 		ss.protocolCache.Set(key, ProtocolHTTP2)
 		return ProtocolHTTP2
 	}
-	if bytes.HasPrefix(buf, HTTP1RESPONSE_PREFIX) || bytes.HasPrefix(buf, HTTP1CHUNK_END) {
+	if bytes.HasPrefix(buf, HTTP1ResponsePrefix) || bytes.HasPrefix(buf, HTTP1ChunkEnd) {
 		logger.Trace().Msg("detect HTTP/1.x response")
 		ss.protocolCache.Set(key, ProtocolHTTP1)
 		return ProtocolHTTP1
 	}
-	for _, method := range HTTP1REQUEST_METHODS {
+	for _, method := range HTTP1RequestMethods {
 		if bytes.HasPrefix(buf, method) {
 			logger.Trace().Str("method", string(method)).Msg("detect HTTP/1.x request method")
 			ss.protocolCache.Set(key, ProtocolHTTP1)

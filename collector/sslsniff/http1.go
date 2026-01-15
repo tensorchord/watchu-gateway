@@ -29,14 +29,14 @@ func (h1 *HTTP1Parser) ParseRequest(record *SSLRecord) (*http.Request, int, erro
 			return nil, 0, nil
 		}
 		// trim to the `\r\n\r\n`
-		if idx := bytes.Index(record.Stream, HTTP1DELIMITER); idx != -1 {
+		if idx := bytes.Index(record.Stream, HTTP1Delimiter); idx != -1 {
 			return nil, idx + HTTP1DelimiterLen, err
 		}
 		// have to throw away to avoid infinite loop
 		return nil, len(record.Stream), err
 	}
 	// find the end of the body
-	idx := bytes.Index(record.Stream, HTTP1DELIMITER)
+	idx := bytes.Index(record.Stream, HTTP1Delimiter)
 	if idx == -1 {
 		return req, len(record.Stream), fmt.Errorf("cannot find the end of HTTP header")
 	}
@@ -107,14 +107,14 @@ func (h1 *HTTP1Parser) ParseResponse(record *SSLRecord) (*http.Response, int, er
 			return nil, 0, nil
 		}
 		// trim to the `\r\n\r\n`
-		if idx := bytes.Index(record.Stream, HTTP1DELIMITER); idx != -1 {
+		if idx := bytes.Index(record.Stream, HTTP1Delimiter); idx != -1 {
 			return nil, idx + HTTP1DelimiterLen, err
 		}
 		// have to throw away to avoid infinite loop
 		return nil, len(record.Stream), err
 	}
 	// find the end of the header
-	idx := bytes.Index(record.Stream, HTTP1DELIMITER)
+	idx := bytes.Index(record.Stream, HTTP1Delimiter)
 	if idx == -1 {
 		return resp, len(record.Stream), fmt.Errorf("cannot find the end of HTTP header")
 	}

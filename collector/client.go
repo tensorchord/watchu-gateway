@@ -145,7 +145,7 @@ type BatchRecord struct {
 }
 
 type RawRecord interface {
-	ToRecord(host string) any
+	ToRecord(ctx context.Context, host string) any
 }
 
 type RawExec struct {
@@ -160,7 +160,7 @@ type RawExec struct {
 	Docker    string
 }
 
-func (raw RawExec) ToRecord(host string) any {
+func (raw RawExec) ToRecord(ctx context.Context, host string) any {
 	return RecordExec{
 		Timestamp:   raw.Timestamp,
 		Pid:         int32(raw.Pid),
@@ -190,7 +190,7 @@ type RawRequest struct {
 	Truncated     bool
 }
 
-func (raw RawRequest) ToRecord(host string) any {
+func (raw RawRequest) ToRecord(ctx context.Context, host string) any {
 	headers, err := json.Marshal(raw.Headers)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal req headers")
@@ -212,7 +212,7 @@ func (raw RawRequest) ToRecord(host string) any {
 		Body:          raw.Body,
 		Truncated:     raw.Truncated,
 		Host:          host,
-		ContainerID:   containerResolver.Resolve(raw.CgroupID),
+		ContainerID:   containerResolver.Resolve(ctx, raw.CgroupID),
 	}
 }
 
@@ -230,7 +230,7 @@ type RawResponse struct {
 	Truncated     bool
 }
 
-func (raw RawResponse) ToRecord(host string) any {
+func (raw RawResponse) ToRecord(ctx context.Context, host string) any {
 	headers, err := json.Marshal(raw.Headers)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal resp headers")
@@ -250,7 +250,7 @@ func (raw RawResponse) ToRecord(host string) any {
 		Body:          raw.Body,
 		Truncated:     raw.Truncated,
 		Host:          host,
-		ContainerID:   containerResolver.Resolve(raw.CgroupID),
+		ContainerID:   containerResolver.Resolve(ctx, raw.CgroupID),
 	}
 }
 
@@ -263,7 +263,7 @@ type RawStdIO struct {
 	Data        []byte
 }
 
-func (raw RawStdIO) ToRecord(host string) any {
+func (raw RawStdIO) ToRecord(ctx context.Context, host string) any {
 	var mcp MCP
 	err := json.Unmarshal(raw.Data, &mcp)
 	if err != nil {
@@ -277,7 +277,7 @@ func (raw RawStdIO) ToRecord(host string) any {
 		Tid:         int32(raw.PidTid >> 32),
 		Uid:         int32(raw.UidGid & 0xFFFFFFFF),
 		Gid:         int32(raw.UidGid >> 32),
-		ContainerID: containerResolver.Resolve(raw.CgroupID),
+		ContainerID: containerResolver.Resolve(ctx, raw.CgroupID),
 		Host:        host,
 		MessageType: raw.MessageType,
 		JSONRPC:     mcp.JSONRPC,
@@ -299,7 +299,7 @@ type RawPostgres struct {
 	Data      []byte
 }
 
-func (raw RawPostgres) ToRecord(host string) any {
+func (raw RawPostgres) ToRecord(ctx context.Context, host string) any {
 	return RecordPostgres{
 		Timestamp:   parseElapsedToTimestamp(raw.ElapsedNs),
 		Pid:         int32(raw.PidTid & 0xFFFFFFFF),
@@ -310,7 +310,7 @@ func (raw RawPostgres) ToRecord(host string) any {
 		Data:        raw.Data,
 		MsgType:     raw.MsgType,
 		Host:        host,
-		ContainerID: containerResolver.Resolve(raw.CgroupID),
+		ContainerID: containerResolver.Resolve(ctx, raw.CgroupID),
 	}
 }
 
@@ -435,13 +435,13 @@ func (gc *GatewayClient) ingestEvents(ctx context.Context, endpoint string, prod
 	}
 }
 
-func consumeFromChannel[R RawRecord](host string, channel <-chan R) func() []any {
+func consumeFromChannel[R RawRecord](ctx context.Context, host string, channel <-chan R) func() []any {
 	return func() []any {
 		events := make([]any, 0, maxBatchSize)
 		for len(events) < maxBatchSize {
 			select {
 			case raw := <-channel:
-				record := raw.ToRecord(host)
+				record := raw.ToRecord(ctx, host)
 				if record != nil {
 					events = append(events, record)
 				}
@@ -454,21 +454,21 @@ func consumeFromChannel[R RawRecord](host string, channel <-chan R) func() []any
 }
 
 func (gc *GatewayClient) IngestExecEvent(ctx context.Context, channel <-chan *RawExec) {
-	gc.ingestEvents(ctx, PathExec, consumeFromChannel(gc.host, channel))
+	gc.ingestEvents(ctx, PathExec, consumeFromChannel(ctx, gc.host, channel))
 }
 
 func (gc *GatewayClient) IngestRequestEvent(ctx context.Context, channel <-chan *RawRequest) {
-	gc.ingestEvents(ctx, PathRequest, consumeFromChannel(gc.host, channel))
+	gc.ingestEvents(ctx, PathRequest, consumeFromChannel(ctx, gc.host, channel))
 }
 
 func (gc *GatewayClient) IngestResponseEvent(ctx context.Context, channel <-chan *RawResponse) {
-	gc.ingestEvents(ctx, PathResponse, consumeFromChannel(gc.host, channel))
+	gc.ingestEvents(ctx, PathResponse, consumeFromChannel(ctx, gc.host, channel))
 }
 
 func (gc *GatewayClient) IngestStdIOEvent(ctx context.Context, channel <-chan *RawStdIO) {
-	gc.ingestEvents(ctx, PathStdIO, consumeFromChannel(gc.host, channel))
+	gc.ingestEvents(ctx, PathStdIO, consumeFromChannel(ctx, gc.host, channel))
 }
 
 func (gc *GatewayClient) IngestPostgresEvent(ctx context.Context, channel <-chan *RawPostgres) {
-	gc.ingestEvents(ctx, PathPostgres, consumeFromChannel(gc.host, channel))
+	gc.ingestEvents(ctx, PathPostgres, consumeFromChannel(ctx, gc.host, channel))
 }

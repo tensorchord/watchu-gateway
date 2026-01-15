@@ -122,7 +122,7 @@ func (cr *ContainerResolver) Resolve(ctx context.Context, cgroupID uint64) strin
 	renew := cr.update(ctx)
 	now = time.Now().UnixNano()
 	if renew != nil {
-		cr.cgroupTable.Swap(&renew)
+		cr.cgroupTable.Store(&renew)
 		cr.nextUpdateTime.Store(now + updateInterval.Nanoseconds())
 	} else {
 		cr.nextUpdateTime.Store(now + updateIntervalOnError.Nanoseconds())

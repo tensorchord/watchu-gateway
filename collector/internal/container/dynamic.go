@@ -29,7 +29,7 @@ const (
 )
 
 var (
-	PATTERN_LIBSSL = regexp.MustCompile(RegexLibSSL)
+	PatternLibSSL = regexp.MustCompile(RegexLibSSL)
 )
 
 type ContainerLibsDetector struct {
@@ -147,7 +147,7 @@ func findLibSSLInMaps(filename string) (string, error) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if loc := PATTERN_LIBSSL.FindStringIndex(line); len(loc) > 0 {
+		if loc := PatternLibSSL.FindStringIndex(line); len(loc) > 0 {
 			fields := bytes.Fields([]byte(line))
 			if len(fields) >= 6 {
 				return string(fields[5]), nil

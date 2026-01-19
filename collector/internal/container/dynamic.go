@@ -36,7 +36,7 @@ var (
 type ContainerLibsDetector struct {
 	mu sync.RWMutex
 	re *regexp.Regexp
-	// <proc:path>
+	// <proc:[paths]>
 	procLib map[string][]string
 }
 
@@ -145,6 +145,9 @@ func findLibSSLInMaps(proc []byte) ([]string, error) {
 				libs = append(libs, path)
 			}
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
 	}
 	return libs, nil
 }

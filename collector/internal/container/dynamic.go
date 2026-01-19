@@ -37,15 +37,13 @@ type ContainerLibsDetector struct {
 	mu sync.RWMutex
 	re *regexp.Regexp
 	// <proc:path>
-	procLib  map[string][]string
-	procSkip map[string]struct{}
+	procLib map[string][]string
 }
 
 func NewContainerLibsDetector() *ContainerLibsDetector {
 	return &ContainerLibsDetector{
-		re:       regexp.MustCompile(regexContainerID),
-		procLib:  make(map[string][]string),
-		procSkip: make(map[string]struct{}),
+		re:      regexp.MustCompile(regexContainerID),
+		procLib: make(map[string][]string),
 	}
 }
 
@@ -107,7 +105,7 @@ func (cld *ContainerLibsDetector) scan() error {
 			absPath := fmt.Sprintf(procRootFormat, string(proc), path)
 			// check if the binary has libssl statically linked
 			if len(libsslPaths) == 0 {
-				if hasOpenSSL, err := findOpenSSLSymbols(absPath); err == nil && hasOpenSSL {
+				if hasOpenSSL, err := findOpenSSLStaticSymbols(absPath); err == nil && hasOpenSSL {
 					libsslPaths = append(libsslPaths, absPath)
 				}
 			}
@@ -151,7 +149,7 @@ func findLibSSLInMaps(proc []byte) ([]string, error) {
 	return libs, nil
 }
 
-func findOpenSSLSymbols(filepath string) (bool, error) {
+func findOpenSSLStaticSymbols(filepath string) (bool, error) {
 	f, err := elf.Open(filepath)
 	if err != nil {
 		return false, err
@@ -165,7 +163,7 @@ func findOpenSSLSymbols(filepath string) (bool, error) {
 	}
 
 	for _, sym := range symbols {
-		if !isLocalTextSymbol(&sym, f.Sections) {
+		if !isDefinedTextFunc(&sym, f.Sections) {
 			continue
 		}
 		if strings.HasPrefix(sym.Name, "SSL_read") || strings.HasPrefix(sym.Name, "SSL_write") {
@@ -175,11 +173,17 @@ func findOpenSSLSymbols(filepath string) (bool, error) {
 	return false, nil
 }
 
-func isLocalTextSymbol(sym *elf.Symbol, sections []*elf.Section) bool {
+func isDefinedTextFunc(sym *elf.Symbol, sections []*elf.Section) bool {
 	if sym.Section == elf.SHN_UNDEF {
 		return false
 	}
-	if elf.ST_BIND(sym.Info) != elf.STB_LOCAL || elf.ST_TYPE(sym.Info) != elf.STT_FUNC {
+	switch elf.ST_BIND(sym.Info) {
+	case elf.STB_LOCAL, elf.STB_GLOBAL, elf.STB_WEAK:
+	default:
+		return false
+	}
+	symType := elf.ST_TYPE(sym.Info)
+	if symType != elf.STT_FUNC && symType != elf.STT_NOTYPE {
 		return false
 	}
 	if int(sym.Section) >= len(sections) {

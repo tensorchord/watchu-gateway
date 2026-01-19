@@ -22,34 +22,33 @@ import (
 )
 
 const (
-	ScanInterval   = time.Second * 5
-	ProcExeFormat  = "/proc/%s/exe"
-	ProcMapsFormat = "/proc/%s/maps"
-	RegexLibSSL    = `libssl\.so(\.\d+)*`
+	scanInterval   = time.Second * 5
+	procExeFormat  = "/proc/%s/exe"
+	procMapsFormat = "/proc/%s/maps"
+	procRootFormat = "/proc/%s/root/%s"
+	regexLibSSL    = `libssl[0-9a-zA-Z_-]*\.so(\.\d+)*`
 )
 
 var (
-	PatternLibSSL = regexp.MustCompile(RegexLibSSL)
+	patternLibSSL = regexp.MustCompile(regexLibSSL)
 )
 
 type ContainerLibsDetector struct {
 	mu sync.RWMutex
 	re *regexp.Regexp
-	// <proc:path>
-	procLib  map[string]string
-	procSkip map[string]struct{}
+	// <proc:[paths]>
+	procLib map[string][]string
 }
 
 func NewContainerLibsDetector() *ContainerLibsDetector {
 	return &ContainerLibsDetector{
-		re:       regexp.MustCompile(regexContainerID),
-		procLib:  make(map[string]string),
-		procSkip: make(map[string]struct{}),
+		re:      regexp.MustCompile(regexContainerID),
+		procLib: make(map[string][]string),
 	}
 }
 
 func (cld *ContainerLibsDetector) Start(ctx context.Context, ch chan ContainerOpenSSL) {
-	ticker := time.NewTicker(ScanInterval)
+	ticker := time.NewTicker(scanInterval)
 	defer ticker.Stop()
 
 	for {
@@ -68,8 +67,7 @@ func (cld *ContainerLibsDetector) Start(ctx context.Context, ch chan ContainerOp
 }
 
 func (cld *ContainerLibsDetector) scan() error {
-	newProcLib := make(map[string]string)
-	newProcSkip := make(map[string]struct{})
+	newProcLib := make(map[string][]string)
 	if err := filepath.WalkDir(cgroupDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return nil
@@ -89,42 +87,29 @@ func (cld *ContainerLibsDetector) scan() error {
 				continue
 			}
 			cld.mu.RLock()
-			if lib, ok := cld.procLib[string(proc)]; ok {
-				newProcLib[string(proc)] = lib
-				cld.mu.RUnlock()
-				continue
-			}
-			if lib, ok := cld.procSkip[string(proc)]; ok {
-				newProcSkip[string(proc)] = lib
+			if libs, ok := cld.procLib[string(proc)]; ok {
+				newProcLib[string(proc)] = libs
 				cld.mu.RUnlock()
 				continue
 			}
 			cld.mu.RUnlock()
-			path, err := os.Readlink(fmt.Sprintf(ProcExeFormat, proc))
+			path, err := os.Readlink(fmt.Sprintf(procExeFormat, proc))
 			if err != nil {
 				log.Warn().Err(err).Bytes("proc", proc).Msg("failed to readlink")
 				continue
 			}
-			absPath := filepath.Join("/proc", string(proc), "root", path)
-			libsslPath, err := findLibSSLInMaps(fmt.Sprintf(ProcMapsFormat, proc))
+			libsslPaths, err := findLibSSLInMaps(proc)
 			if err != nil {
 				continue
 			}
-			if libsslPath == "" {
-				// check if the binary has libssl statically linked
-				hasOpenSSL, err := findOpenSSLSymbols(absPath)
-				if err != nil {
-					continue
+			absPath := fmt.Sprintf(procRootFormat, string(proc), path)
+			// check if the binary has libssl statically linked
+			if len(libsslPaths) == 0 {
+				if hasOpenSSL, err := findOpenSSLStaticSymbols(absPath); err == nil && hasOpenSSL {
+					libsslPaths = append(libsslPaths, absPath)
 				}
-				if !hasOpenSSL {
-					newProcSkip[string(proc)] = struct{}{}
-					continue
-				}
-				libsslPath = absPath
-			} else {
-				libsslPath = filepath.Join("/proc", string(proc), "root", libsslPath)
 			}
-			newProcLib[string(proc)] = libsslPath
+			newProcLib[string(proc)] = libsslPaths
 		}
 		return nil
 	}); err != nil {
@@ -133,31 +118,41 @@ func (cld *ContainerLibsDetector) scan() error {
 	}
 	cld.mu.Lock()
 	cld.procLib = newProcLib
-	cld.procSkip = newProcSkip
 	cld.mu.Unlock()
 	return nil
 }
 
-func findLibSSLInMaps(filename string) (string, error) {
+func findLibSSLInMaps(proc []byte) ([]string, error) {
+	filename := fmt.Sprintf(procMapsFormat, proc)
 	file, err := os.Open(filename)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
+	libs := []string{}
+	seen := make(map[string]struct{})
 	for scanner.Scan() {
 		line := scanner.Text()
-		if loc := PatternLibSSL.FindStringIndex(line); len(loc) > 0 {
+		if loc := patternLibSSL.FindStringIndex(line); len(loc) > 0 {
 			fields := bytes.Fields([]byte(line))
 			if len(fields) >= 6 {
-				return string(fields[5]), nil
+				path := fmt.Sprintf(procRootFormat, proc, fields[5])
+				if _, ok := seen[path]; ok {
+					continue
+				}
+				seen[path] = struct{}{}
+				libs = append(libs, path)
 			}
 		}
 	}
-	return "", nil
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return libs, nil
 }
 
-func findOpenSSLSymbols(filepath string) (bool, error) {
+func findOpenSSLStaticSymbols(filepath string) (bool, error) {
 	f, err := elf.Open(filepath)
 	if err != nil {
 		return false, err
@@ -169,20 +164,39 @@ func findOpenSSLSymbols(filepath string) (bool, error) {
 		log.Error().Err(err).Str("file", filepath).Msg("failed to read symbols")
 		return false, err
 	}
-	if len(symbols) == 0 {
-		symbols, err = f.DynamicSymbols()
-		if err != nil && !errors.Is(err, elf.ErrNoSymbols) {
-			log.Error().Err(err).Str("file", filepath).Msg("failed to read dynamic symbols")
-			return false, err
-		}
-	}
 
 	for _, sym := range symbols {
+		if !isDefinedTextFunc(&sym, f.Sections) {
+			continue
+		}
 		if strings.HasPrefix(sym.Name, "SSL_read") || strings.HasPrefix(sym.Name, "SSL_write") {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+func isDefinedTextFunc(sym *elf.Symbol, sections []*elf.Section) bool {
+	if sym.Section == elf.SHN_UNDEF {
+		return false
+	}
+	switch elf.ST_BIND(sym.Info) {
+	case elf.STB_LOCAL, elf.STB_GLOBAL, elf.STB_WEAK:
+	default:
+		return false
+	}
+	symType := elf.ST_TYPE(sym.Info)
+	if symType != elf.STT_FUNC && symType != elf.STT_NOTYPE {
+		return false
+	}
+	if int(sym.Section) >= len(sections) {
+		return false
+	}
+	sec := sections[sym.Section]
+	if sec == nil {
+		return false
+	}
+	return sec.Flags&elf.SHF_EXECINSTR != 0
 }
 
 type LibKey struct {
@@ -216,13 +230,15 @@ func (cld *ContainerLibsDetector) Export() ContainerOpenSSL {
 	res := ContainerOpenSSL{
 		Libs: make(map[LibKey]string),
 	}
-	for _, libPath := range cld.procLib {
-		key, err := FindLibKey(libPath)
-		if err != nil {
-			log.Error().Err(err).Str("lib_path", libPath).Msg("failed to find lib key")
-			continue
+	for _, libPaths := range cld.procLib {
+		for _, libPath := range libPaths {
+			key, err := FindLibKey(libPath)
+			if err != nil {
+				log.Error().Err(err).Str("lib_path", libPath).Msg("failed to find lib key")
+				continue
+			}
+			res.Libs[*key] = libPath
 		}
-		res.Libs[*key] = libPath
 	}
 	return res
 }

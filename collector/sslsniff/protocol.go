@@ -18,7 +18,7 @@ import (
 	"github.com/phuslu/log"
 	"golang.org/x/net/http2"
 
-	"github.com/tensorchord/watchu/collector"
+	"github.com/tensorchord/watchu/collector/export"
 	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
@@ -276,7 +276,7 @@ func (s *SSLStore) Add(event *sslEvent) {
 	}
 }
 
-func (s *SSLStore) parseRequest(reqChan chan *collector.RawRequest, postgresChan chan *collector.RawPostgres) {
+func (s *SSLStore) parseRequest(reqChan chan *export.RawRequest, postgresChan chan *export.RawPostgres) {
 	s.reqMu.Lock()
 	defer s.reqMu.Unlock()
 
@@ -365,7 +365,7 @@ func (s *SSLStore) parseRequest(reqChan chan *collector.RawRequest, postgresChan
 
 		if request.Proto == PostgresProtoRequest {
 			select {
-			case postgresChan <- &collector.RawPostgres{
+			case postgresChan <- &export.RawPostgres{
 				ElapsedNs: timestamp,
 				PidTid:    key.PidTgid,
 				UidGid:    key.UidGid,
@@ -379,7 +379,7 @@ func (s *SSLStore) parseRequest(reqChan chan *collector.RawRequest, postgresChan
 			}
 		} else {
 			select {
-			case reqChan <- &collector.RawRequest{
+			case reqChan <- &export.RawRequest{
 				ElapsedNs:     timestamp,
 				PidTid:        key.PidTgid,
 				UidGid:        key.UidGid,
@@ -400,7 +400,7 @@ func (s *SSLStore) parseRequest(reqChan chan *collector.RawRequest, postgresChan
 	}
 }
 
-func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
+func (s *SSLStore) parseResponse(channel chan *export.RawResponse) {
 	s.respMu.Lock()
 	defer s.respMu.Unlock()
 
@@ -481,7 +481,7 @@ func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 				record.EndOfStream = false
 				record.LastResp = nil
 				select {
-				case channel <- &collector.RawResponse{
+				case channel <- &export.RawResponse{
 					ElapsedNs:     timestamp,
 					PidTid:        key.PidTgid,
 					UidGid:        key.UidGid,
@@ -503,7 +503,7 @@ func (s *SSLStore) parseResponse(channel chan *collector.RawResponse) {
 	}
 }
 
-func (s *SSLStore) Parse(ctx context.Context, reqChan chan *collector.RawRequest, respChan chan *collector.RawResponse, postgresChan chan *collector.RawPostgres) {
+func (s *SSLStore) Parse(ctx context.Context, reqChan chan *export.RawRequest, respChan chan *export.RawResponse, postgresChan chan *export.RawPostgres) {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 

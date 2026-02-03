@@ -1,37 +1,15 @@
-package collector
+package export
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/url"
-	"os"
 	"strconv"
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/phuslu/log"
 
 	"github.com/tensorchord/watchu/collector/internal/container"
-	"github.com/tensorchord/watchu/collector/internal/tool"
-)
-
-const (
-	EndpointHealth = "/healthz"
-	EndpointIngest = "/api/v1/ingest"
-	PathExec       = "exec_event"
-	PathRequest    = "http_request"
-	PathResponse   = "http_response"
-	PathStdIO      = "mcp_stdio"
-	PathPostgres   = "pg_event"
-
-	requestInterval = time.Second
-	maxBatchSize    = 1024
-
-	GatewayChannelSize = 4096
 )
 
 var (
@@ -118,7 +96,7 @@ type RecordStdIO struct {
 	Gid         int32           `json:"gid"`
 	Host        string          `json:"host"`
 	ContainerID string          `json:"container_id"`
-	MessageType string          `json:"message_type"` // "request" or "response"
+	MessageType string          `json:"message_type"`
 	JSONRPC     string          `json:"jsonrpc"`
 	Method      string          `json:"method"`
 	Params      json.RawMessage `json:"params"`
@@ -140,14 +118,6 @@ type RecordPostgres struct {
 	MsgType     string    `json:"msg_type"`
 }
 
-type BatchRecord struct {
-	Events []any `json:"events"`
-}
-
-type RawRecord interface {
-	ToRecord(ctx context.Context, host string) any
-}
-
 type RawExec struct {
 	Timestamp time.Time
 	Pid       uint32
@@ -160,7 +130,7 @@ type RawExec struct {
 	Docker    string
 }
 
-func (raw RawExec) ToRecord(ctx context.Context, host string) any {
+func (raw *RawExec) ToRecord(_ context.Context, host string) any {
 	return RecordExec{
 		Timestamp:   raw.Timestamp,
 		Pid:         int32(raw.Pid),
@@ -190,7 +160,7 @@ type RawRequest struct {
 	Truncated     bool
 }
 
-func (raw RawRequest) ToRecord(ctx context.Context, host string) any {
+func (raw *RawRequest) ToRecord(ctx context.Context, host string) any {
 	headers, err := json.Marshal(raw.Headers)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal req headers")
@@ -230,7 +200,7 @@ type RawResponse struct {
 	Truncated     bool
 }
 
-func (raw RawResponse) ToRecord(ctx context.Context, host string) any {
+func (raw *RawResponse) ToRecord(ctx context.Context, host string) any {
 	headers, err := json.Marshal(raw.Headers)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal resp headers")
@@ -263,7 +233,7 @@ type RawStdIO struct {
 	Data        []byte
 }
 
-func (raw RawStdIO) ToRecord(ctx context.Context, host string) any {
+func (raw *RawStdIO) ToRecord(ctx context.Context, host string) any {
 	var mcp MCP
 	err := json.Unmarshal(raw.Data, &mcp)
 	if err != nil {
@@ -299,7 +269,7 @@ type RawPostgres struct {
 	Data      []byte
 }
 
-func (raw RawPostgres) ToRecord(ctx context.Context, host string) any {
+func (raw *RawPostgres) ToRecord(ctx context.Context, host string) any {
 	return RecordPostgres{
 		Timestamp:   parseElapsedToTimestamp(raw.ElapsedNs),
 		Pid:         int32(raw.PidTid & 0xFFFFFFFF),
@@ -314,161 +284,66 @@ func (raw RawPostgres) ToRecord(ctx context.Context, host string) any {
 	}
 }
 
-func GetHostName() string {
-	// prefer Kubernetes Downward API
-	if podUid := os.Getenv("POD_UID"); podUid != "" {
-		return podUid
-	}
-	if podName := os.Getenv("POD_NAME"); podName != "" {
-		ns := os.Getenv("POD_NAMESPACE")
-		if ns == "" {
-			ns = "default"
-		}
-		return fmt.Sprintf("%s/%s", ns, podName)
-	}
-	if host, err := os.Hostname(); err == nil && host != "" {
-		return fmt.Sprintf("host:%s", host)
-	}
-	if uuid, err := uuid.NewV7(); err == nil {
-		return uuid.String()
-	}
-	return fmt.Sprintf("unknown-host-%d", time.Now().UnixNano())
+const (
+	ToolCodex      = "codex"
+	ToolClaudeCode = "claude_code"
+	ToolGeminiCLI  = "gemini_cli"
+)
+
+const (
+	EventTypeUserPrompt   = "user_prompt"
+	EventTypeAPIRequest   = "api_request"
+	EventTypeAPIResponse  = "api_response"
+	EventTypeAPIError     = "api_error"
+	EventTypeToolResult   = "tool_result"
+	EventTypeToolCall     = "tool_call"
+	EventTypeToolDecision = "tool_decision"
+)
+
+type RecordAgentEvent struct {
+	Timestamp      time.Time       `json:"timestamp"`
+	Tool           string          `json:"tool"`
+	EventName      string          `json:"event_name"`
+	EventType      string          `json:"event_type"`
+	ConversationID string          `json:"conversation_id,omitempty"`
+	SessionID      string          `json:"session_id,omitempty"`
+	Model          string          `json:"model,omitempty"`
+	Slug           string          `json:"slug,omitempty"`
+	AppVersion     string          `json:"app_version,omitempty"`
+	Host           string          `json:"host"`
+	Attributes     json.RawMessage `json:"attributes"`
+
+	Prompt       string `json:"prompt,omitempty"`
+	PromptLength int64  `json:"prompt_length,omitempty"`
+
+	ToolName   string `json:"tool_name,omitempty"`
+	CallID     string `json:"call_id,omitempty"`
+	Arguments  string `json:"arguments,omitempty"`
+	Output     string `json:"output,omitempty"`
+	Success    bool   `json:"success,omitempty"`
+	DurationMs int64  `json:"duration_ms,omitempty"`
+	Decision   string `json:"decision,omitempty"`
+
+	StatusCode int64   `json:"status_code,omitempty"`
+	CostUSD    float64 `json:"cost_usd,omitempty"`
+	ErrorMsg   string  `json:"error,omitempty"`
+
+	InputTokenCount     int64 `json:"input_token_count,omitempty"`
+	OutputTokenCount    int64 `json:"output_token_count,omitempty"`
+	CachedTokenCount    int64 `json:"cached_token_count,omitempty"`
+	ReasoningTokenCount int64 `json:"reasoning_token_count,omitempty"`
 }
 
-func GatewayHealthCheck(ctx context.Context, baseURL string) error {
-	link, err := url.JoinPath(baseURL, EndpointHealth)
-	if err != nil {
-		return fmt.Errorf("failed to join URL path: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create HTTP request to the gateway health endpoint: %w", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send HTTP request to the gateway health endpoint: %w", err)
-	}
-	defer func() {
-		err := resp.Body.Close()
-		if err != nil {
-			log.Error().Err(err).Msg("failed to close health check response body")
-		}
-	}()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("gateway health check failed with status code: %d", resp.StatusCode)
-	}
-	return nil
+func (r *RecordAgentEvent) ToRecord(_ context.Context, host string) any {
+	r.Host = host
+	return *r
 }
 
-type GatewayClient struct {
-	host    string
-	baseURL string
-	client  *http.Client
-}
-
-func NewGatewayClient(ctx context.Context, baseURL string) (*GatewayClient, error) {
-	host := GetHostName()
-	if len(baseURL) > 0 {
-		err := GatewayHealthCheck(ctx, baseURL)
-		if err != nil {
-			return nil, err
-		}
-		log.Debug().Str("host", host).Str("boot_time", bootTime.String()).Msg("init gateway client")
-	} else {
-		log.Info().Msg("gateway URL is empty, will disable pushing events to the gateway")
-	}
-	client := &http.Client{}
-	return &GatewayClient{client: client, host: host, baseURL: baseURL}, nil
-}
-
-func (gc *GatewayClient) sendEvents(ctx context.Context, endpoint string, events []any) {
-	if len(gc.baseURL) == 0 {
-		return
-	}
-	payload, err := json.Marshal(BatchRecord{Events: events})
-	if err != nil {
-		log.Error().Err(err).Msg("failed to marshal events")
-		return
-	}
-	link, err := url.JoinPath(gc.baseURL, EndpointIngest, endpoint)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to join URL path")
-		return
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, link, bytes.NewReader(payload))
-	if err != nil {
-		log.Error().Err(err).Msg("failed to create HTTP request")
-		return
-	}
-	req.Header.Add("Content-Type", "application/json")
-	//nolint:bodyclose // closed in ReadCloserToBytes
-	resp, err := gc.client.Do(req)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to send HTTP request")
-		return
-	}
-	respMessage, err := tool.ReadCloserToBytes(resp.Body)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to read error response body")
-		respMessage = []byte("unknown error")
-	}
-	if resp.StatusCode != http.StatusAccepted {
-		log.Error().Bytes("resp", respMessage).Int("status", resp.StatusCode).Str("endpoint", endpoint).Msg("failed to ingest the events")
-	} else {
-		log.Debug().Int("count", len(events)).Bytes("resp", respMessage).Str("endpoint", endpoint).Msg("successfully ingested events")
-	}
-}
-
-func (gc *GatewayClient) ingestEvents(ctx context.Context, endpoint string, producer func() []any) {
-	ticker := time.NewTicker(requestInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			events := producer()
-			if len(events) > 0 {
-				gc.sendEvents(ctx, endpoint, events)
-			}
+func ParseEventName(eventName string) (string, string) {
+	for _, prefix := range []string{ToolCodex, ToolClaudeCode, ToolGeminiCLI} {
+		if len(eventName) > len(prefix)+1 && eventName[:len(prefix)+1] == prefix+"." {
+			return prefix, eventName[len(prefix)+1:]
 		}
 	}
-}
-
-func consumeFromChannel[R RawRecord](ctx context.Context, host string, channel <-chan R) func() []any {
-	return func() []any {
-		events := make([]any, 0, maxBatchSize)
-		for len(events) < maxBatchSize {
-			select {
-			case raw := <-channel:
-				record := raw.ToRecord(ctx, host)
-				if record != nil {
-					events = append(events, record)
-				}
-			default:
-				return events
-			}
-		}
-		return events
-	}
-}
-
-func (gc *GatewayClient) IngestExecEvent(ctx context.Context, channel <-chan *RawExec) {
-	gc.ingestEvents(ctx, PathExec, consumeFromChannel(ctx, gc.host, channel))
-}
-
-func (gc *GatewayClient) IngestRequestEvent(ctx context.Context, channel <-chan *RawRequest) {
-	gc.ingestEvents(ctx, PathRequest, consumeFromChannel(ctx, gc.host, channel))
-}
-
-func (gc *GatewayClient) IngestResponseEvent(ctx context.Context, channel <-chan *RawResponse) {
-	gc.ingestEvents(ctx, PathResponse, consumeFromChannel(ctx, gc.host, channel))
-}
-
-func (gc *GatewayClient) IngestStdIOEvent(ctx context.Context, channel <-chan *RawStdIO) {
-	gc.ingestEvents(ctx, PathStdIO, consumeFromChannel(ctx, gc.host, channel))
-}
-
-func (gc *GatewayClient) IngestPostgresEvent(ctx context.Context, channel <-chan *RawPostgres) {
-	gc.ingestEvents(ctx, PathPostgres, consumeFromChannel(ctx, gc.host, channel))
+	return "", ""
 }

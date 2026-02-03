@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -66,8 +67,9 @@ func (s *Service) AnalyzeRootExecID(ctx context.Context, rootExecID string) (*An
 		return nil, fmt.Errorf("analysis failed: %w", err)
 	}
 
-	// Save analysis result to database
-	if err := SaveAnalysisResult(ctx, s.queries, rootExecID, result); err != nil {
+	// Save analysis result to database without linking to a specific skill_analysis
+	// (for backward compatibility with direct threat analysis calls)
+	if err := SaveAnalysisResult(ctx, s.queries, rootExecID, pgtype.UUID{}, result); err != nil {
 		log.Printf("Warning: Failed to save analysis result: %v", err)
 	}
 
@@ -80,41 +82,75 @@ func (s *Service) Ready(ctx context.Context) error {
 	return nil
 }
 
-// SaveAnalysisResult saves an analysis result to the database
-func SaveAnalysisResult(ctx context.Context, queries *sqlc.Queries, rootExecID string, result *AnalysisResult) error {
-	rootExecIDText := pgtype.Text{String: rootExecID, Valid: true}
-
-	// Get host from first event
-	events, err := queries.GetEventsByRootExecID(ctx, sqlc.GetEventsByRootExecIDParams{
-		RootExecID: rootExecIDText,
-		TidInt:     pgtype.Int4{},
-		MethodText: pgtype.Text{},
-		UrlText:    pgtype.Text{},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to get events for host lookup: %w", err)
-	}
-	if len(events) == 0 {
-		return fmt.Errorf("no events found for root_exec_id: %s", rootExecID)
+// SaveAnalysisResult saves an analysis result to the unified security_events table
+// If analysisID is provided, it links the threat result to a specific skill_analysis
+func SaveAnalysisResult(ctx context.Context, queries *sqlc.Queries, rootExecID string, analysisID pgtype.UUID, result *AnalysisResult) error {
+	// analysisID is required for security_events table
+	if !analysisID.Valid {
+		return fmt.Errorf("analysisID is required for saving to security_events table")
 	}
 
-	host := events[0].Host
+	// Map threat level (1-5) to severity
+	severity := threatLevelToSeverity(result.ThreatLevel)
 
-	// Save analysis result using sqlc
+	// Convert result to security event format
 	recommendationsJSON, _ := json.Marshal(result.Recommendations)
 	evidenceJSON, _ := json.Marshal(result.Evidence)
 
-	err = queries.InsertSecurityAnalysisResult(ctx, sqlc.InsertSecurityAnalysisResultParams{
-		Host:            pgtype.Text{String: host, Valid: true},
-		RootExecID:      rootExecIDText,
-		ThreatLevel:     pgtype.Int4{Int32: int32(result.ThreatLevel), Valid: true},
-		ThreatType:      pgtype.Text{String: result.ThreatType, Valid: true},
-		Confidence:      pgtype.Float8{Float64: result.Confidence, Valid: true},
-		Summary:         pgtype.Text{String: result.Summary, Valid: true},
-		Details:         pgtype.Text{String: result.Details, Valid: true},
-		Recommendations: recommendationsJSON,
-		Evidence:        evidenceJSON,
+	// Build telemetry summary with context
+	status := strings.TrimSpace(result.Status)
+	if status == "" {
+		status = "ready"
+	}
+	telemetrySummary := map[string]interface{}{
+		"threat_level": result.ThreatLevel,
+		"threat_type":  result.ThreatType,
+		"confidence":   result.Confidence,
+		"root_exec_id": rootExecID,
+		"analysis_status": status,
+	}
+	telemetryJSON, _ := json.Marshal(telemetrySummary)
+
+	// Use UpsertSecurityEvent to save or update dynamic analysis result
+	confidenceNum := pgtype.Numeric{}
+	_ = confidenceNum.Scan(result.Confidence)
+
+	_, err := queries.UpsertSecurityEvent(ctx, sqlc.UpsertSecurityEventParams{
+		AnalysisID:         analysisID,
+		SourceType:         "dynamic",
+		Severity:           severity,
+		Category:           pgtype.Text{String: result.ThreatType, Valid: true},
+		Title:              result.Summary,
+		Description:        pgtype.Text{String: result.Details, Valid: true},
+		Confidence:         confidenceNum,
+		CodeSnippet:        pgtype.Text{},
+		FilePath:           pgtype.Text{},
+		ReferenceLinks:     []byte("[]"),
+		TelemetrySummary:   telemetryJSON,
+		ThreatAnalysisStatus: pgtype.Text{String: status, Valid: true},
+		AiGeneratedSummary: pgtype.Text{},
+		Recommendations:    recommendationsJSON,
+		Evidence:           evidenceJSON,
+		Metadata:           []byte("{}"),
 	})
 
 	return err
+}
+
+// threatLevelToSeverity maps threat level (1-5) to severity string
+func threatLevelToSeverity(level int) string {
+	switch level {
+	case 5:
+		return "critical"
+	case 4:
+		return "high"
+	case 3:
+		return "medium"
+	case 2:
+		return "low"
+	case 1:
+		return "info"
+	default:
+		return "none"
+	}
 }

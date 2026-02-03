@@ -24,6 +24,7 @@ type AgentThreatReport struct {
 	UpdatedAt       pgtype.Timestamptz
 	Host            string
 	RootExecID      pgtype.Text
+	CorrelationID   pgtype.Text
 	AgentType       string
 	AgentVersion    pgtype.Text
 	SessionID       pgtype.Text
@@ -217,6 +218,21 @@ type McpStdioEvent struct {
 	ContainerID pgtype.Text
 }
 
+type Notification struct {
+	ID          pgtype.UUID
+	UserID      pgtype.Text
+	Type        string
+	Title       string
+	Message     string
+	ReadAt      pgtype.Timestamptz
+	DismissedAt pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+	DeletedAt   pgtype.Timestamptz
+	Metadata    []byte
+	AnalysisID  pgtype.UUID
+	SkillID     pgtype.UUID
+}
+
 type PgEvent struct {
 	ID          pgtype.UUID
 	Host        string
@@ -333,6 +349,7 @@ type SecurityAnalysisResult struct {
 	AnalyzedAt      pgtype.Timestamptz
 	Host            pgtype.Text
 	RootExecID      pgtype.Text
+	AnalysisID      pgtype.UUID
 	ThreatLevel     pgtype.Int4
 	ThreatType      pgtype.Text
 	Confidence      pgtype.Float8
@@ -341,6 +358,75 @@ type SecurityAnalysisResult struct {
 	Recommendations []byte
 	Evidence        []byte
 	RawJson         []byte
+}
+
+type SecurityEvent struct {
+	ID                   pgtype.UUID
+	AnalysisID           pgtype.UUID
+	SourceType           string
+	Severity             string
+	Category             pgtype.Text
+	Title                string
+	Description          pgtype.Text
+	Confidence           pgtype.Numeric
+	CodeSnippet          pgtype.Text
+	FilePath             pgtype.Text
+	ReferenceLinks       []byte
+	TelemetrySummary     []byte
+	ThreatAnalysisStatus pgtype.Text
+	AiGeneratedSummary   pgtype.Text
+	Recommendations      []byte
+	Evidence             []byte
+	Metadata             []byte
+	CreatedAt            pgtype.Timestamptz
+}
+
+type Skill struct {
+	ID             pgtype.UUID
+	Name           string
+	Description    pgtype.Text
+	SourceType     string
+	SourceUri      pgtype.Text
+	S3Path         string
+	S3Bucket       string
+	Checksum       pgtype.Text
+	SizeBytes      pgtype.Int8
+	ContentType    pgtype.Text
+	Version        pgtype.Text
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+	DeletedAt      pgtype.Timestamptz
+	LastAnalysisID pgtype.UUID
+	Metadata       []byte
+}
+
+type SkillAnalysis struct {
+	ID              pgtype.UUID
+	SkillID         pgtype.UUID
+	CreatedAt       pgtype.Timestamptz
+	StartedAt       pgtype.Timestamptz
+	CompletedAt     pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	Status          string
+	ErrorMessage    pgtype.Text
+	RunnerRunID     pgtype.Text
+	RunnerOutput    pgtype.Text
+	RunnerExitCode  pgtype.Int4
+	SourceType      string
+	SourceRef       string
+	ResolvedRef     pgtype.Text
+	ArtifactPath    pgtype.Text
+	AgentType       string
+	RunnerMode      string
+	PromptStrategy  string
+	PromptInput     pgtype.Text
+	RootExecID      pgtype.Text
+	AgentRunID      pgtype.UUID
+	EngineVersion   pgtype.Text
+	TotalFindings   pgtype.Int4
+	SeveritySummary []byte
+	DeletedAt       pgtype.Timestamptz
+	Metadata        []byte
 }
 
 type SkillSecurityRun struct {

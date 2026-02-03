@@ -12,13 +12,14 @@ import (
 	"strings"
 	"time"
 
+	"mime/multipart"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
 	"github.com/tensorchord/watchu/gateway/pkg/skillsecurity"
-	"mime/multipart"
 )
 
 type skillSecurityHandlers struct {
@@ -38,24 +39,26 @@ type SkillSecurityRunCreateRequest struct {
 }
 
 type SkillSecurityRunResponse struct {
-	ID             string     `json:"id"`
-	CreatedAt      *time.Time `json:"created_at,omitempty"`
-	UpdatedAt      *time.Time `json:"updated_at,omitempty"`
-	SourceType     string     `json:"source_type"`
-	SourceRef      string     `json:"source_ref"`
-	ResolvedRef    *string    `json:"resolved_ref,omitempty"`
-	ArtifactPath   *string    `json:"artifact_path,omitempty"`
-	AgentType      string     `json:"agent_type"`
-	RunnerMode     string     `json:"runner_mode"`
-	PromptStrategy string     `json:"prompt_strategy"`
-	PromptInput    *string    `json:"prompt_input,omitempty"`
-	Status         string     `json:"status"`
-	Error          *string    `json:"error,omitempty"`
-	RunnerRunID    *string    `json:"runner_run_id,omitempty"`
-	RunnerOutput   *string    `json:"runner_output,omitempty"`
-	RunnerExitCode *int32     `json:"runner_exit_code,omitempty"`
-	RootExecID     *string    `json:"root_exec_id,omitempty"`
-	AgentRunID     *string    `json:"agent_run_id,omitempty"`
+	ID              string     `json:"id"`
+	CreatedAt       *time.Time `json:"created_at,omitempty"`
+	UpdatedAt       *time.Time `json:"updated_at,omitempty"`
+	SourceType      string     `json:"source_type"`
+	SourceRef       string     `json:"source_ref"`
+	ResolvedRef     *string    `json:"resolved_ref,omitempty"`
+	ArtifactPath    *string    `json:"artifact_path,omitempty"`
+	AgentType       string     `json:"agent_type"`
+	RunnerMode      string     `json:"runner_mode"`
+	PromptStrategy  string     `json:"prompt_strategy"`
+	PromptInput     *string    `json:"prompt_input,omitempty"`
+	Status          string     `json:"status"`
+	Error           *string    `json:"error,omitempty"`
+	RunnerRunID     *string    `json:"runner_run_id,omitempty"`
+	RunnerOutput    *string    `json:"runner_output,omitempty"`
+	RunnerExitCode  *int32     `json:"runner_exit_code,omitempty"`
+	RootExecID      *string    `json:"root_exec_id,omitempty"`
+	AgentRunID      *string    `json:"agent_run_id,omitempty"`
+	SkillName       *string    `json:"skill_name,omitempty"`
+	SkillSourceType *string    `json:"skill_source_type,omitempty"`
 }
 
 type SkillSecurityUploadResponse struct {
@@ -109,7 +112,7 @@ func (h skillSecurityHandlers) createRun(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, convertSkillSecurityRun(run))
+	c.JSON(http.StatusOK, convertSkillAnalysis(run))
 }
 
 // getSkillSecurityRun godoc
@@ -144,7 +147,7 @@ func (h skillSecurityHandlers) getRun(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, convertSkillSecurityRun(run))
+	c.JSON(http.StatusOK, convertSkillAnalysis(run))
 }
 
 // listSkillSecurityRuns godoc
@@ -252,7 +255,7 @@ func (h skillSecurityHandlers) getSkillRuns(c *gin.Context) {
 
 	resp := make([]SkillSecurityRunResponse, 0, len(runs))
 	for _, run := range runs {
-		resp = append(resp, convertSkillSecurityRun(run))
+		resp = append(resp, convertGetSaaSSkillRunsRow(run))
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -427,7 +430,32 @@ func registerSkillSecurityRoutes(group *gin.RouterGroup, service *skillsecurity.
 	securityGroup.POST("/uploads", h.uploadArtifact)
 }
 
-func convertSkillSecurityRun(run sqlc.SkillSecurityRun) SkillSecurityRunResponse {
+func convertSkillSecurityRun(run sqlc.ListSaaSSkillAnalysesRow) SkillSecurityRunResponse {
+	return SkillSecurityRunResponse{
+		ID:              uuidStringFromUUID(run.ID),
+		CreatedAt:       timePtrFromTimestamptz(run.CreatedAt),
+		UpdatedAt:       timePtrFromTimestamptz(run.UpdatedAt),
+		SourceType:      run.SourceType,
+		SourceRef:       run.SourceRef,
+		ResolvedRef:     stringPtrFromText(run.ResolvedRef),
+		ArtifactPath:    stringPtrFromText(run.ArtifactPath),
+		AgentType:       run.AgentType,
+		RunnerMode:      run.RunnerMode,
+		PromptStrategy:  run.PromptStrategy,
+		PromptInput:     stringPtrFromText(run.PromptInput),
+		Status:          run.Status,
+		Error:           stringPtrFromText(run.ErrorMessage),
+		RunnerRunID:     stringPtrFromText(run.RunnerRunID),
+		RunnerOutput:    stringPtrFromText(run.RunnerOutput),
+		RunnerExitCode:  int32PtrFromInt4(run.RunnerExitCode),
+		RootExecID:      stringPtrFromText(run.RootExecID),
+		AgentRunID:      uuidPtrFromUUID(run.AgentRunID),
+		SkillName:       stringPtrFromText(run.SkillName),
+		SkillSourceType: stringPtrFromText(run.SkillSourceType),
+	}
+}
+
+func convertSkillAnalysis(run sqlc.SkillAnalysis) SkillSecurityRunResponse {
 	return SkillSecurityRunResponse{
 		ID:             uuidStringFromUUID(run.ID),
 		CreatedAt:      timePtrFromTimestamptz(run.CreatedAt),
@@ -441,12 +469,35 @@ func convertSkillSecurityRun(run sqlc.SkillSecurityRun) SkillSecurityRunResponse
 		PromptStrategy: run.PromptStrategy,
 		PromptInput:    stringPtrFromText(run.PromptInput),
 		Status:         run.Status,
-		Error:          stringPtrFromText(run.Error),
+		Error:          stringPtrFromText(run.ErrorMessage),
 		RunnerRunID:    stringPtrFromText(run.RunnerRunID),
 		RunnerOutput:   stringPtrFromText(run.RunnerOutput),
 		RunnerExitCode: int32PtrFromInt4(run.RunnerExitCode),
 		RootExecID:     stringPtrFromText(run.RootExecID),
 		AgentRunID:     uuidPtrFromUUID(run.AgentRunID),
+	}
+}
+
+func convertGetSaaSSkillRunsRow(run sqlc.GetSaaSSkillRunsRow) SkillSecurityRunResponse {
+	return SkillSecurityRunResponse{
+		ID:              uuidStringFromUUID(run.ID),
+		CreatedAt:       timePtrFromTimestamptz(run.CreatedAt),
+		UpdatedAt:       timePtrFromTimestamptz(run.UpdatedAt),
+		SourceType:      run.SourceType,
+		SourceRef:       run.SourceRef,
+		ResolvedRef:     stringPtrFromText(run.ResolvedRef),
+		ArtifactPath:    stringPtrFromText(run.ArtifactPath),
+		AgentType:       run.AgentType,
+		RunnerMode:      run.RunnerMode,
+		PromptStrategy:  run.PromptStrategy,
+		PromptInput:     stringPtrFromText(run.PromptInput),
+		Status:          run.Status,
+		Error:           stringPtrFromText(run.ErrorMessage),
+		RunnerRunID:     stringPtrFromText(run.RunnerRunID),
+		RunnerOutput:    stringPtrFromText(run.RunnerOutput),
+		RunnerExitCode:  int32PtrFromInt4(run.RunnerExitCode),
+		RootExecID:      stringPtrFromText(run.RootExecID),
+		// AgentRunID, SkillName, SkillSourceType not available in GetSaaSSkillRunsRow
 	}
 }
 

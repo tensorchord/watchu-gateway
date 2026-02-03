@@ -31,6 +31,7 @@ func main() {
 	address := flag.String("gateway", "", "the gateway address, e.g., 'http://localhost:8080' (optional). Leave it empty to disable pushing events to the gateway")
 	tetragonPath := flag.String("tetragon-path", "",
 		fmt.Sprintf("the Tetragon gRPC path (Unix domain socket or HTTP) (optional). e.g., '%s'. Leave it empty to disable Tetragon integration", TETRAGON_SOCKET))
+	execFilterDisabled := flag.Bool("exec-filter-disabled", false, "disable exec event filtering. When enabled (default), only events with WATCHU_CORRELATION_ID are collected. Set this flag to collect ALL exec events (warning: high volume)")
 	flag.Parse()
 
 	logger.SetUpLogger(*debug)
@@ -57,8 +58,9 @@ func main() {
 	go pgProbe.Start(ctx)
 
 	if len(*tetragonPath) > 0 {
-		log.Info().Str("socket", *tetragonPath).Msg("enable Tetragon integration")
-		tetragonClient, err := execve.NewTetragonClient(*tetragonPath, gatewayClient, ctx)
+		filterEnabled := !*execFilterDisabled
+		log.Info().Str("socket", *tetragonPath).Bool("filter_enabled", filterEnabled).Msg("enable Tetragon integration")
+		tetragonClient, err := execve.NewTetragonClientWithFilter(*tetragonPath, gatewayClient, ctx, filterEnabled)
 		if err != nil {
 			log.Panic().Err(err).Msg("failed to create Tetragon client")
 		}

@@ -44,16 +44,17 @@ type HTTPResponseEvent struct {
 
 // ExecEvent represents a process execution event.
 type ExecEvent struct {
-	Timestamp   time.Time `json:"timestamp" binding:"required" db:"timestamp"`
-	PID         int32     `json:"pid" binding:"required" db:"pid"`
-	PPID        int32     `json:"ppid" binding:"required" db:"ppid"`
-	ExecID      string    `json:"exec_id" binding:"required" db:"exec_id"`
-	PExecID     string    `json:"p_exec_id" binding:"required" db:"p_exec_id"`
-	CWD         string    `json:"cwd" binding:"required" db:"cwd"`
-	Comm        string    `json:"comm" binding:"required" db:"comm"`
-	Args        string    `json:"args" binding:"required" db:"args"`
-	Host        string    `json:"host" binding:"required" db:"host"`
-	ContainerID string    `json:"container_id" db:"container_id"`
+	Timestamp     time.Time `json:"timestamp" binding:"required" db:"timestamp"`
+	PID           int32     `json:"pid" binding:"required" db:"pid"`
+	PPID          int32     `json:"ppid" binding:"required" db:"ppid"`
+	ExecID        string    `json:"exec_id" binding:"required" db:"exec_id"`
+	PExecID       string    `json:"p_exec_id" binding:"required" db:"p_exec_id"`
+	CWD           string    `json:"cwd" binding:"required" db:"cwd"`
+	Comm          string    `json:"comm" binding:"required" db:"comm"`
+	Args          string    `json:"args" binding:"required" db:"args"`
+	Host          string    `json:"host" binding:"required" db:"host"`
+	ContainerID   string    `json:"container_id" db:"container_id"`
+	CorrelationID string    `json:"correlation_id" db:"correlation_id"`
 }
 
 // MCPSTDIOEvent captures MCP JSON-RPC traffic emitted over STDIO transports.

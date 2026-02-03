@@ -29,6 +29,7 @@ function getThreatLevelLabel(level: number): string {
 }
 
 const sourceOptions = [
+    { value: "registry", label: "Skill Registry" },
     { value: "upload", label: "Upload" },
     { value: "github", label: "GitHub" }
 ];
@@ -79,7 +80,27 @@ export default function SkillSecurity() {
     const promptStrategy = Form.useWatch("prompt_strategy", form);
     const [threatCache, setThreatCache] = useState<Record<string, ThreatAnalysisResponse>>({});
     const [loadingThreats, setLoadingThreats] = useState<Set<string>>(new Set());
+    const skillsTableRef = useRef<HTMLDivElement | null>(null);
 
+    const handleSkillClick = (skillName: string, sourceType: string) => {
+        // Close the analysis drawer
+        setSelectedId(null);
+
+        // Find the skill in the list and expand it
+        const skill = skillsQuery.data?.find(
+            s => s.source_ref === skillName && s.source_type === sourceType
+        );
+
+        if (skill) {
+            const key = `${skill.source_ref}-${skill.artifact_path || ""}`;
+            setExpandedSkillKeys([key]);
+
+            // Scroll to the skills table
+            setTimeout(() => {
+                skillsTableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }, 100);
+        }
+    };
     const runsQuery = useQuery({
         queryKey: ["skill-security-runs"],
         queryFn: () => fetchSkillSecurityRuns({ limit: 50, offset: 0 })
@@ -214,6 +235,35 @@ export default function SkillSecurity() {
 
     const columns = useMemo(() => [
         {
+            title: "Skill",
+            key: "skill",
+            render: (_: unknown, record: SkillSecurityRunResponse) => {
+                const skillName = record.skill_name;
+                const sourceType = record.skill_source_type;
+                if (!skillName) return <Text type="secondary">-</Text>;
+
+                return (
+                    <Space size="small" style={{ alignItems: "center" }}>
+                        <Text
+                            strong
+                            style={{
+                                color: "#000000",
+                                fontSize: 13
+                            }}
+                        >
+                            {skillName}
+                        </Text>
+                        {sourceType && (
+                            <>
+                                <Text type="secondary" style={{ fontSize: 12 }}>•</Text>
+                                <Text type="secondary" style={{ fontSize: 12 }}>{sourceType}</Text>
+                            </>
+                        )}
+                    </Space>
+                );
+            }
+        },
+        {
             title: "Created",
             dataIndex: "created_at",
             key: "created_at",
@@ -324,6 +374,18 @@ export default function SkillSecurity() {
     ], [threatCache, loadingThreats]);
 
     const selected = selectedQuery.data ?? null;
+    const sourceRefLabel = sourceType === "registry" ? "Registry Ref" : "Source Ref";
+    const sourceRefPlaceholder = sourceType === "registry" ? "owner/repo/skill" : "https://github.com/owner/repo";
+    const validateRegistryRef = (_: unknown, value?: string) => {
+        if (sourceType !== "registry") return Promise.resolve();
+        const trimmed = (value ?? "").trim();
+        if (!trimmed) return Promise.reject(new Error("Registry ref is required"));
+        const segments = trimmed.split("/").filter(Boolean);
+        if (segments.length !== 3) {
+            return Promise.reject(new Error("Use owner/repo/skill format"));
+        }
+        return Promise.resolve();
+    };
 
     const onSubmit = (values: SkillSecurityRunCreateRequest) => {
         createMutation.mutate({
@@ -379,7 +441,7 @@ export default function SkillSecurity() {
                         <Form.Item name="source_ref" hidden />
                         <Form.Item name="artifact_path" hidden />
                         <Col xs={24} md={6}>
-                            <Form.Item label="Source Type" name="source_type" rules={[{ required: true }]}> 
+                            <Form.Item label="Source Type" name="source_type" rules={[{ required: true }]}>
                                 <Select options={sourceOptions} />
                             </Form.Item>
                         </Col>
@@ -414,13 +476,20 @@ export default function SkillSecurity() {
                                     </Space>
                                 </Form.Item>
                             ) : (
-                                <Form.Item label="Source Ref" name="source_ref" rules={[{ required: true }]}>
-                                    <Input placeholder="GitHub URL" />
+                                <Form.Item
+                                    label={sourceRefLabel}
+                                    name="source_ref"
+                                    rules={[
+                                        { required: true, message: "Source ref is required" },
+                                        { validator: validateRegistryRef }
+                                    ]}
+                                >
+                                    <Input placeholder={sourceRefPlaceholder} />
                                 </Form.Item>
                             )}
                         </Col>
                         <Col xs={24} md={8}>
-                            <Form.Item label="Runner Mode" name="runner_mode" rules={[{ required: true }]}> 
+                            <Form.Item label="Runner Mode" name="runner_mode" rules={[{ required: true }]}>
                                 <Select options={runnerOptions} />
                             </Form.Item>
                         </Col>
@@ -458,119 +527,121 @@ export default function SkillSecurity() {
                 </Form>
             </Card>
 
-            <Card
-                title="Skills"
-                extra={
-                    <Space>
-                        {skillsQuery.isFetching && <Tag color="blue">Refreshing</Tag>}
-                        <Button
-                            icon={<ReloadOutlined />}
-                            size="small"
-                            onClick={() => skillsQuery.refetch()}
-                            loading={skillsQuery.isFetching}
-                        >
-                            Refresh
-                        </Button>
-                    </Space>
-                }
-            >
-                <Table
-                    rowKey={(record: SkillSummaryResponse) => `${record.source_ref}-${record.artifact_path || ""}`}
-                    dataSource={skillsQuery.data ?? []}
-                    loading={skillsQuery.isLoading}
-                    pagination={false}
-                    expandable={{
-                        expandedRowRender: (skill: SkillSummaryResponse) => {
-                            const skillRuns = (runsQuery.data ?? []).filter(
-                                run => run.source_ref === skill.source_ref &&
-                                    (!skill.artifact_path || run.artifact_path === skill.artifact_path)
-                            );
-                            return (
-                                <Table
-                                    rowKey="id"
-                                    dataSource={skillRuns}
-                                    pagination={false}
-                                    columns={columns}
-                                    size="small"
-                                    title={() => (
-                                        <Space style={{ width: "100%", justifyContent: "space-between" }}>
-                                            <Text strong>Runs ({skillRuns.length})</Text>
-                                            <Button
-                                                icon={<ReloadOutlined />}
-                                                size="small"
-                                                onClick={() => runsQuery.refetch()}
-                                                loading={runsQuery.isFetching}
-                                            >
-                                                Refresh
-                                            </Button>
-                                        </Space>
-                                    )}
-                                />
-                            );
-                        },
-                        expandIcon: ({ expanded, onExpand, record }) => {
-                            if (expanded) {
-                                return <Button type="link" onClick={(e) => onExpand(record, e)}>Collapse</Button>;
+            <div ref={skillsTableRef}>
+                <Card
+                    title="Skills"
+                    extra={
+                        <Space>
+                            {skillsQuery.isFetching && <Tag color="blue">Refreshing</Tag>}
+                            <Button
+                                icon={<ReloadOutlined />}
+                                size="small"
+                                onClick={() => skillsQuery.refetch()}
+                                loading={skillsQuery.isFetching}
+                            >
+                                Refresh
+                            </Button>
+                        </Space>
+                    }
+                >
+                    <Table
+                        rowKey={(record: SkillSummaryResponse) => `${record.source_ref}-${record.artifact_path || ""}`}
+                        dataSource={skillsQuery.data ?? []}
+                        loading={skillsQuery.isLoading}
+                        pagination={false}
+                        expandable={{
+                            expandedRowRender: (skill: SkillSummaryResponse) => {
+                                const skillRuns = (runsQuery.data ?? []).filter(
+                                    run => run.source_ref === skill.source_ref &&
+                                        (!skill.artifact_path || run.artifact_path === skill.artifact_path)
+                                );
+                                return (
+                                    <Table
+                                        rowKey="id"
+                                        dataSource={skillRuns}
+                                        pagination={false}
+                                        columns={columns}
+                                        size="small"
+                                        title={() => (
+                                            <Space style={{ width: "100%", justifyContent: "space-between" }}>
+                                                <Text strong>Runs ({skillRuns.length})</Text>
+                                                <Button
+                                                    icon={<ReloadOutlined />}
+                                                    size="small"
+                                                    onClick={() => runsQuery.refetch()}
+                                                    loading={runsQuery.isFetching}
+                                                >
+                                                    Refresh
+                                                </Button>
+                                            </Space>
+                                        )}
+                                    />
+                                );
+                            },
+                            expandIcon: ({ expanded, onExpand, record }) => {
+                                if (expanded) {
+                                    return <Button type="link" onClick={(e) => onExpand(record, e)}>Collapse</Button>;
+                                }
+                                return <Button type="link" onClick={(e) => onExpand(record, e)}>View Runs ({record.run_count})</Button>;
+                            },
+                            onExpand: (expanded, record) => {
+                                const key = `${record.source_ref}-${record.artifact_path || ""}`;
+                                if (expanded) {
+                                    setExpandedSkillKeys([...expandedSkillKeys, key]);
+                                } else {
+                                    setExpandedSkillKeys(expandedSkillKeys.filter((k) => k !== key));
+                                }
+                            },
+                            expandedRowKeys: expandedSkillKeys,
+                            expandIconColumnIndex: 0
+                        }}
+                        columns={[
+                            {
+                                title: "Skill Name",
+                                dataIndex: "source_ref",
+                                key: "source_ref",
+                                width: 200,
+                                ellipsis: true
+                            },
+                            {
+                                title: "Type",
+                                dataIndex: "source_type",
+                                key: "source_type",
+                                width: 80
+                            },
+                            {
+                                title: "Runs",
+                                dataIndex: "run_count",
+                                key: "run_count",
+                                width: 60,
+                                render: (value: number) => <Tag>{value}</Tag>
+                            },
+                            {
+                                title: "Last Run",
+                                dataIndex: "last_run_at",
+                                key: "last_run_at",
+                                width: 160,
+                                render: (value: string | null) => (value ? dayjs(value).format("YYYY-MM-DD HH:mm:ss") : "-")
+                            },
+                            {
+                                title: "Action",
+                                key: "action",
+                                width: 70,
+                                align: "center",
+                                render: (_: unknown, record: SkillSummaryResponse) => (
+                                    <Button
+                                        type="primary"
+                                        size="small"
+                                        onClick={() => handleRunSkillClick(record)}
+                                    >
+                                        Run
+                                    </Button>
+                                )
                             }
-                            return <Button type="link" onClick={(e) => onExpand(record, e)}>View Runs ({record.run_count})</Button>;
-                        },
-                        onExpand: (expanded, record) => {
-                            const key = `${record.source_ref}-${record.artifact_path || ""}`;
-                            if (expanded) {
-                                setExpandedSkillKeys([...expandedSkillKeys, key]);
-                            } else {
-                                setExpandedSkillKeys(expandedSkillKeys.filter((k) => k !== key));
-                            }
-                        },
-                        expandedRowKeys: expandedSkillKeys,
-                        expandIconColumnIndex: 0
-                    }}
-                    columns={[
-                        {
-                            title: "Skill Name",
-                            dataIndex: "source_ref",
-                            key: "source_ref",
-                            width: 200,
-                            ellipsis: true
-                        },
-                        {
-                            title: "Type",
-                            dataIndex: "source_type",
-                            key: "source_type",
-                            width: 80
-                        },
-                        {
-                            title: "Runs",
-                            dataIndex: "run_count",
-                            key: "run_count",
-                            width: 60,
-                            render: (value: number) => <Tag>{value}</Tag>
-                        },
-                        {
-                            title: "Last Run",
-                            dataIndex: "last_run_at",
-                            key: "last_run_at",
-                            width: 160,
-                            render: (value: string | null) => (value ? dayjs(value).format("YYYY-MM-DD HH:mm:ss") : "-")
-                        },
-                        {
-                            title: "Action",
-                            key: "action",
-                            width: 70,
-                            align: "center",
-                            render: (_: unknown, record: SkillSummaryResponse) => (
-                                <Button
-                                    type="primary"
-                                    size="small"
-                                    onClick={() => handleRunSkillClick(record)}
-                                >
-                                    Run
-                                </Button>
-                            )
-                        }
-                    ]}
-                />
-            </Card>
+                        ]}
+                    />
+                </Card>
+            </div>
 
             <Drawer
                 title="Run Details"
@@ -586,6 +657,18 @@ export default function SkillSecurity() {
                         <div>
                             <Text strong>Status: </Text>{statusTag(selected.status)}
                         </div>
+                        {selected.skill_name && (
+                            <div>
+                                <Text strong>Skill: </Text>
+                                <Button
+                                    type="link"
+                                    style={{ padding: 0, height: "auto", color: "#3b82f6", textDecoration: "underline" }}
+                                    onClick={() => handleSkillClick(selected.skill_name!, selected.skill_source_type || "")}
+                                >
+                                    {selected.skill_name}
+                                </Button>
+                            </div>
+                        )}
                         <div>
                             <Text strong>Prompt Strategy: </Text><Text>{selected.prompt_strategy}</Text>
                         </div>

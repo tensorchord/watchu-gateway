@@ -42,9 +42,16 @@ type Config struct {
 	ThreatInsightModel   string
 	ThreatInsightTimeout time.Duration
 
+	S3Bucket    string
+	S3Region    string
+	S3AccessKey string
+	S3SecretKey string
+
 	SkillRunnerBaseURL string
 	SkillRunnerTimeout time.Duration
 	SkillUploadDir     string
+
+	SkillRegistryGitHubBaseURL string
 }
 
 const (
@@ -92,9 +99,16 @@ func Load() (Config, error) {
 		ThreatInsightModel:   getEnv("THREAT_INSIGHT_MODEL", "gpt-4o"),
 		ThreatInsightTimeout: parseDurationEnv("THREAT_INSIGHT_TIMEOUT", 120*time.Second),
 
+		S3Bucket:    os.Getenv("S3_BUCKET"),
+		S3Region:    getEnv("S3_REGION", "us-east-1"),
+		S3AccessKey: os.Getenv("AWS_ACCESS_KEY_ID"),
+		S3SecretKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+
 		SkillRunnerBaseURL: strings.TrimSpace(os.Getenv("SKILL_RUNNER_BASE_URL")),
 		SkillRunnerTimeout: parseDurationEnv("SKILL_RUNNER_TIMEOUT", 30*time.Second),
 		SkillUploadDir:     getEnv("SKILL_UPLOAD_DIR", "/tmp/watchu-skill-uploads"),
+
+		SkillRegistryGitHubBaseURL: getEnv("SKILL_REGISTRY_GITHUB_BASE_URL", "https://github.com"),
 	}
 
 	if cfg.DatabaseURL == "" {

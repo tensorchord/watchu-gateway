@@ -48,7 +48,7 @@ func (h securityInsightHandlers) analyzeThreat(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.AnalyzeThreat(c.Request.Context(), req.RootExecID)
+	result, err := h.service.AnalyzeThreatByRootExecID(c.Request.Context(), req.RootExecID)
 	if err != nil {
 		if errors.Is(err, securityinsight.ErrThreatInsightNotInitialized) {
 			respondError(c, http.StatusServiceUnavailable, "threat_insight_unavailable", err.Error(), nil)
@@ -88,7 +88,7 @@ func (h securityInsightHandlers) getThreatAnalysis(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.GetThreatAnalysis(c.Request.Context(), rootExecID)
+	result, err := h.service.GetThreatAnalysisByRootExecID(c.Request.Context(), rootExecID)
 	if err != nil {
 		respondError(c, http.StatusNotFound, "not_found", "no analysis result found for this root_exec_id", nil)
 		return

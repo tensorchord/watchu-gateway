@@ -71,7 +71,7 @@ func (s *LLMBasedStrategy) Analyze(ctx context.Context, rootExecID string) (*Ana
 	}
 
 	// Build the analysis prompt
-	prompt, err := s.buildPrompt(events, alerts, agentReports)
+	prompt, err := s.buildPrompt(events, alerts, agentReports, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to build prompt: %w", err)
 	}
@@ -89,6 +89,194 @@ func (s *LLMBasedStrategy) Analyze(ctx context.Context, rootExecID string) (*Ana
 	}
 
 	return result, nil
+}
+
+// AnalyzeByCorrelationID performs semantic analysis using correlation_id (analysis_id)
+// This provides precise per-analysis isolation, avoiding issues when multiple analyses share the same root_exec_id
+func (s *LLMBasedStrategy) AnalyzeByCorrelationID(ctx context.Context, correlationID string, skillName string, analysisType string) (*AnalysisResult, error) {
+	// Fetch events from the database using correlation_id
+	events, err := s.queries.GetEventsByCorrelationID(ctx, sqlc.GetEventsByCorrelationIDParams{
+		CorrelationID: correlationID,
+		TidInt:        pgtype.Int4{},
+		MethodText:    pgtype.Text{},
+		UrlText:       pgtype.Text{},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get events by correlation_id: %w", err)
+	}
+
+	// Fetch agent threat reports directly by correlation_id (precise per-analysis matching)
+	agentReportsCorrelation, err := s.queries.GetAgentThreatReportsByCorrelationID(ctx, pgtype.Text{String: correlationID, Valid: true})
+	var agentReports []sqlc.GetAgentThreatReportsByRootExecIDRow
+	if err == nil {
+		// Convert to compatible type
+		agentReports = convertCorrelationReportsToRootExecReports(agentReportsCorrelation)
+	}
+
+	// Get root_exec_id from correlation_id for fetching heuristic alerts
+	rootExecIDRow, err := s.queries.GetRootExecIDByCorrelationID(ctx, correlationID)
+	var rootExecID string
+	var alerts []sqlc.GetHeuristicAlertsByRootExecIDRow
+	
+	if err == nil && rootExecIDRow.RootExecID.Valid {
+		rootExecID = rootExecIDRow.RootExecID.String
+		rootExecIDText := pgtype.Text{String: rootExecID, Valid: true}
+		
+		// Fetch heuristic alerts
+		alerts, err = s.queries.GetHeuristicAlertsByRootExecID(ctx, rootExecIDText)
+		if err != nil {
+			alerts = []sqlc.GetHeuristicAlertsByRootExecIDRow{}
+		}
+	}
+
+	if len(events) == 0 {
+		// No events found for this correlation_id
+		// Check if there are any agent threat reports for this analysis
+		if len(agentReports) > 0 {
+			// There are threats detected by the agent for this analysis
+			return s.buildResultFromAgentReports(agentReports), nil
+		}
+		
+		return &AnalysisResult{
+			ThreatLevel:     1,
+			ThreatType:      "none",
+			Confidence:      1.0,
+			Summary:         "No security threats detected",
+			Details:         fmt.Sprintf("No telemetry events found for this analysis (correlation_id: %s). Static analysis completed with no issues.", correlationID),
+			Recommendations: []string{},
+			Evidence:        []map[string]interface{}{},
+			Status:          "ready",
+		}, nil
+	}
+
+	// Convert events to the same format as GetEventsByRootExecIDRow for compatibility
+	convertedEvents := convertCorrelationEventsToRootExecEvents(events)
+
+	// Build the analysis prompt
+	prompt, err := s.buildPrompt(convertedEvents, alerts, agentReports, analysisType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build prompt: %w", err)
+	}
+
+	// Query the LLM
+	response, err := s.client.Complete(ctx, s.model, prompt, 0.3, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("LLM query failed: %w", err)
+	}
+
+	// Parse the LLM response
+	result, err := s.parseResponse(response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse LLM response: %w", err)
+	}
+
+	return result, nil
+}
+
+// convertCorrelationReportsToRootExecReports converts GetAgentThreatReportsByCorrelationIDRow to GetAgentThreatReportsByRootExecIDRow
+func convertCorrelationReportsToRootExecReports(reports []sqlc.GetAgentThreatReportsByCorrelationIDRow) []sqlc.GetAgentThreatReportsByRootExecIDRow {
+	result := make([]sqlc.GetAgentThreatReportsByRootExecIDRow, len(reports))
+	for i, r := range reports {
+		result[i] = sqlc.GetAgentThreatReportsByRootExecIDRow{
+			ID:              r.ID,
+			CreatedAt:       r.CreatedAt,
+			Host:            r.Host,
+			RootExecID:      r.RootExecID,
+			AgentType:       r.AgentType,
+			AgentVersion:    r.AgentVersion,
+			SessionID:       r.SessionID,
+			ThreatType:      r.ThreatType,
+			ThreatLevel:     r.ThreatLevel,
+			Confidence:      r.Confidence,
+			Title:           r.Title,
+			Description:     r.Description,
+			Evidence:        r.Evidence,
+			DetectionMethod: r.DetectionMethod,
+			FilePath:        r.FilePath,
+			CodeSnippet:     r.CodeSnippet,
+			Status:          r.Status,
+		}
+	}
+	return result
+}
+
+// buildResultFromAgentReports creates an AnalysisResult from agent threat reports
+func (s *LLMBasedStrategy) buildResultFromAgentReports(reports []sqlc.GetAgentThreatReportsByRootExecIDRow) *AnalysisResult {
+	if len(reports) == 0 {
+		return &AnalysisResult{
+			ThreatLevel:     1,
+			ThreatType:      "none",
+			Confidence:      1.0,
+			Summary:         "No security threats detected",
+			Details:         "Static analysis completed with no issues.",
+			Recommendations: []string{},
+			Evidence:        []map[string]interface{}{},
+			Status:          "ready",
+		}
+	}
+	
+	// Find the highest threat level
+	maxThreatLevel := 0
+	var primaryReport sqlc.GetAgentThreatReportsByRootExecIDRow
+	for _, report := range reports {
+		if int(report.ThreatLevel) > maxThreatLevel {
+			maxThreatLevel = int(report.ThreatLevel)
+			primaryReport = report
+		}
+	}
+	
+	// Build evidence from all reports
+	var evidence []map[string]interface{}
+	for _, report := range reports {
+		ev := map[string]interface{}{
+			"type":        "agent_insight",
+			"severity":    report.ThreatLevel,
+			"description": report.Title,
+		}
+		if report.FilePath.Valid {
+			ev["file_path"] = report.FilePath.String
+		}
+		evidence = append(evidence, ev)
+	}
+	
+	description := ""
+	if primaryReport.Description.Valid {
+		description = primaryReport.Description.String
+	}
+	
+	return &AnalysisResult{
+		ThreatLevel:     maxThreatLevel,
+		ThreatType:      primaryReport.ThreatType,
+		Confidence:      float64(primaryReport.Confidence),
+		Summary:         primaryReport.Title,
+		Details:         description,
+		Recommendations: []string{"Review the detected threats and take appropriate action"},
+		Evidence:        evidence,
+		Status:          "ready",
+	}
+}
+
+// convertCorrelationEventsToRootExecEvents converts GetEventsByCorrelationIDRow to GetEventsByRootExecIDRow
+func convertCorrelationEventsToRootExecEvents(events []sqlc.GetEventsByCorrelationIDRow) []sqlc.GetEventsByRootExecIDRow {
+	result := make([]sqlc.GetEventsByRootExecIDRow, len(events))
+	for i, e := range events {
+		result[i] = sqlc.GetEventsByRootExecIDRow{
+			EventType:  e.EventType,
+			Host:       e.Host,
+			Timestamp:  e.Timestamp,
+			Pid:        e.Pid,
+			Tid:        e.Tid,
+			Method:     e.Method,
+			Url:        e.Url,
+			Comm:       e.Comm,
+			StatusCode: e.StatusCode,
+			Protocol:   e.Protocol,
+			Ppid:       e.Ppid,
+			Args:       e.Args,
+			ExecID:     e.ExecID,
+		}
+	}
+	return result
 }
 
 // eventToMap converts a sqlc event row to map[string]interface{}
@@ -160,16 +348,16 @@ func alertToMap(a sqlc.GetHeuristicAlertsByRootExecIDRow) map[string]interface{}
 // agentReportToMap converts a sqlc agent threat report row to map[string]interface{}
 func agentReportToMap(r sqlc.GetAgentThreatReportsByRootExecIDRow) map[string]interface{} {
 	m := map[string]interface{}{
-		"id":            fmt.Sprintf("%x", r.ID.Bytes),
-		"created_at":    r.CreatedAt.Time,
-		"host":          r.Host,
-		"root_exec_id":  r.RootExecID.String,
-		"agent_type":    r.AgentType,
-		"threat_type":   r.ThreatType,
-		"threat_level":  r.ThreatLevel,
-		"confidence":    r.Confidence,
-		"title":         r.Title,
-		"status":        r.Status,
+		"id":           fmt.Sprintf("%x", r.ID.Bytes),
+		"created_at":   r.CreatedAt.Time,
+		"host":         r.Host,
+		"root_exec_id": r.RootExecID.String,
+		"agent_type":   r.AgentType,
+		"threat_type":  r.ThreatType,
+		"threat_level": r.ThreatLevel,
+		"confidence":   r.Confidence,
+		"title":        r.Title,
+		"status":       r.Status,
 	}
 	if r.AgentVersion.Valid {
 		m["agent_version"] = r.AgentVersion.String
@@ -196,7 +384,7 @@ func agentReportToMap(r sqlc.GetAgentThreatReportsByRootExecIDRow) map[string]in
 }
 
 // buildPrompt constructs the analysis prompt from telemetry data
-func (s *LLMBasedStrategy) buildPrompt(events []sqlc.GetEventsByRootExecIDRow, alerts []sqlc.GetHeuristicAlertsByRootExecIDRow, agentReports []sqlc.GetAgentThreatReportsByRootExecIDRow) (string, error) {
+func (s *LLMBasedStrategy) buildPrompt(events []sqlc.GetEventsByRootExecIDRow, alerts []sqlc.GetHeuristicAlertsByRootExecIDRow, agentReports []sqlc.GetAgentThreatReportsByRootExecIDRow, analysisType string) (string, error) {
 	// Convert to maps for processing
 	eventMaps := make([]map[string]interface{}, len(events))
 	for i, e := range events {
@@ -268,8 +456,28 @@ FOCUS AREAS:
 - Data exfiltration indicators (sensitive reads preceding outbound requests).
 - Resource abuse, credential misuse, or suspicious process launches.
 - Multi-agent coordination failures or other anomalies impacting safety.
+- **RUNNER INITIALIZATION**: Container startup patterns like "su-exec", "addgroup", "getent" for the "claude" user are normal runner initialization. Only flag these as suspicious if they appear unexpectedly (different users, repeated usage, or outside initialization window).
 
 If information is incomplete, state assumptions and highlight follow-up questions.`
+
+	// Add context-specific instructions for skill_security_saas analysis type
+	if analysisType == "skill_security_saas" {
+		instructions += `
+
+IMPORTANT CONTEXT - SKILL SECURITY SAAS ANALYSIS:
+This is a Skill Security SaaS analysis. The following patterns are EXPECTED and SAFE:
+- **--dangerously-skip-permissions flag**: This is a standard flag used by default for skill isolation in the SaaS environment. It is NOT a security threat and should NOT be flagged or mentioned in recommendations.
+
+DO NOT:
+- Flag --dangerously-skip-permissions as a threat or security concern
+- Include recommendations about monitoring or removing this flag
+- Adjust threat_level based on the presence of this flag
+
+DO:
+- Focus on detecting actual security threats (malicious code, prompt injection, data exfiltration, etc.)
+- Treat --dangerously-skip-permissions as normal operational behavior
+`
+	}
 
 	responseFormat := map[string]interface{}{
 		"threat_level":    "int (1-5)",

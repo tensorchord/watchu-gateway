@@ -86,6 +86,90 @@ SELECT
 FROM unioned
 ORDER BY timestamp;
 
+-- name: GetEventsByCorrelationID :many
+-- Get events for a specific skill analysis using correlation_id (analysis_id)
+-- This provides precise per-analysis event isolation, avoiding root_exec_id sharing issues
+WITH analysis_processes AS (
+    -- Get all processes that belong to this analysis via correlation_id
+    SELECT DISTINCT e.host, e.exec_id, e.pid
+    FROM exec_events e
+    WHERE e.correlation_id = sqlc.arg('correlation_id')::text
+),
+unioned AS (
+    SELECT
+        'http_request' as event_type,
+        r.host,
+        r.timestamp,
+        r.pid,
+        COALESCE(sqlc.narg('tid_int')::INTEGER, r.tid)::INTEGER AS tid,
+        COALESCE(sqlc.narg('method_text')::TEXT, r.method)::TEXT AS method,
+        COALESCE(sqlc.narg('url_text')::TEXT, r.url)::TEXT AS url,
+        r.comm,
+        NULL::INTEGER as status_code,
+        NULL::TEXT as protocol,
+        NULL::INTEGER as ppid,
+        NULL::TEXT as args,
+        NULL::TEXT as exec_id
+    FROM http_request r
+    WHERE EXISTS (
+        SELECT 1 FROM analysis_processes ap
+        WHERE ap.host = r.host AND ap.pid = r.pid
+    )
+    UNION ALL
+    SELECT
+        'http_response' as event_type,
+        r.host,
+        r.timestamp,
+        r.pid,
+        COALESCE(sqlc.narg('tid_int')::INTEGER, r.tid)::INTEGER AS tid,
+        COALESCE(sqlc.narg('method_text')::TEXT, ''::TEXT)::TEXT AS method,
+        COALESCE(sqlc.narg('url_text')::TEXT, ''::TEXT)::TEXT AS url,
+        r.comm,
+        r.status_code,
+        r.protocol,
+        NULL::INTEGER as ppid,
+        NULL::TEXT as args,
+        NULL::TEXT as exec_id
+    FROM http_response r
+    WHERE EXISTS (
+        SELECT 1 FROM analysis_processes ap
+        WHERE ap.host = r.host AND ap.pid = r.pid
+    )
+    UNION ALL
+    SELECT
+        'exec_event' as event_type,
+        e.host,
+        e.timestamp,
+        e.pid,
+        COALESCE(sqlc.narg('tid_int')::INTEGER, 0::INTEGER)::INTEGER AS tid,
+        COALESCE(sqlc.narg('method_text')::TEXT, ''::TEXT)::TEXT AS method,
+        COALESCE(sqlc.narg('url_text')::TEXT, ''::TEXT)::TEXT AS url,
+        e.comm,
+        NULL::INTEGER as status_code,
+        NULL::TEXT as protocol,
+        e.ppid,
+        e.args,
+        e.exec_id
+    FROM exec_events e
+    WHERE e.correlation_id = sqlc.arg('correlation_id')::text
+)
+SELECT
+    event_type,
+    host,
+    timestamp,
+    pid,
+    tid,
+    method,
+    url,
+    comm,
+    status_code,
+    protocol,
+    ppid,
+    args,
+    exec_id
+FROM unioned
+ORDER BY timestamp;
+
 -- name: GetHeuristicAlertsByRootExecID :many
 SELECT
     alert_id,
@@ -107,6 +191,7 @@ INSERT INTO security_analysis_results (
     analyzed_at,
     host,
     root_exec_id,
+    analysis_id,
     threat_level,
     threat_type,
     confidence,
@@ -120,6 +205,7 @@ INSERT INTO security_analysis_results (
     sqlc.arg('analyzed_at'),
     sqlc.arg('host'),
     sqlc.arg('root_exec_id'),
+    sqlc.arg('analysis_id'),
     sqlc.arg('threat_level'),
     sqlc.arg('threat_type'),
     sqlc.arg('confidence'),
@@ -136,6 +222,7 @@ SELECT
     analyzed_at,
     host,
     root_exec_id,
+    analysis_id,
     threat_level,
     threat_type,
     confidence,
@@ -146,7 +233,29 @@ SELECT
     raw_json
 FROM security_analysis_results
 WHERE root_exec_id = sqlc.arg('root_exec_id')
-ORDER BY analyzed_at DESC
+  AND id IS NOT NULL
+ORDER BY analyzed_at DESC NULLS LAST, id DESC
+LIMIT 1;
+
+-- name: GetLatestSecurityAnalysisByAnalysisID :one
+SELECT
+    id,
+    analyzed_at,
+    host,
+    root_exec_id,
+    analysis_id,
+    threat_level,
+    threat_type,
+    confidence,
+    summary,
+    details,
+    recommendations,
+    evidence,
+    raw_json
+FROM security_analysis_results
+WHERE analysis_id = sqlc.arg('analysis_id')
+  AND id IS NOT NULL
+ORDER BY analyzed_at DESC NULLS LAST, id DESC
 LIMIT 1;
 
 -- name: ListSecurityAnalysisByHost :many
@@ -235,3 +344,20 @@ SELECT
 FROM llm_prompt_injection_results
 WHERE host = sqlc.arg('host')
   AND request_id = sqlc.arg('request_id');
+
+-- name: ListCompletedAnalysesWithoutThreatAnalysis :many
+SELECT
+    sa.id,
+    sa.root_exec_id,
+    sa.status
+FROM skill_analyses sa
+WHERE sa.status = 'completed'
+  AND sa.root_exec_id IS NOT NULL
+  AND sa.root_exec_id != ''
+  AND NOT EXISTS (
+      SELECT 1
+      FROM security_analysis_results sar
+      WHERE sar.root_exec_id = sa.root_exec_id
+  )
+ORDER BY sa.id DESC
+LIMIT sqlc.arg('limit');

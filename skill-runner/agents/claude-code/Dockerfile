@@ -22,13 +22,19 @@ RUN apk add --no-cache \
     ca-certificates \
     tzdata
 
+# Replace /bin/sh with bash to ensure SHELL=/bin/sh uses bash
+RUN ln -sf /bin/bash /bin/sh
+
+
 # Copy Claude Code from installer stage
 COPY --from=claude-installer /usr/local/bin/claude /usr/local/bin/claude
 COPY --from=claude-installer /usr/local/lib/node_modules/@anthropic-ai/claude-code /usr/local/lib/node_modules/@anthropic-ai/claude-code
 
 # Create a non-root user for running skills
-RUN addgroup -S claude && \
-    adduser -S claude -G claude -h /home/claude && \
+# UID=100, GID=101 must match the hardcoded values in pkg/runner/runner.go
+RUN addgroup -g 101 claude && \
+    adduser -D -h /home/claude -G claude claude && \
+    sed -i 's/^claude:x:[0-9]*/claude:x:100/' /etc/passwd && \
     mkdir -p /home/claude/.claude/skills && \
     chown -R claude:claude /home/claude/.claude
 

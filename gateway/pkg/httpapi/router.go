@@ -83,6 +83,11 @@ func NewRouter(deps Dependencies) *gin.Engine {
 		registerSkillSecurityRoutes(api, deps.SkillSecurity, deps.SkillUploadDir)
 	}
 
+	// Internal SaaS API endpoints for API Server integration
+	if deps.Queries != nil {
+		registerSkillSecuritySaaSInternalRoutes(api, deps.Queries, deps.SkillSecurity, deps.SecurityInsight)
+	}
+
 	return engine
 }
 

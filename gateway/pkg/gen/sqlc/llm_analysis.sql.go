@@ -11,6 +11,153 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getEventsByCorrelationID = `-- name: GetEventsByCorrelationID :many
+WITH analysis_processes AS (
+    -- Get all processes that belong to this analysis via correlation_id
+    SELECT DISTINCT e.host, e.exec_id, e.pid
+    FROM exec_events e
+    WHERE e.correlation_id = $1::text
+),
+unioned AS (
+    SELECT
+        'http_request' as event_type,
+        r.host,
+        r.timestamp,
+        r.pid,
+        COALESCE($2::INTEGER, r.tid)::INTEGER AS tid,
+        COALESCE($3::TEXT, r.method)::TEXT AS method,
+        COALESCE($4::TEXT, r.url)::TEXT AS url,
+        r.comm,
+        NULL::INTEGER as status_code,
+        NULL::TEXT as protocol,
+        NULL::INTEGER as ppid,
+        NULL::TEXT as args,
+        NULL::TEXT as exec_id
+    FROM http_request r
+    WHERE EXISTS (
+        SELECT 1 FROM analysis_processes ap
+        WHERE ap.host = r.host AND ap.pid = r.pid
+    )
+    UNION ALL
+    SELECT
+        'http_response' as event_type,
+        r.host,
+        r.timestamp,
+        r.pid,
+        COALESCE($2::INTEGER, r.tid)::INTEGER AS tid,
+        COALESCE($3::TEXT, ''::TEXT)::TEXT AS method,
+        COALESCE($4::TEXT, ''::TEXT)::TEXT AS url,
+        r.comm,
+        r.status_code,
+        r.protocol,
+        NULL::INTEGER as ppid,
+        NULL::TEXT as args,
+        NULL::TEXT as exec_id
+    FROM http_response r
+    WHERE EXISTS (
+        SELECT 1 FROM analysis_processes ap
+        WHERE ap.host = r.host AND ap.pid = r.pid
+    )
+    UNION ALL
+    SELECT
+        'exec_event' as event_type,
+        e.host,
+        e.timestamp,
+        e.pid,
+        COALESCE($2::INTEGER, 0::INTEGER)::INTEGER AS tid,
+        COALESCE($3::TEXT, ''::TEXT)::TEXT AS method,
+        COALESCE($4::TEXT, ''::TEXT)::TEXT AS url,
+        e.comm,
+        NULL::INTEGER as status_code,
+        NULL::TEXT as protocol,
+        e.ppid,
+        e.args,
+        e.exec_id
+    FROM exec_events e
+    WHERE e.correlation_id = $1::text
+)
+SELECT
+    event_type,
+    host,
+    timestamp,
+    pid,
+    tid,
+    method,
+    url,
+    comm,
+    status_code,
+    protocol,
+    ppid,
+    args,
+    exec_id
+FROM unioned
+ORDER BY timestamp
+`
+
+type GetEventsByCorrelationIDParams struct {
+	CorrelationID string
+	TidInt        pgtype.Int4
+	MethodText    pgtype.Text
+	UrlText       pgtype.Text
+}
+
+type GetEventsByCorrelationIDRow struct {
+	EventType  string
+	Host       string
+	Timestamp  pgtype.Timestamptz
+	Pid        int32
+	Tid        int32
+	Method     string
+	Url        string
+	Comm       string
+	StatusCode pgtype.Int4
+	Protocol   pgtype.Text
+	Ppid       pgtype.Int4
+	Args       pgtype.Text
+	ExecID     pgtype.Text
+}
+
+// Get events for a specific skill analysis using correlation_id (analysis_id)
+// This provides precise per-analysis event isolation, avoiding root_exec_id sharing issues
+func (q *Queries) GetEventsByCorrelationID(ctx context.Context, arg GetEventsByCorrelationIDParams) ([]GetEventsByCorrelationIDRow, error) {
+	rows, err := q.db.Query(ctx, getEventsByCorrelationID,
+		arg.CorrelationID,
+		arg.TidInt,
+		arg.MethodText,
+		arg.UrlText,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetEventsByCorrelationIDRow
+	for rows.Next() {
+		var i GetEventsByCorrelationIDRow
+		if err := rows.Scan(
+			&i.EventType,
+			&i.Host,
+			&i.Timestamp,
+			&i.Pid,
+			&i.Tid,
+			&i.Method,
+			&i.Url,
+			&i.Comm,
+			&i.StatusCode,
+			&i.Protocol,
+			&i.Ppid,
+			&i.Args,
+			&i.ExecID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getEventsByRootExecID = `-- name: GetEventsByRootExecID :many
 
 WITH unioned AS (
@@ -220,12 +367,56 @@ func (q *Queries) GetHeuristicAlertsByRootExecID(ctx context.Context, rootExecID
 	return items, nil
 }
 
+const getLatestSecurityAnalysisByAnalysisID = `-- name: GetLatestSecurityAnalysisByAnalysisID :one
+SELECT
+    id,
+    analyzed_at,
+    host,
+    root_exec_id,
+    analysis_id,
+    threat_level,
+    threat_type,
+    confidence,
+    summary,
+    details,
+    recommendations,
+    evidence,
+    raw_json
+FROM security_analysis_results
+WHERE analysis_id = $1
+  AND id IS NOT NULL
+ORDER BY analyzed_at DESC NULLS LAST, id DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLatestSecurityAnalysisByAnalysisID(ctx context.Context, analysisID pgtype.UUID) (SecurityAnalysisResult, error) {
+	row := q.db.QueryRow(ctx, getLatestSecurityAnalysisByAnalysisID, analysisID)
+	var i SecurityAnalysisResult
+	err := row.Scan(
+		&i.ID,
+		&i.AnalyzedAt,
+		&i.Host,
+		&i.RootExecID,
+		&i.AnalysisID,
+		&i.ThreatLevel,
+		&i.ThreatType,
+		&i.Confidence,
+		&i.Summary,
+		&i.Details,
+		&i.Recommendations,
+		&i.Evidence,
+		&i.RawJson,
+	)
+	return i, err
+}
+
 const getLatestSecurityAnalysisByRootExecID = `-- name: GetLatestSecurityAnalysisByRootExecID :one
 SELECT
     id,
     analyzed_at,
     host,
     root_exec_id,
+    analysis_id,
     threat_level,
     threat_type,
     confidence,
@@ -236,7 +427,8 @@ SELECT
     raw_json
 FROM security_analysis_results
 WHERE root_exec_id = $1
-ORDER BY analyzed_at DESC
+  AND id IS NOT NULL
+ORDER BY analyzed_at DESC NULLS LAST, id DESC
 LIMIT 1
 `
 
@@ -248,6 +440,7 @@ func (q *Queries) GetLatestSecurityAnalysisByRootExecID(ctx context.Context, roo
 		&i.AnalyzedAt,
 		&i.Host,
 		&i.RootExecID,
+		&i.AnalysisID,
 		&i.ThreatLevel,
 		&i.ThreatType,
 		&i.Confidence,
@@ -298,9 +491,24 @@ FROM security_analysis_results
 WHERE id = $1
 `
 
-func (q *Queries) GetSecurityAnalysisByID(ctx context.Context, id pgtype.UUID) (SecurityAnalysisResult, error) {
+type GetSecurityAnalysisByIDRow struct {
+	ID              pgtype.UUID
+	AnalyzedAt      pgtype.Timestamptz
+	Host            pgtype.Text
+	RootExecID      pgtype.Text
+	ThreatLevel     pgtype.Int4
+	ThreatType      pgtype.Text
+	Confidence      pgtype.Float8
+	Summary         pgtype.Text
+	Details         pgtype.Text
+	Recommendations []byte
+	Evidence        []byte
+	RawJson         []byte
+}
+
+func (q *Queries) GetSecurityAnalysisByID(ctx context.Context, id pgtype.UUID) (GetSecurityAnalysisByIDRow, error) {
 	row := q.db.QueryRow(ctx, getSecurityAnalysisByID, id)
-	var i SecurityAnalysisResult
+	var i GetSecurityAnalysisByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.AnalyzedAt,
@@ -324,6 +532,7 @@ INSERT INTO security_analysis_results (
     analyzed_at,
     host,
     root_exec_id,
+    analysis_id,
     threat_level,
     threat_type,
     confidence,
@@ -344,7 +553,8 @@ INSERT INTO security_analysis_results (
     $9,
     $10,
     $11,
-    $12
+    $12,
+    $13
 )
 `
 
@@ -353,6 +563,7 @@ type InsertSecurityAnalysisResultParams struct {
 	AnalyzedAt      pgtype.Timestamptz
 	Host            pgtype.Text
 	RootExecID      pgtype.Text
+	AnalysisID      pgtype.UUID
 	ThreatLevel     pgtype.Int4
 	ThreatType      pgtype.Text
 	Confidence      pgtype.Float8
@@ -369,6 +580,7 @@ func (q *Queries) InsertSecurityAnalysisResult(ctx context.Context, arg InsertSe
 		arg.AnalyzedAt,
 		arg.Host,
 		arg.RootExecID,
+		arg.AnalysisID,
 		arg.ThreatLevel,
 		arg.ThreatType,
 		arg.Confidence,
@@ -379,6 +591,50 @@ func (q *Queries) InsertSecurityAnalysisResult(ctx context.Context, arg InsertSe
 		arg.RawJson,
 	)
 	return err
+}
+
+const listCompletedAnalysesWithoutThreatAnalysis = `-- name: ListCompletedAnalysesWithoutThreatAnalysis :many
+SELECT
+    sa.id,
+    sa.root_exec_id,
+    sa.status
+FROM skill_analyses sa
+WHERE sa.status = 'completed'
+  AND sa.root_exec_id IS NOT NULL
+  AND sa.root_exec_id != ''
+  AND NOT EXISTS (
+      SELECT 1
+      FROM security_analysis_results sar
+      WHERE sar.root_exec_id = sa.root_exec_id
+  )
+ORDER BY sa.id DESC
+LIMIT $1
+`
+
+type ListCompletedAnalysesWithoutThreatAnalysisRow struct {
+	ID         pgtype.UUID
+	RootExecID pgtype.Text
+	Status     string
+}
+
+func (q *Queries) ListCompletedAnalysesWithoutThreatAnalysis(ctx context.Context, limit int32) ([]ListCompletedAnalysesWithoutThreatAnalysisRow, error) {
+	rows, err := q.db.Query(ctx, listCompletedAnalysesWithoutThreatAnalysis, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCompletedAnalysesWithoutThreatAnalysisRow
+	for rows.Next() {
+		var i ListCompletedAnalysesWithoutThreatAnalysisRow
+		if err := rows.Scan(&i.ID, &i.RootExecID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listHeuristicAlertsByHostRange = `-- name: ListHeuristicAlertsByHostRange :many

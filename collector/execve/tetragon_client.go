@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/cilium/tetragon/api/v1/tetragon"
@@ -84,9 +85,21 @@ type TetragonClient struct {
 	client        tetragon.FineGuidanceSensorsClient
 	gatewayClient *collector.GatewayClient
 	channel       chan *collector.RawExec
+
+	// Process tree tracking for correlation_id filtering
+	// Maps exec_id -> correlation_id (inherited from parent or self)
+	correlationMap map[string]string
+	correlationMu  sync.RWMutex
+
+	// Enable filtering mode: only send events related to skill security
+	filterEnabled bool
 }
 
 func NewTetragonClient(path string, gatewayClient *collector.GatewayClient, ctx context.Context) (*TetragonClient, error) {
+	return NewTetragonClientWithFilter(path, gatewayClient, ctx, true)
+}
+
+func NewTetragonClientWithFilter(path string, gatewayClient *collector.GatewayClient, ctx context.Context, filterEnabled bool) (*TetragonClient, error) {
 	conn, err := connectWithRetry(path, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial: %w", err)
@@ -97,14 +110,76 @@ func NewTetragonClient(path string, gatewayClient *collector.GatewayClient, ctx 
 		return nil, fmt.Errorf("failed to get the health status of the tetragon")
 	}
 	state := conn.GetState()
-	log.Info().Str("state", state.String()).Msg("connected to Tetragon gRPC server")
+	log.Info().Str("state", state.String()).Bool("filter_enabled", filterEnabled).Msg("connected to Tetragon gRPC server")
 
 	return &TetragonClient{
-		conn:          conn,
-		client:        client,
-		gatewayClient: gatewayClient,
-		channel:       make(chan *collector.RawExec, collector.GatewayChannelSize),
+		conn:           conn,
+		client:         client,
+		gatewayClient:  gatewayClient,
+		channel:        make(chan *collector.RawExec, collector.GatewayChannelSize),
+		correlationMap: make(map[string]string),
+		filterEnabled:  filterEnabled,
 	}, nil
+}
+
+
+// extractCorrelationID extracts WATCHU_CORRELATION_ID from environment variables
+func extractCorrelationID(envVars []*tetragon.EnvVar) string {
+	for _, envVar := range envVars {
+		if envVar != nil && envVar.Key == "WATCHU_CORRELATION_ID" {
+			return envVar.Value
+		}
+	}
+	return ""
+}
+
+// getOrInheritCorrelationID returns the correlation_id for a process.
+// If the process has its own WATCHU_CORRELATION_ID, use it.
+// Otherwise, inherit from parent if tracked.
+func (tc *TetragonClient) getOrInheritCorrelationID(execID, parentExecID, selfCorrelationID string) string {
+	// If process has its own correlation_id, use it
+	if selfCorrelationID != "" {
+		tc.correlationMu.Lock()
+		tc.correlationMap[execID] = selfCorrelationID
+		tc.correlationMu.Unlock()
+		return selfCorrelationID
+	}
+
+	// Try to inherit from parent
+	tc.correlationMu.RLock()
+	parentCorrelation := tc.correlationMap[parentExecID]
+	tc.correlationMu.RUnlock()
+
+	if parentCorrelation != "" {
+		tc.correlationMu.Lock()
+		tc.correlationMap[execID] = parentCorrelation
+		tc.correlationMu.Unlock()
+		return parentCorrelation
+	}
+
+	return ""
+}
+
+// cleanupCorrelationMap periodically cleans up old entries to prevent memory leaks
+func (tc *TetragonClient) cleanupCorrelationMap() {
+	// Simple cleanup: if map grows too large, clear oldest entries
+	// In production, consider using an LRU cache with TTL
+	tc.correlationMu.Lock()
+	defer tc.correlationMu.Unlock()
+
+	const maxEntries = 100000
+	if len(tc.correlationMap) > maxEntries {
+		// Clear half of the entries (simple strategy)
+		count := 0
+		for k := range tc.correlationMap {
+			if count >= maxEntries/2 {
+				break
+			}
+			delete(tc.correlationMap, k)
+			count++
+		}
+		log.Info().Int("remaining", len(tc.correlationMap)).Msg("cleaned up correlation map")
+	}
 }
 
 func (tc *TetragonClient) Close() {
@@ -152,23 +227,47 @@ func (tc *TetragonClient) Start(ctx context.Context) {
 
 			exec := event.GetProcessExec()
 			if exec != nil {
-				log.Info().Str("exec_id", exec.Process.ExecId).Str("p_exec_id", exec.Process.ParentExecId).Str("comm", exec.Process.Binary).Str("args", exec.Process.Arguments).Str("event", "exec").Msg("")
+				execID := exec.Process.ExecId
+				parentExecID := exec.Process.ParentExecId
+				selfCorrelationID := extractCorrelationID(exec.Process.EnvironmentVariables)
+
+				// Get or inherit correlation_id from parent
+				correlationID := tc.getOrInheritCorrelationID(execID, parentExecID, selfCorrelationID)
+
+				// Filter mode: skip events without correlation_id
+				if tc.filterEnabled && correlationID == "" {
+					// Not related to skill security, skip
+					continue
+				}
+
+				log.Debug().
+					Str("exec_id", execID).
+					Str("p_exec_id", parentExecID).
+					Str("comm", exec.Process.Binary).
+					Str("correlation_id", correlationID).
+					Str("event", "exec").
+					Msg("exec event")
+
 				pp := exec.Parent
 				var ppid uint32
 				if pp != nil && pp.Pid != nil {
 					ppid = pp.Pid.Value
 				}
 				tc.channel <- &collector.RawExec{
-					Timestamp: exec.Process.StartTime.AsTime(),
-					Pid:       exec.Process.Pid.Value,
-					PPid:      ppid,
-					ExecId:    exec.Process.ExecId,
-					PExecId:   exec.Process.ParentExecId,
-					Cwd:       exec.Process.Cwd,
-					Comm:      exec.Process.Binary,
-					Args:      exec.Process.Arguments,
-					Docker:    exec.Process.Docker,
+					Timestamp:     exec.Process.StartTime.AsTime(),
+					Pid:           exec.Process.Pid.Value,
+					PPid:          ppid,
+					ExecId:        execID,
+					PExecId:       parentExecID,
+					Cwd:           exec.Process.Cwd,
+					Comm:          exec.Process.Binary,
+					Args:          exec.Process.Arguments,
+					Docker:        exec.Process.Docker,
+					CorrelationID: correlationID,
 				}
+
+				// Periodically cleanup correlation map
+				tc.cleanupCorrelationMap()
 			}
 		}
 	}

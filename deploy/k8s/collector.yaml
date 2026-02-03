@@ -19,10 +19,15 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet
       containers:
       - name: tetragon
-        image: quay.io/cilium/tetragon:v1.6.0
+        # Custom built image with environment variable support
+        # Build: cd deploy/docker && REGISTRY=ghcr.io/tensorchord IMAGE_NAME=watchu-tetragon ./build-tetragon.sh
+        image: ghcr.io/tensorchord/watchu-tetragon:latest
+        imagePullPolicy: Always
         args:
         - --server-address
         - unix:///var/run/tetragon/tetragon.sock
+        - --enable-process-environment-variables
+        - --filter-environment-variables=WATCHU_CORRELATION_ID
         securityContext:
           privileged: true
         volumeMounts:

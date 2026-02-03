@@ -8,12 +8,27 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 )
+
+type RateLimitError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *RateLimitError) Error() string {
+	return fmt.Sprintf("LLM API rate limited: %s", e.Body)
+}
+
+func IsRateLimitError(err error) bool {
+	var rateErr *RateLimitError
+	return errors.As(err, &rateErr)
+}
 
 // Client wraps an OpenAI-compatible chat completions endpoint
 type Client struct {
@@ -95,6 +110,11 @@ func (c *Client) Complete(ctx context.Context, model, prompt string, temperature
 		if err != nil {
 			lastErr = err
 			continue
+		}
+
+		// Check for 429 Rate Limit
+		if resp.StatusCode == 429 {
+			return "", &RateLimitError{StatusCode: resp.StatusCode, Body: string(data)}
 		}
 
 		// Check for 502 Bad Gateway error

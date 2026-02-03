@@ -1,6 +1,7 @@
-h1:ZSgJSGlLv6haWdOiiIWTH3urPvOWy9feVRbtd1yeIgA=
+h1:bQ7clo2hjkrmcmGazv7hfTWV1un1dL5nruCveqEGT30=
 000001_init.sql h1:GWjvfJgUAecqdeinaA7DL9K9qbIGJ5o/O/p3ie6E2us=
 000002_mcp_stdio.sql h1:QeVL2p2zHrbIGynpS4nRcMwjItWlF8zIEP69k3wYeQM=
 000003_pg_event.sql h1:vEg3nU2Skaw6xs+ZJCsOniapMgsor3pCow8ZtqPxjUE=
 000004_agent_hierarchy.sql h1:41VpbiJpoOH3g6G8+KZponxJe3LXRq60JmcUOMOMjg4=
 000005_skill_security.sql h1:ByhuDa7jJKnyknVUxAuAZIu84PHw0Di5A/GVeJB4NJY=
+000006_skill_security_saas_unified.sql h1:vBfFxF5DIshb5AIe3J2oMmRnjCdUbHLgeAjm/Lk04mg=

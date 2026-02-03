@@ -16,12 +16,16 @@ type AnalysisResult struct {
 	Details         string                   `json:"details"`         // detailed analysis
 	Recommendations []string                 `json:"recommendations"` // remediation actions
 	Evidence        []map[string]interface{} `json:"evidence"`        // evidence entries
+	Status          string                   `json:"status"`          // ready, rate_limited, skipped, failed
 }
 
 // Detector is the core interface for semantic security analysis
 type Detector interface {
 	// Analyze performs semantic analysis on telemetry data and returns structured results
 	Analyze(ctx context.Context, rootExecID string) (*AnalysisResult, error)
+	// AnalyzeByCorrelationID performs semantic analysis using correlation_id for precise per-analysis isolation
+	// analysisType indicates the type of analysis (e.g., "skill_security_saas") for context-aware threat detection
+	AnalyzeByCorrelationID(ctx context.Context, correlationID string, skillName string, analysisType string) (*AnalysisResult, error)
 }
 
 // detectorImpl implements the Detector interface
@@ -40,4 +44,9 @@ func NewDetector(queries *sqlc.Queries, client *llmclient.Client, model string) 
 // Analyze implements the Detector interface
 func (d *detectorImpl) Analyze(ctx context.Context, rootExecID string) (*AnalysisResult, error) {
 	return d.strategy.Analyze(ctx, rootExecID)
+}
+
+// AnalyzeByCorrelationID implements the Detector interface
+func (d *detectorImpl) AnalyzeByCorrelationID(ctx context.Context, correlationID string, skillName string, analysisType string) (*AnalysisResult, error) {
+	return d.strategy.AnalyzeByCorrelationID(ctx, correlationID, skillName, analysisType)
 }

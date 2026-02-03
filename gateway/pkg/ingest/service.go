@@ -97,6 +97,7 @@ func (s *Service) IngestExecEvents(ctx context.Context, events []ExecEvent) erro
 			event.Args,
 			event.Host,
 			event.ContainerID,
+			event.CorrelationID,
 		}
 	}
 

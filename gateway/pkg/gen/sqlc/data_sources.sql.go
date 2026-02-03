@@ -74,6 +74,53 @@ func (q *Queries) GetDataSourceDistributionByHostRange(ctx context.Context, arg 
 	return items, nil
 }
 
+const getRootExecIDByCorrelationID = `-- name: GetRootExecIDByCorrelationID :one
+SELECT 
+    pl.root_exec_id,
+    pl.exec_id,
+    pl.host,
+    pl.start_ts,
+    r.end_ts
+FROM process_lifecycle pl
+JOIN LATERAL (
+    SELECT MAX(end_ts) AS end_ts
+    FROM process_lifecycle
+    WHERE host = pl.host
+      AND root_exec_id = pl.root_exec_id
+) r ON TRUE
+WHERE EXISTS (
+    SELECT 1 
+    FROM exec_events e
+    WHERE e.exec_id = pl.exec_id
+      AND e.correlation_id = $1::text
+)
+ORDER BY pl.start_ts DESC
+LIMIT 1
+`
+
+type GetRootExecIDByCorrelationIDRow struct {
+	RootExecID pgtype.Text
+	ExecID     string
+	Host       string
+	StartTs    pgtype.Timestamptz
+	EndTs      interface{}
+}
+
+// Get root_exec_id by correlation_id from process_lifecycle
+// This provides a direct mapping from skill analysis ID to process execution tree
+func (q *Queries) GetRootExecIDByCorrelationID(ctx context.Context, correlationID string) (GetRootExecIDByCorrelationIDRow, error) {
+	row := q.db.QueryRow(ctx, getRootExecIDByCorrelationID, correlationID)
+	var i GetRootExecIDByCorrelationIDRow
+	err := row.Scan(
+		&i.RootExecID,
+		&i.ExecID,
+		&i.Host,
+		&i.StartTs,
+		&i.EndTs,
+	)
+	return i, err
+}
+
 const listDataSourceDistributionByRootExecIDRange = `-- name: ListDataSourceDistributionByRootExecIDRange :many
 WITH s3 AS (
     SELECT

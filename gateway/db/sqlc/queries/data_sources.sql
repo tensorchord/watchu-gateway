@@ -294,3 +294,28 @@ WHERE (sqlc.narg('root_exec_id')::text IS NULL OR base.root_exec_id = sqlc.narg(
   AND (sqlc.narg('sql_hash')::text IS NULL OR hash.sql_hash = sqlc.narg('sql_hash')::text)
 ORDER BY base.timestamp DESC
 LIMIT sqlc.arg('limit');
+
+-- name: GetRootExecIDByCorrelationID :one
+-- Get root_exec_id by correlation_id from process_lifecycle
+-- This provides a direct mapping from skill analysis ID to process execution tree
+SELECT 
+    pl.root_exec_id,
+    pl.exec_id,
+    pl.host,
+    pl.start_ts,
+    r.end_ts
+FROM process_lifecycle pl
+JOIN LATERAL (
+    SELECT MAX(end_ts) AS end_ts
+    FROM process_lifecycle
+    WHERE host = pl.host
+      AND root_exec_id = pl.root_exec_id
+) r ON TRUE
+WHERE EXISTS (
+    SELECT 1 
+    FROM exec_events e
+    WHERE e.exec_id = pl.exec_id
+      AND e.correlation_id = sqlc.arg('correlation_id')::text
+)
+ORDER BY pl.start_ts DESC
+LIMIT 1;

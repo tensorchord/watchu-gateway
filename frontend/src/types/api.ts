@@ -154,6 +154,8 @@ export interface SkillSecurityRunResponse {
     runner_exit_code?: number | null;
     root_exec_id?: string | null;
     agent_run_id?: string | null;
+    skill_name?: string | null;
+    skill_source_type?: string | null;
 }
 
 export interface SkillSecurityUploadResponse {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
 	"github.com/tensorchord/watchu/gateway/pkg/httpapi"
 	"github.com/tensorchord/watchu/gateway/pkg/ingest"
+	"github.com/tensorchord/watchu/gateway/pkg/s3"
 	"github.com/tensorchord/watchu/gateway/pkg/securityinsight"
 	"github.com/tensorchord/watchu/gateway/pkg/server"
 	"github.com/tensorchord/watchu/gateway/pkg/skillsecurity"
@@ -74,7 +76,19 @@ func main() {
 	var skillSecuritySvc *skillsecurity.Service
 	if cfg.SkillRunnerBaseURL != "" {
 		runnerClient := skillsecurity.NewRunnerClient(cfg.SkillRunnerBaseURL, cfg.SkillRunnerTimeout)
-		skillSecuritySvc = skillsecurity.NewService(queries, runnerClient, securityInsightSvc, slog.Default())
+
+		var s3Client *s3.Client
+		if cfg.S3Bucket != "" && cfg.S3Region != "" {
+			s3Client, err = s3.NewClient(cfg.S3Bucket, cfg.S3Region, "", cfg.S3AccessKey, cfg.S3SecretKey)
+			if err != nil {
+				slog.Warn("s3 client initialization failed, S3 features will be disabled", slog.String("error", err.Error()))
+			}
+		}
+
+		registryResolver := skillsecurity.NewSkillsRegistryResolver(
+			cfg.SkillRegistryGitHubBaseURL,
+		)
+		skillSecuritySvc = skillsecurity.NewService(queries, runnerClient, securityInsightSvc, s3Client, registryResolver, slog.Default())
 	}
 
 	router := httpapi.NewRouter(httpapi.Dependencies{
@@ -102,6 +116,27 @@ func main() {
 			slog.Default(),
 		)
 		go scheduler.Run(ctx)
+	}
+
+	if skillSecuritySvc != nil {
+		const threatRetryInterval = 30 * time.Second
+		const threatRetryLimit int32 = 50
+
+		go func() {
+			ticker := time.NewTicker(threatRetryInterval)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if err := skillSecuritySvc.RetryThreatAnalysis(ctx, threatRetryLimit); err != nil {
+						slog.Warn("threat analysis retry failed", slog.String("error", err.Error()))
+					}
+				}
+			}
+		}()
 	}
 
 	go func() {

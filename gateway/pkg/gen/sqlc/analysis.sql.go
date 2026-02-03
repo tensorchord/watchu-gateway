@@ -69,6 +69,92 @@ func (q *Queries) GetAgentRunByRootExecID(ctx context.Context, rootExecID pgtype
 	return i, err
 }
 
+const getAgentThreatReportsByCorrelationID = `-- name: GetAgentThreatReportsByCorrelationID :many
+SELECT
+    id,
+    created_at,
+    host,
+    root_exec_id,
+    correlation_id,
+    agent_type,
+    agent_version,
+    session_id,
+    threat_type,
+    threat_level,
+    confidence,
+    title,
+    description,
+    evidence,
+    detection_method,
+    file_path,
+    code_snippet,
+    status
+FROM agent_threat_reports
+WHERE correlation_id = $1
+  AND status = 'active'
+ORDER BY threat_level DESC, created_at DESC
+`
+
+type GetAgentThreatReportsByCorrelationIDRow struct {
+	ID              pgtype.UUID
+	CreatedAt       pgtype.Timestamptz
+	Host            string
+	RootExecID      pgtype.Text
+	CorrelationID   pgtype.Text
+	AgentType       string
+	AgentVersion    pgtype.Text
+	SessionID       pgtype.Text
+	ThreatType      string
+	ThreatLevel     int32
+	Confidence      float64
+	Title           string
+	Description     pgtype.Text
+	Evidence        []byte
+	DetectionMethod pgtype.Text
+	FilePath        pgtype.Text
+	CodeSnippet     pgtype.Text
+	Status          string
+}
+
+func (q *Queries) GetAgentThreatReportsByCorrelationID(ctx context.Context, correlationID pgtype.Text) ([]GetAgentThreatReportsByCorrelationIDRow, error) {
+	rows, err := q.db.Query(ctx, getAgentThreatReportsByCorrelationID, correlationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAgentThreatReportsByCorrelationIDRow
+	for rows.Next() {
+		var i GetAgentThreatReportsByCorrelationIDRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.Host,
+			&i.RootExecID,
+			&i.CorrelationID,
+			&i.AgentType,
+			&i.AgentVersion,
+			&i.SessionID,
+			&i.ThreatType,
+			&i.ThreatLevel,
+			&i.Confidence,
+			&i.Title,
+			&i.Description,
+			&i.Evidence,
+			&i.DetectionMethod,
+			&i.FilePath,
+			&i.CodeSnippet,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAgentThreatReportsByRootExecID = `-- name: GetAgentThreatReportsByRootExecID :many
 SELECT
     id,
@@ -282,7 +368,8 @@ INSERT INTO agent_threat_reports (
     detection_method,
     file_path,
     code_snippet,
-    status
+    status,
+    metadata
 ) VALUES (
     $1,
     $2,
@@ -301,7 +388,8 @@ INSERT INTO agent_threat_reports (
     $15,
     $16,
     $17,
-    $18
+    $18,
+    $19
 )
 RETURNING id
 `
@@ -325,6 +413,7 @@ type InsertAgentThreatReportParams struct {
 	FilePath        pgtype.Text
 	CodeSnippet     pgtype.Text
 	Status          string
+	Metadata        []byte
 }
 
 func (q *Queries) InsertAgentThreatReport(ctx context.Context, arg InsertAgentThreatReportParams) (pgtype.UUID, error) {
@@ -347,6 +436,7 @@ func (q *Queries) InsertAgentThreatReport(ctx context.Context, arg InsertAgentTh
 		arg.FilePath,
 		arg.CodeSnippet,
 		arg.Status,
+		arg.Metadata,
 	)
 	var id pgtype.UUID
 	err := row.Scan(&id)
@@ -499,6 +589,80 @@ func (q *Queries) ListCorrelationsByHostRange(ctx context.Context, arg ListCorre
 	return items, nil
 }
 
+const listExecEventsByHostRange = `-- name: ListExecEventsByHostRange :many
+SELECT
+    host,
+    exec_id,
+    p_exec_id,
+    pid,
+    ppid,
+    timestamp AS start_ts,
+    comm,
+    args,
+    cwd
+FROM exec_events
+WHERE host = $1
+  AND timestamp >= $2
+  AND timestamp <= $3
+ORDER BY timestamp DESC
+LIMIT $4
+`
+
+type ListExecEventsByHostRangeParams struct {
+	Host  string
+	Since pgtype.Timestamptz
+	Until pgtype.Timestamptz
+	Limit int32
+}
+
+type ListExecEventsByHostRangeRow struct {
+	Host    string
+	ExecID  string
+	PExecID string
+	Pid     int32
+	Ppid    int32
+	StartTs pgtype.Timestamptz
+	Comm    string
+	Args    string
+	Cwd     string
+}
+
+// Direct query to exec_events for finding claude processes when process_lifecycle is stale
+func (q *Queries) ListExecEventsByHostRange(ctx context.Context, arg ListExecEventsByHostRangeParams) ([]ListExecEventsByHostRangeRow, error) {
+	rows, err := q.db.Query(ctx, listExecEventsByHostRange,
+		arg.Host,
+		arg.Since,
+		arg.Until,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListExecEventsByHostRangeRow
+	for rows.Next() {
+		var i ListExecEventsByHostRangeRow
+		if err := rows.Scan(
+			&i.Host,
+			&i.ExecID,
+			&i.PExecID,
+			&i.Pid,
+			&i.Ppid,
+			&i.StartTs,
+			&i.Comm,
+			&i.Args,
+			&i.Cwd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listHeuristicAlertsByRoot = `-- name: ListHeuristicAlertsByRoot :many
 SELECT
     alert_id,
@@ -574,6 +738,43 @@ LIMIT $1
 
 func (q *Queries) ListHosts(ctx context.Context, limit int32) ([]string, error) {
 	rows, err := q.db.Query(ctx, listHosts, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var host string
+		if err := rows.Scan(&host); err != nil {
+			return nil, err
+		}
+		items = append(items, host)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listHostsFromExecEvents = `-- name: ListHostsFromExecEvents :many
+SELECT DISTINCT host
+FROM exec_events
+WHERE host IS NOT NULL AND host <> ''
+  AND timestamp >= $1
+  AND timestamp <= $2
+ORDER BY host ASC
+LIMIT $3
+`
+
+type ListHostsFromExecEventsParams struct {
+	Since pgtype.Timestamptz
+	Until pgtype.Timestamptz
+	Limit int32
+}
+
+// Fallback query to get hosts from exec_events when process_lifecycle is empty
+func (q *Queries) ListHostsFromExecEvents(ctx context.Context, arg ListHostsFromExecEventsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listHostsFromExecEvents, arg.Since, arg.Until, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1196,6 +1397,35 @@ func (q *Queries) ListTracesByAgentRun(ctx context.Context, agentRunID pgtype.UU
 		return nil, err
 	}
 	return items, nil
+}
+
+const refreshProcessLifecycleForHost = `-- name: RefreshProcessLifecycleForHost :one
+SELECT CASE
+    WHEN pg_try_advisory_xact_lock(hashtext($1::varchar || $2::text)) THEN (
+        SELECT refresh_process_lifecycle_incremental(
+            $1::varchar,
+            $2::timestamptz,
+            $3::timestamptz
+        ) IS NOT NULL
+    )
+    ELSE false
+END AS refreshed
+`
+
+type RefreshProcessLifecycleForHostParams struct {
+	Host  string
+	Since string
+	Until pgtype.Timestamptz
+}
+
+// Trigger incremental refresh of process_lifecycle for a specific host and time window
+// Uses advisory lock to prevent concurrent refreshes for the same host
+// Returns true if refresh was performed, false if skipped due to lock
+func (q *Queries) RefreshProcessLifecycleForHost(ctx context.Context, arg RefreshProcessLifecycleForHostParams) (bool, error) {
+	row := q.db.QueryRow(ctx, refreshProcessLifecycleForHost, arg.Host, arg.Since, arg.Until)
+	var refreshed bool
+	err := row.Scan(&refreshed)
+	return refreshed, err
 }
 
 const upsertAgentRunProvider = `-- name: UpsertAgentRunProvider :exec

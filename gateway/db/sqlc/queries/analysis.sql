@@ -353,6 +353,31 @@ WHERE root_exec_id = $1
   AND status = 'active'
 ORDER BY threat_level DESC, created_at DESC;
 
+-- name: GetAgentThreatReportsByCorrelationID :many
+SELECT
+    id,
+    created_at,
+    host,
+    root_exec_id,
+    correlation_id,
+    agent_type,
+    agent_version,
+    session_id,
+    threat_type,
+    threat_level,
+    confidence,
+    title,
+    description,
+    evidence,
+    detection_method,
+    file_path,
+    code_snippet,
+    status
+FROM agent_threat_reports
+WHERE correlation_id = $1
+  AND status = 'active'
+ORDER BY threat_level DESC, created_at DESC;
+
 -- name: UpsertAgentThreatReport :one
 SELECT upsert_agent_threat_report(
     $1::text,   -- host
@@ -391,7 +416,8 @@ INSERT INTO agent_threat_reports (
     detection_method,
     file_path,
     code_snippet,
-    status
+    status,
+    metadata
 ) VALUES (
     sqlc.arg('id'),
     sqlc.arg('created_at'),
@@ -410,6 +436,51 @@ INSERT INTO agent_threat_reports (
     sqlc.arg('detection_method'),
     sqlc.arg('file_path'),
     sqlc.arg('code_snippet'),
-    sqlc.arg('status')
+    sqlc.arg('status'),
+    sqlc.arg('metadata')
 )
 RETURNING id;
+
+-- name: ListHostsFromExecEvents :many
+-- Fallback query to get hosts from exec_events when process_lifecycle is empty
+SELECT DISTINCT host
+FROM exec_events
+WHERE host IS NOT NULL AND host <> ''
+  AND timestamp >= sqlc.arg('since')
+  AND timestamp <= sqlc.arg('until')
+ORDER BY host ASC
+LIMIT sqlc.arg('limit');
+
+-- name: RefreshProcessLifecycleForHost :one
+-- Trigger incremental refresh of process_lifecycle for a specific host and time window
+-- Uses advisory lock to prevent concurrent refreshes for the same host
+-- Returns true if refresh was performed, false if skipped due to lock
+SELECT CASE
+    WHEN pg_try_advisory_xact_lock(hashtext(sqlc.arg('host')::varchar || sqlc.arg('since')::text)) THEN (
+        SELECT refresh_process_lifecycle_incremental(
+            sqlc.arg('host')::varchar,
+            sqlc.arg('since')::timestamptz,
+            sqlc.arg('until')::timestamptz
+        ) IS NOT NULL
+    )
+    ELSE false
+END AS refreshed;
+
+-- name: ListExecEventsByHostRange :many
+-- Direct query to exec_events for finding claude processes when process_lifecycle is stale
+SELECT
+    host,
+    exec_id,
+    p_exec_id,
+    pid,
+    ppid,
+    timestamp AS start_ts,
+    comm,
+    args,
+    cwd
+FROM exec_events
+WHERE host = sqlc.arg('host')
+  AND timestamp >= sqlc.arg('since')
+  AND timestamp <= sqlc.arg('until')
+ORDER BY timestamp DESC
+LIMIT sqlc.arg('limit');

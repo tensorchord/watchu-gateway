@@ -54,16 +54,17 @@ func parseElapsedToTimestamp(elapsed uint64) time.Time {
 }
 
 type RecordExec struct {
-	Timestamp   time.Time `json:"timestamp"`
-	Pid         int32     `json:"pid"`
-	PPid        int32     `json:"ppid"`
-	ExecId      string    `json:"exec_id"`
-	PExecId     string    `json:"p_exec_id"`
-	Cwd         string    `json:"cwd"`
-	Comm        string    `json:"comm"`
-	Args        string    `json:"args"`
-	Host        string    `json:"host"`
-	ContainerID string    `json:"container_id"`
+	Timestamp     time.Time `json:"timestamp"`
+	Pid           int32     `json:"pid"`
+	PPid          int32     `json:"ppid"`
+	ExecId        string    `json:"exec_id"`
+	PExecId       string    `json:"p_exec_id"`
+	Cwd           string    `json:"cwd"`
+	Comm          string    `json:"comm"`
+	Args          string    `json:"args"`
+	Host          string    `json:"host"`
+	ContainerID   string    `json:"container_id"`
+	CorrelationID string    `json:"correlation_id"`
 }
 
 type RecordRequest struct {
@@ -149,29 +150,31 @@ type RawRecord interface {
 }
 
 type RawExec struct {
-	Timestamp time.Time
-	Pid       uint32
-	PPid      uint32
-	ExecId    string
-	PExecId   string
-	Cwd       string
-	Comm      string
-	Args      string
-	Docker    string
+	Timestamp     time.Time
+	Pid           uint32
+	PPid          uint32
+	ExecId        string
+	PExecId       string
+	Cwd           string
+	Comm          string
+	Args          string
+	Docker        string
+	CorrelationID string
 }
 
 func (raw RawExec) ToRecord(host string) any {
 	return RecordExec{
-		Timestamp:   raw.Timestamp,
-		Pid:         int32(raw.Pid),
-		PPid:        int32(raw.PPid),
-		ExecId:      raw.ExecId,
-		PExecId:     raw.PExecId,
-		Cwd:         raw.Cwd,
-		Comm:        raw.Comm,
-		Args:        raw.Args,
-		Host:        host,
-		ContainerID: raw.Docker,
+		Timestamp:     raw.Timestamp,
+		Pid:           int32(raw.Pid),
+		PPid:          int32(raw.PPid),
+		ExecId:        raw.ExecId,
+		PExecId:       raw.PExecId,
+		Cwd:           raw.Cwd,
+		Comm:          raw.Comm,
+		Args:          raw.Args,
+		Host:          host,
+		ContainerID:   raw.Docker,
+		CorrelationID: raw.CorrelationID,
 	}
 }
 

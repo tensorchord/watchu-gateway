@@ -11,6 +11,9 @@ import (
 	"time"
 )
 
+// maxResponseSize limits the maximum response size to prevent memory exhaustion
+const maxResponseSize = 10 * 1024 * 1024 // 10MB
+
 type RunnerClient struct {
 	baseURL    string
 	httpClient *http.Client
@@ -19,12 +22,14 @@ type RunnerClient struct {
 type RunnerRequest struct {
 	SourceType     string `json:"source_type"`
 	SourceRef      string `json:"source_ref"`
+	SkillName      string `json:"skill_name,omitempty"`
 	ResolvedRef    string `json:"resolved_ref,omitempty"`
 	ArtifactPath   string `json:"artifact_path,omitempty"`
 	AgentType      string `json:"agent_type"`
 	RunnerMode     string `json:"runner_mode"`
 	PromptStrategy string `json:"prompt_strategy"`
 	PromptInput    string `json:"prompt_input,omitempty"`
+	AnalysisID     string `json:"analysis_id,omitempty"`
 }
 
 type RunnerResponse struct {
@@ -82,7 +87,7 @@ func (c *RunnerClient) StartRun(ctx context.Context, req RunnerRequest) (*Runner
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +120,7 @@ func (c *RunnerClient) GetRun(ctx context.Context, runID string) (*RunnerRunDeta
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, err
 	}

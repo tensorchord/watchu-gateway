@@ -1,15 +1,9 @@
 package runner
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -17,13 +11,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/tensorchord/watchu/gateway/pkg/llmclient"
+	"github.com/tensorchord/watchu/skill-runner/pkg/s3"
 )
 
 type Config struct {
@@ -40,17 +34,24 @@ type Config struct {
 	LLMModel         string
 	LLMTimeout       time.Duration
 	PassEnvVars      map[string]string // Direct environment variables to pass through (key=value pairs)
+	WorkspaceBaseDir string           // Base directory for workspaces (must be accessible to host docker daemon)
+	// S3 configuration for downloading artifacts
+	S3Region     string // S3 region
+	S3AccessKey  string // S3 access key (AWS_ACCESS_KEY_ID)
+	S3SecretKey  string // S3 secret key (AWS_SECRET_ACCESS_KEY)
 }
 
 type RunRequest struct {
 	SourceType     string `json:"source_type"`
 	SourceRef      string `json:"source_ref"`
+	SkillName      string `json:"skill_name,omitempty"`
 	ResolvedRef    string `json:"resolved_ref,omitempty"`
 	ArtifactPath   string `json:"artifact_path,omitempty"`
 	AgentType      string `json:"agent_type"`
 	RunnerMode     string `json:"runner_mode"`
 	PromptStrategy string `json:"prompt_strategy"`
 	PromptInput    string `json:"prompt_input,omitempty"`
+	AnalysisID     string `json:"analysis_id,omitempty"`
 }
 
 type RunResponse struct {
@@ -75,6 +76,11 @@ type RunRecord struct {
 	PromptInput string    `json:"prompt_input,omitempty"`
 }
 
+// S3Client is an interface for S3 operations (for downloading artifacts)
+type S3Client interface {
+	DownloadToTemp(ctx context.Context, bucket, key string) (string, func(), error)
+}
+
 type Runner struct {
 	cfg       Config
 	log       *slog.Logger
@@ -83,6 +89,13 @@ type Runner struct {
 	re        *regexp.Regexp
 	llmClient *llmclient.Client
 	llmModel  string
+	s3        S3Client // S3 client interface for downloading artifacts
+	stopCleanup chan struct{}
+	// Runtimes (lazy initialized)
+	localRuntime  Runtime
+	dockerRuntime Runtime
+	k8sRuntime    Runtime
+	muRuntime     sync.Mutex
 }
 
 func New(cfg Config, logger *slog.Logger) *Runner {
@@ -101,14 +114,134 @@ func New(cfg Config, logger *slog.Logger) *Runner {
 	if model == "" {
 		model = "gpt-4o"
 	}
-	return &Runner{
-		cfg:       cfg,
-		log:       logger,
-		runs:      make(map[string]*RunRecord),
-		re:        regexp.MustCompile(`(?i)root[_-]?exec[_-]?id["'\s:=]+([a-f0-9-]{16,})`),
-		llmClient: llmClient,
-		llmModel:  model,
+
+	// Initialize S3 client if credentials are provided
+	var s3Client S3Client
+	if cfg.S3Region != "" && cfg.S3AccessKey != "" && cfg.S3SecretKey != "" {
+		s3Client = newS3ClientImpl(cfg.S3Region, cfg.S3AccessKey, cfg.S3SecretKey)
+		logger.Info("S3 client initialized", slog.String("region", cfg.S3Region))
 	}
+
+	return &Runner{
+		cfg:         cfg,
+		log:         logger,
+		runs:        make(map[string]*RunRecord),
+		re:          regexp.MustCompile(`(?i)root[_-]?exec[_-]?id["'\s:=]+([a-f0-9-]{16,})`),
+		llmClient:   llmClient,
+		llmModel:    model,
+		s3:          s3Client,
+		stopCleanup: make(chan struct{}),
+	}
+}
+
+// StartCleanup starts a background goroutine that periodically cleans up old run records
+func (r *Runner) StartCleanup(maxAge time.Duration) {
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.stopCleanup:
+				return
+			case <-ticker.C:
+				r.cleanupOldRuns(maxAge)
+			}
+		}
+	}()
+}
+
+// StopCleanup stops the cleanup goroutine
+func (r *Runner) StopCleanup() {
+	close(r.stopCleanup)
+}
+
+// getRuntime returns the appropriate runtime for the given mode (lazy initialization).
+func (r *Runner) getRuntime(mode string) (Runtime, error) {
+	r.muRuntime.Lock()
+	defer r.muRuntime.Unlock()
+
+	mode = strings.ToLower(strings.TrimSpace(mode))
+
+	switch mode {
+	case "local":
+		if r.localRuntime == nil {
+			r.localRuntime = NewLocalRuntime(r.cfg.LocalCommand, RuntimeConfig{
+				Logger:      r.log,
+				ExecTimeout: int(r.cfg.ExecTimeout),
+				PassEnvVars: r.cfg.PassEnvVars,
+				LLMClient:   r.llmClient,
+				LLMModel:    r.llmModel,
+			})
+		}
+		return r.localRuntime, nil
+	case "docker":
+		if r.dockerRuntime == nil {
+			r.dockerRuntime = NewDockerRuntime(r.cfg.DockerImage, r.cfg.DockerCommand, RuntimeConfig{
+				Logger:      r.log,
+				ExecTimeout: int(r.cfg.ExecTimeout),
+				PassEnvVars: r.cfg.PassEnvVars,
+				LLMClient:   r.llmClient,
+				LLMModel:    r.llmModel,
+			})
+		}
+		return r.dockerRuntime, nil
+	case "k8s":
+		if r.k8sRuntime == nil {
+			r.k8sRuntime = NewK8sRuntime(r.cfg.K8sImage, r.cfg.K8sNamespace, r.cfg.K8sTTLSeconds, RuntimeConfig{
+				Logger:      r.log,
+				ExecTimeout: int(r.cfg.ExecTimeout),
+				PassEnvVars: r.cfg.PassEnvVars,
+				LLMClient:   r.llmClient,
+				LLMModel:    r.llmModel,
+			})
+		}
+		return r.k8sRuntime, nil
+	default:
+		return nil, fmt.Errorf("unknown runner_mode: %s", mode)
+	}
+}
+
+// cleanupOldRuns removes completed run records older than maxAge
+func (r *Runner) cleanupOldRuns(maxAge time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now()
+	var removed int
+	for id, record := range r.runs {
+		// Only clean up completed runs (not running)
+		if record.Status != "running" {
+			if !record.EndedAt.IsZero() && now.Sub(record.EndedAt) > maxAge {
+				delete(r.runs, id)
+				removed++
+			} else if record.EndedAt.IsZero() && now.Sub(record.StartedAt) > maxAge {
+				// Fallback: clean up old records without EndedAt set
+				delete(r.runs, id)
+				removed++
+			}
+		}
+	}
+	if removed > 0 {
+		r.log.Info("cleaned up old run records", slog.Int("removed", removed), slog.Int("remaining", len(r.runs)))
+	}
+}
+
+// s3ClientImpl wraps the s3.Client to implement the S3Client interface
+type s3ClientImpl struct {
+	client *s3.Client
+}
+
+func newS3ClientImpl(region, accessKey, secretKey string) S3Client {
+	client, err := s3.NewClient(region, accessKey, secretKey)
+	if err != nil {
+		// Return nil client will be handled by checking if s3 != nil
+		return nil
+	}
+	return &s3ClientImpl{client: client}
+}
+
+func (s *s3ClientImpl) DownloadToTemp(ctx context.Context, bucket, key string) (string, func(), error) {
+	return s.client.DownloadToTemp(ctx, bucket, key)
 }
 
 func (r *Runner) Handler() http.Handler {
@@ -210,21 +343,22 @@ func (r *Runner) execute(runID string, payload RunRequest) {
 		r.logRunContext(runID, payload)
 	}
 
-	switch mode {
-	case "local":
-		if execErr == nil {
-			output, exitCode, pid, execErr = r.runLocal(ctx, payload)
+	// Get the appropriate runtime
+	runtime, runtimeErr := r.getRuntime(mode)
+	if runtimeErr != nil {
+		execErr = runtimeErr
+		output = runtimeErr.Error()
+		exitCode = -1
+	} else if execErr == nil {
+		// Validate the runtime configuration
+		if validateErr := runtime.Validate(); validateErr != nil {
+			execErr = validateErr
+			output = validateErr.Error()
+			exitCode = -1
+		} else {
+			// Execute the run
+			output, exitCode, pid, execErr = runtime.Execute(ctx, payload)
 		}
-	case "docker":
-		if execErr == nil {
-			output, exitCode, pid, execErr = r.runDocker(ctx, payload)
-		}
-	case "k8s":
-		if execErr == nil {
-			output, exitCode, pid, execErr = r.runK8s(ctx, payload)
-		}
-	default:
-		execErr = fmt.Errorf("unknown runner_mode: %s", mode)
 	}
 
 	status := "completed"
@@ -268,267 +402,13 @@ func (r *Runner) execute(runID string, payload RunRequest) {
 	}
 }
 
-func (r *Runner) runLocal(ctx context.Context, payload RunRequest) (string, int, int, error) {
-	if r.cfg.LocalCommand == "" {
-		return "", -1, 0, errors.New("local command not configured")
-	}
-	return r.runLocalDetached(ctx, payload)
-}
-
-func (r *Runner) runLocalDetached(ctx context.Context, payload RunRequest) (string, int, int, error) {
-	cmd, args, err := splitCommand(r.cfg.LocalCommand)
-	if err != nil {
-		return "", -1, 0, err
-	}
-	workdir := strings.TrimSpace(payload.ArtifactPath)
-	if workdir == "" {
-		if cwd, err := os.Getwd(); err == nil {
-			workdir = cwd
-		}
-	}
-
-	tmpDir, err := os.MkdirTemp("", "skill-runner-local-")
-	if err != nil {
-		return "", -1, 0, err
-	}
-	outputPath := filepath.Join(tmpDir, "output.log")
-	exitPath := filepath.Join(tmpDir, "exit.code")
-	promptPath := filepath.Join(tmpDir, "prompt.txt")
-	pidPath := filepath.Join(tmpDir, "pid")
-	scriptPath := filepath.Join(tmpDir, "run.sh")
-
-	if payload.PromptInput != "" {
-		if err := os.WriteFile(promptPath, []byte(payload.PromptInput), 0o600); err != nil {
-			return "", -1, 0, err
-		}
-	}
-
-	script := r.buildDetachedScript(workdir, cmd, args, promptPath, outputPath, exitPath, pidPath)
-	r.log.Info("generated run script",
-		slog.String("script", script),
-	)
-	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
-		return "", -1, 0, err
-	}
-
-	launch := exec.Command("sh", "-c", fmt.Sprintf("setsid %s >/dev/null 2>&1 & echo $!", shellQuote(scriptPath)))
-	launch.Env = append(os.Environ(), buildEnv(payload)...)
-	launchOut, err := launch.Output()
-	if err != nil {
-		return "", -1, 0, err
-	}
-	launchPID := strings.TrimSpace(string(launchOut))
-	pid := 0
-	if launchPID != "" {
-		if parsed, err := strconv.Atoi(launchPID); err == nil {
-			pid = parsed
-		}
-	}
-
-	r.log.Info("local run detached",
-		slog.String("output_path", outputPath),
-		slog.String("exit_path", exitPath),
-		slog.Int("pid", pid),
-	)
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return "", -1, pid, ctx.Err()
-		case <-ticker.C:
-			if _, err := os.Stat(exitPath); err == nil {
-				exitCode, readErr := readExitCode(exitPath)
-				if readErr != nil {
-					return "", -1, pid, readErr
-				}
-				output, _ := os.ReadFile(outputPath)
-				if parsed, err := readExitCode(pidPath); err == nil {
-					pid = parsed
-				}
-				return strings.TrimSpace(string(output)), exitCode, pid, nil
-			}
-		}
-	}
-}
-
-func (r *Runner) buildDetachedScript(workdir, cmd string, args []string, promptPath, outputPath, exitPath, pidPath string) string {
-	var builder strings.Builder
-	builder.WriteString("#!/bin/sh\n")
-	builder.WriteString("cd ")
-	builder.WriteString(shellQuote(workdir))
-	builder.WriteString(" || exit 1\n")
-	builder.WriteString("if [ -f ")
-	builder.WriteString(shellQuote(promptPath))
-	builder.WriteString(" ]; then\n")
-	builder.WriteString("  ")
-	builder.WriteString(shellQuote(cmd))
-	for _, arg := range args {
-		builder.WriteString(" ")
-		builder.WriteString(shellQuote(arg))
-	}
-	builder.WriteString(" < ")
-	builder.WriteString(shellQuote(promptPath))
-	builder.WriteString(" > ")
-	builder.WriteString(shellQuote(outputPath))
-	builder.WriteString(" 2>&1 &\n")
-	builder.WriteString("  child=$!\n")
-	builder.WriteString("else\n")
-	builder.WriteString("  ")
-	builder.WriteString(shellQuote(cmd))
-	for _, arg := range args {
-		builder.WriteString(" ")
-		builder.WriteString(shellQuote(arg))
-	}
-	builder.WriteString(" > ")
-	builder.WriteString(shellQuote(outputPath))
-	builder.WriteString(" 2>&1 &\n")
-	builder.WriteString("  child=$!\n")
-	builder.WriteString("fi\n")
-	builder.WriteString("echo $child > ")
-	builder.WriteString(shellQuote(pidPath))
-	builder.WriteString("\n")
-	builder.WriteString("wait $child\n")
-	builder.WriteString("rc=$?\n")
-	builder.WriteString("echo $rc > ")
-	builder.WriteString(shellQuote(exitPath))
-	builder.WriteString("\n")
-	return builder.String()
-}
-
+// shellQuote is a utility function for quoting shell arguments.
+// It is kept here for backward compatibility but is also used by local.go
 func shellQuote(value string) string {
 	if value == "" {
 		return "''"
 	}
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
-}
-
-func splitCommand(command string) (string, []string, error) {
-	fields := strings.Fields(command)
-	if len(fields) == 0 {
-		return "", nil, errors.New("local command not configured")
-	}
-	return fields[0], fields[1:], nil
-}
-
-func readExitCode(path string) (int, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return -1, err
-	}
-	value := strings.TrimSpace(string(raw))
-	if value == "" {
-		return -1, errors.New("exit code missing")
-	}
-	code, err := strconv.Atoi(value)
-	if err != nil {
-		return -1, err
-	}
-	return code, nil
-}
-
-func (r *Runner) runDocker(ctx context.Context, payload RunRequest) (string, int, int, error) {
-	if r.cfg.DockerImage == "" {
-		return "", -1, 0, errors.New("docker image not configured")
-	}
-
-	args := []string{"run", "--rm"}
-
-	// Run as current user to avoid permission issues with mounted volumes
-	if os.Getuid() != 0 {
-		args = append(args, fmt.Sprintf("--user=%d:%d", os.Getuid(), os.Getgid()))
-	}
-
-	// Check if we need stdin (for prompt input)
-	prompt := strings.TrimSpace(payload.PromptInput)
-	needsStdin := prompt != "" && strings.Contains(r.cfg.DockerCommand, "-p")
-
-	// Add -i flag if stdin is needed
-	if needsStdin {
-		args = append(args, "-i")
-	}
-
-	if payload.ArtifactPath != "" {
-		hostPath := payload.ArtifactPath
-		// Mount the workspace to /home/claude so Claude Code can find .claude/skills/
-		// This is important because Claude Code looks for skills in $HOME/.claude/skills/
-		containerPath := "/home/claude"
-		// Use rw mount to allow Claude to write config files like .claude.json
-		args = append(args, "-v", fmt.Sprintf("%s:%s", hostPath, containerPath))
-		args = append(args, "-w", containerPath)
-		// artifact_path remains the same for tracking purposes
-	}
-
-	// Add skill metadata environment variables
-	for _, env := range buildEnv(payload) {
-		args = append(args, "-e", env)
-	}
-
-	// Pass through direct environment variables from config
-	for key, value := range r.cfg.PassEnvVars {
-		args = append(args, "-e", fmt.Sprintf("%s=%s", key, value))
-	}
-
-	args = append(args, r.cfg.DockerImage)
-	if strings.TrimSpace(r.cfg.DockerCommand) != "" {
-		args = append(args, strings.Fields(r.cfg.DockerCommand)...)
-	}
-
-	r.log.Info("docker command built",
-		slog.Int("env_direct_count", len(r.cfg.PassEnvVars)))
-
-	cmd := exec.CommandContext(ctx, "docker", args...)
-
-	// Set stdin if prompt is available
-	if needsStdin {
-		cmd.Stdin = strings.NewReader(prompt)
-	}
-
-	output, exitCode, err := r.runCommand(cmd)
-	return output, exitCode, 0, err
-}
-
-func (r *Runner) runK8s(ctx context.Context, payload RunRequest) (string, int, int, error) {
-	if r.cfg.K8sImage == "" {
-		return "", -1, 0, errors.New("k8s image not configured")
-	}
-	manifest := r.buildJobManifest(payload)
-
-	args := []string{"apply", "-f", "-"}
-	if r.cfg.K8sNamespace != "" {
-		args = append([]string{"-n", r.cfg.K8sNamespace}, args...)
-	}
-	cmd := exec.CommandContext(ctx, "kubectl", args...)
-	cmd.Stdin = strings.NewReader(manifest)
-	output, exitCode, err := r.runCommand(cmd)
-	return output, exitCode, 0, err
-}
-
-func (r *Runner) runCommand(cmd *exec.Cmd) (string, int, error) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	output := strings.TrimSpace(strings.TrimSuffix(stdout.String(), "\n"))
-	errOut := strings.TrimSpace(strings.TrimSuffix(stderr.String(), "\n"))
-	combined := strings.TrimSpace(strings.Join([]string{output, errOut}, "\n"))
-
-	exitCode := 0
-	if err != nil {
-		exitCode = -1
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		}
-		if combined == "" {
-			combined = err.Error()
-		}
-		return combined, exitCode, err
-	}
-	return combined, exitCode, nil
 }
 
 func (r *Runner) prepareSkill(ctx context.Context, payload *RunRequest) (func(), error) {
@@ -558,6 +438,34 @@ func (r *Runner) prepareSkill(ctx context.Context, payload *RunRequest) (func(),
 		}
 	}
 
+	// Handle S3 paths (s3://bucket/key)
+	if s3.IsS3Path(artifactPath) {
+		bucket, key, err := s3.ParseS3Path(artifactPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse S3 path %s: %w", artifactPath, err)
+		}
+		if r.s3 == nil {
+			return nil, fmt.Errorf("S3 path provided but S3 client not configured (missing S3 credentials)")
+		}
+		localPath, s3Cleanup, err := r.s3.DownloadToTemp(ctx, bucket, key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to download from S3 %s: %w", artifactPath, err)
+		}
+		r.log.Info("downloaded artifact from S3",
+			slog.String("s3_path", artifactPath),
+			slog.String("local_path", localPath))
+		artifactPath = localPath
+		if s3Cleanup != nil {
+			prev := cleanup
+			cleanup = func() {
+				s3Cleanup()
+				if prev != nil {
+					prev()
+				}
+			}
+		}
+	}
+
 	if artifactPath != "" {
 		resolved, extraCleanup, err := resolveArtifactPath(artifactPath)
 		if err != nil {
@@ -576,6 +484,19 @@ func (r *Runner) prepareSkill(ctx context.Context, payload *RunRequest) (func(),
 			}
 		}
 		payload.ArtifactPath = resolved
+	}
+
+	// Locate skill directory (works for both named and unnamed skills)
+	// When SkillName is empty, locateSkillDir will auto-select the first skill found
+	if payload.ArtifactPath != "" {
+		skillDir, err := locateSkillDir(payload.ArtifactPath, payload.SkillName)
+		if err != nil {
+			if cleanup != nil {
+				cleanup()
+			}
+			return nil, err
+		}
+		payload.ArtifactPath = skillDir
 	}
 
 	// Save original skill path for prompt generation
@@ -613,186 +534,51 @@ func (r *Runner) prepareSkill(ctx context.Context, payload *RunRequest) (func(),
 			skillPathForPrompt = originalSkillPath
 		}
 		if skillPathForPrompt != "" {
-			if prompt, err := r.generatePromptFromSkill(ctx, skillPathForPrompt); err == nil && prompt != "" {
-				payload.PromptInput = prompt
-			} else if err != nil {
-				r.log.Warn("failed to generate prompt from skill", slog.String("error", err.Error()))
+			prompt, err := r.generatePromptFromSkill(ctx, skillPathForPrompt)
+			if err != nil {
+				if cleanup != nil {
+					cleanup()
+				}
+				return nil, fmt.Errorf("failed to generate prompt from skill: %w", err)
 			}
+			if prompt == "" {
+				if cleanup != nil {
+					cleanup()
+				}
+				return nil, fmt.Errorf("skill generated empty prompt from %s", skillPathForPrompt)
+			}
+			payload.PromptInput = prompt
 		}
 	}
 
 	return cleanup, nil
 }
 
-func resolveArtifactPath(path string) (string, func(), error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", nil, err
-	}
-	if info.IsDir() {
-		return path, nil, nil
-	}
-	lower := strings.ToLower(path)
-	switch {
-	case strings.HasSuffix(lower, ".zip"):
-		return extractZip(path)
-	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"), strings.HasSuffix(lower, ".tar"):
-		return extractTar(path)
-	default:
-		return filepath.Dir(path), nil, nil
-	}
-}
-
-func extractZip(path string) (string, func(), error) {
-	reader, err := zip.OpenReader(path)
-	if err != nil {
-		return "", nil, err
-	}
-	defer reader.Close()
-
-	dest, err := os.MkdirTemp("", "skill-runner-zip-")
-	if err != nil {
-		return "", nil, err
-	}
-
-	for _, file := range reader.File {
-		target, err := safeJoin(dest, file.Name)
-		if err != nil {
-			_ = os.RemoveAll(dest)
-			return "", nil, err
-		}
-		if file.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				_ = os.RemoveAll(dest)
-				return "", nil, err
-			}
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			_ = os.RemoveAll(dest)
-			return "", nil, err
-		}
-		in, err := file.Open()
-		if err != nil {
-			_ = os.RemoveAll(dest)
-			return "", nil, err
-		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-		if err != nil {
-			in.Close()
-			_ = os.RemoveAll(dest)
-			return "", nil, err
-		}
-		if _, err := io.Copy(out, in); err != nil {
-			in.Close()
-			out.Close()
-			_ = os.RemoveAll(dest)
-			return "", nil, err
-		}
-		in.Close()
-		out.Close()
-	}
-
-	root := pickSkillRoot(dest)
-	return root, func() { _ = os.RemoveAll(dest) }, nil
-}
-
-func extractTar(path string) (string, func(), error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", nil, err
-	}
-	defer file.Close()
-
-	var reader io.Reader = file
-	lower := strings.ToLower(path)
-	if strings.HasSuffix(lower, ".gz") || strings.HasSuffix(lower, ".tgz") {
-		gz, err := gzip.NewReader(file)
-		if err != nil {
-			return "", nil, err
-		}
-		defer gz.Close()
-		reader = gz
-	}
-
-	dest, err := os.MkdirTemp("", "skill-runner-tar-")
-	if err != nil {
-		return "", nil, err
-	}
-
-	tr := tar.NewReader(reader)
-	for {
-		header, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			_ = os.RemoveAll(dest)
-			return "", nil, err
-		}
-		if header == nil {
-			continue
-		}
-		target, err := safeJoin(dest, header.Name)
-		if err != nil {
-			_ = os.RemoveAll(dest)
-			return "", nil, err
-		}
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				_ = os.RemoveAll(dest)
-				return "", nil, err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				_ = os.RemoveAll(dest)
-				return "", nil, err
-			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, header.FileInfo().Mode())
-			if err != nil {
-				_ = os.RemoveAll(dest)
-				return "", nil, err
-			}
-			if _, err := io.Copy(out, tr); err != nil {
-				out.Close()
-				_ = os.RemoveAll(dest)
-				return "", nil, err
-			}
-			out.Close()
-		}
-	}
-
-	root := pickSkillRoot(dest)
-	return root, func() { _ = os.RemoveAll(dest) }, nil
-}
-
-func safeJoin(base, name string) (string, error) {
-	clean := filepath.Clean(name)
-	if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
-		return "", fmt.Errorf("invalid archive path: %s", name)
-	}
-	target := filepath.Join(base, clean)
-	baseClean := filepath.Clean(base) + string(os.PathSeparator)
-	if !strings.HasPrefix(filepath.Clean(target)+string(os.PathSeparator), baseClean) {
-		return "", fmt.Errorf("invalid archive path: %s", name)
-	}
-	return target, nil
-}
-
-func pickSkillRoot(dest string) string {
-	entries, err := os.ReadDir(dest)
-	if err != nil || len(entries) != 1 || !entries[0].IsDir() {
-		return dest
-	}
-	return filepath.Join(dest, entries[0].Name())
-}
-
 func (r *Runner) setupClaudeCodeSkillStructure(skillPath string) (string, error) {
+	// Use configured workspace base directory (shared volume) or fallback to system temp
+	baseDir := r.cfg.WorkspaceBaseDir
+	if baseDir == "" {
+		// Fallback to system temp directory for backward compatibility
+		baseDir = os.TempDir()
+	} else {
+		// Ensure base directory exists
+		if err := os.MkdirAll(baseDir, 0o755); err != nil {
+			return "", fmt.Errorf("failed to create workspace base directory: %w", err)
+		}
+	}
+
 	// Create a temporary directory for the claude-code workspace
-	tmpDir, err := os.MkdirTemp("", "claude-code-workspace-")
+	tmpDir, err := os.MkdirTemp(baseDir, "claude-code-workspace-")
 	if err != nil {
 		return "", err
+	}
+
+	// Change ownership to uid=100 (claude user in agent container)
+	// This is required because agent containers run as uid=100 to satisfy
+	// Claude Code CLI's security restriction on --dangerously-skip-permissions
+	if err := os.Chown(tmpDir, 100, 101); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("failed to chown workspace directory: %w", err)
 	}
 
 	// Get the skill folder name
@@ -811,6 +597,12 @@ func (r *Runner) setupClaudeCodeSkillStructure(skillPath string) (string, error)
 	if err := copyDir(skillPath, claudeTargetPath); err != nil {
 		_ = os.RemoveAll(tmpDir)
 		return "", fmt.Errorf("failed to copy skill directory to .claude/skills: %w", err)
+	}
+
+	// Ensure all files in workspace are owned by uid=100
+	if err := chownR(tmpDir, 100, 101); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("failed to chown workspace files: %w", err)
 	}
 
 	r.log.Info("setup claude-code skill structure",
@@ -862,6 +654,15 @@ func copyFile(src, dst string) error {
 	}
 
 	return os.WriteFile(dst, data, 0o644)
+}
+
+func chownR(path string, uid, gid int) error {
+	return filepath.Walk(path, func(name string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Chown(name, uid, gid)
+	})
 }
 
 func (r *Runner) generatePromptFromSkill(ctx context.Context, dir string) (string, error) {
@@ -919,63 +720,15 @@ Respond with ONLY the user request text, nothing else.`
 }
 
 func extractSkillName(content, dir string) string {
-	// Use directory name as skill name
+	// Try to extract name from SKILL.md first
 	if dir != "" {
+		if name, err := extractSkillNameFromMarkdown(dir); err == nil && name != "" {
+			return name
+		}
+		// Fallback to directory name
 		return filepath.Base(dir)
 	}
 	return "skill"
-}
-
-func (r *Runner) buildJobManifest(payload RunRequest) string {
-	jobName := fmt.Sprintf("skill-run-%s", uuid.NewString()[:8])
-	env := buildEnvMap(payload)
-
-	// Add direct environment variables from config
-	for key, value := range r.cfg.PassEnvVars {
-		env[key] = value
-	}
-
-	var buf strings.Builder
-	fmt.Fprintf(&buf, "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: %s\n", jobName)
-	if r.cfg.K8sNamespace != "" {
-		fmt.Fprintf(&buf, "  namespace: %s\n", r.cfg.K8sNamespace)
-	}
-	fmt.Fprintf(&buf, "spec:\n  backoffLimit: 0\n  ttlSecondsAfterFinished: %d\n  template:\n    spec:\n      restartPolicy: Never\n      containers:\n      - name: skill-runner\n        image: %s\n", r.cfg.K8sTTLSeconds, r.cfg.K8sImage)
-	if len(env) > 0 {
-		fmt.Fprintf(&buf, "        env:\n")
-		for key, value := range env {
-			fmt.Fprintf(&buf, "        - name: %s\n          value: %s\n", key, yamlQuote(value))
-		}
-	}
-	return buf.String()
-}
-
-func buildEnv(payload RunRequest) []string {
-	env := buildEnvMap(payload)
-	out := make([]string, 0, len(env))
-	for key, value := range env {
-		out = append(out, fmt.Sprintf("%s=%s", key, value))
-	}
-	return out
-}
-
-func buildEnvMap(payload RunRequest) map[string]string {
-	env := map[string]string{
-		"SKILL_SOURCE_TYPE":     strings.TrimSpace(payload.SourceType),
-		"SKILL_SOURCE_REF":      strings.TrimSpace(payload.SourceRef),
-		"SKILL_RESOLVED_REF":    strings.TrimSpace(payload.ResolvedRef),
-		"SKILL_ARTIFACT_PATH":   strings.TrimSpace(payload.ArtifactPath),
-		"SKILL_AGENT_TYPE":      strings.TrimSpace(payload.AgentType),
-		"SKILL_RUNNER_MODE":     strings.TrimSpace(payload.RunnerMode),
-		"SKILL_PROMPT_STRATEGY": strings.TrimSpace(payload.PromptStrategy),
-		"SKILL_PROMPT":          strings.TrimSpace(payload.PromptInput),
-	}
-	for key, value := range env {
-		if value == "" {
-			delete(env, key)
-		}
-	}
-	return env
 }
 
 func (r *Runner) extractRootExecID(output string) string {
@@ -1097,27 +850,4 @@ func (r *Runner) listDirEntries(root string, max int) string {
 		}
 	}
 	return builder.String()
-}
-
-func truncateOutput(output string, max int) string {
-	trimmed := strings.TrimSpace(output)
-	if max <= 0 || len(trimmed) <= max {
-		return trimmed
-	}
-	return trimmed[:max] + "...(truncated)"
-}
-
-func respondJSON(w http.ResponseWriter, status int, payload interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	enc := json.NewEncoder(w)
-	_ = enc.Encode(payload)
-}
-
-func yamlQuote(value string) string {
-	quoted, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Sprintf("%q", value)
-	}
-	return string(quoted)
 }

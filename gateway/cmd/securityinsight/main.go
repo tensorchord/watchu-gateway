@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
 	"github.com/tensorchord/watchu/gateway/pkg/securityinsight"
@@ -244,7 +245,7 @@ func runThreatMode(ctx context.Context, queries *sqlc.Queries, rootExecID string
 		fmt.Printf("Analyzing threat for root_exec_id: %s\n", rootExecID)
 	}
 
-	result, err := svc.AnalyzeThreat(ctx, rootExecID)
+	result, err := svc.AnalyzeThreatByRootExecID(ctx, rootExecID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Threat analysis failed: %v\n", err)
 		os.Exit(1)
@@ -265,7 +266,7 @@ func runThreatMode(ctx context.Context, queries *sqlc.Queries, rootExecID string
 			fmt.Printf("\nSaving analysis result to database...\n")
 		}
 
-		err = threatinsight.SaveAnalysisResult(ctx, queries, rootExecID, result)
+		err = threatinsight.SaveAnalysisResult(ctx, queries, rootExecID, pgtype.UUID{}, result)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to save result: %v\n", err)
 		} else if verbose {

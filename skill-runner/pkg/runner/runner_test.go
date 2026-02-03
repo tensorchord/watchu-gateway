@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -147,6 +149,7 @@ func TestBuildEnvMap(t *testing.T) {
 				"SKILL_AGENT_TYPE":      "claude-code",
 				"SKILL_RUNNER_MODE":     "local",
 				"SKILL_PROMPT_STRATEGY": "from-skill",
+				"SHELL":                 "/bin/sh",
 			},
 		},
 		{
@@ -154,6 +157,7 @@ func TestBuildEnvMap(t *testing.T) {
 			req: RunRequest{
 				SourceType:     "git",
 				SourceRef:      "https://github.com/user/repo",
+				SkillName:      "example-skill",
 				ResolvedRef:    "main",
 				ArtifactPath:   "/path/to/skill",
 				AgentType:      "claude-code",
@@ -164,12 +168,14 @@ func TestBuildEnvMap(t *testing.T) {
 			want: map[string]string{
 				"SKILL_SOURCE_TYPE":     "git",
 				"SKILL_SOURCE_REF":      "https://github.com/user/repo",
+				"SKILL_NAME":            "example-skill",
 				"SKILL_RESOLVED_REF":    "main",
 				"SKILL_ARTIFACT_PATH":   "/path/to/skill",
 				"SKILL_AGENT_TYPE":      "claude-code",
 				"SKILL_RUNNER_MODE":     "docker",
 				"SKILL_PROMPT_STRATEGY": "custom",
 				"SKILL_PROMPT":          "test prompt",
+				"SHELL":                 "/bin/sh",
 			},
 		},
 		{
@@ -189,6 +195,7 @@ func TestBuildEnvMap(t *testing.T) {
 				"SKILL_AGENT_TYPE":      "claude-code",
 				"SKILL_RUNNER_MODE":     "local",
 				"SKILL_PROMPT_STRATEGY": "from-skill",
+				"SHELL":                 "/bin/sh",
 			},
 		},
 	}
@@ -205,6 +212,282 @@ func TestBuildEnvMap(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLocateSkillDir(t *testing.T) {
+	baseDir := t.TempDir()
+
+	skillsDir := filepath.Join(baseDir, "skills", "alpha")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsDir, "SKILL.md"), []byte("# alpha"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md failed: %v", err)
+	}
+	found, err := locateSkillDir(baseDir, "alpha")
+	if err != nil {
+		t.Fatalf("locateSkillDir failed: %v", err)
+	}
+	if found != skillsDir {
+		t.Fatalf("expected %q, got %q", skillsDir, found)
+	}
+
+	baseDir2 := t.TempDir()
+	altDir := filepath.Join(baseDir2, "beta")
+	if err := os.MkdirAll(altDir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(altDir, "SKILL.md"), []byte("# beta"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md failed: %v", err)
+	}
+	found, err = locateSkillDir(baseDir2, "beta")
+	if err != nil {
+		t.Fatalf("locateSkillDir failed: %v", err)
+	}
+	if found != altDir {
+		t.Fatalf("expected %q, got %q", altDir, found)
+	}
+
+	baseDir3 := filepath.Join(t.TempDir(), "gamma")
+	if err := os.MkdirAll(baseDir3, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir3, "SKILL.md"), []byte("# gamma"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md failed: %v", err)
+	}
+	found, err = locateSkillDir(baseDir3, "gamma")
+	if err != nil {
+		t.Fatalf("locateSkillDir failed: %v", err)
+	}
+	if found != baseDir3 {
+		t.Fatalf("expected %q, got %q", baseDir3, found)
+	}
+
+	_, err = locateSkillDir(baseDir, "missing")
+	if err == nil {
+		t.Fatalf("expected error for missing skill")
+	}
+}
+
+func TestExtractSkillNameFromMarkdown(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		want      string
+		wantError bool
+	}{
+		{
+			name: "name field without quotes",
+			content: `---
+name: vercel-react-best-practices
+---
+# Skill Content`,
+			want:      "vercel-react-best-practices",
+			wantError: false,
+		},
+		{
+			name: "name field with single quotes",
+			content: `---
+name: 'remotion-best-practices'
+---
+# Skill Content`,
+			want:      "remotion-best-practices",
+			wantError: false,
+		},
+		{
+			name: "name field with double quotes",
+			content: `---
+name: "seo-audit"
+---
+# Skill Content`,
+			want:      "seo-audit",
+			wantError: false,
+		},
+		{
+			name: "name field with extra spaces",
+			content: `---
+name:  test-skill
+---
+# Skill Content`,
+			want:      "test-skill",
+			wantError: false,
+		},
+		{
+			name: "no name field",
+			content: `---
+description: A skill
+---
+# Skill Content`,
+			wantError: true,
+		},
+		{
+			name: "name field without yaml frontmatter",
+			content: `name: simple-skill
+# Skill Content`,
+			want:      "simple-skill",
+			wantError: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			skillPath := filepath.Join(tmpDir, "SKILL.md")
+			if err := os.WriteFile(skillPath, []byte(tt.content), 0o644); err != nil {
+				t.Fatalf("write SKILL.md failed: %v", err)
+			}
+
+			got, err := extractSkillNameFromMarkdown(tmpDir)
+			if tt.wantError {
+				if err == nil {
+					t.Errorf("extractSkillNameFromMarkdown() expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("extractSkillNameFromMarkdown() failed: %v", err)
+				}
+				if got != tt.want {
+					t.Errorf("extractSkillNameFromMarkdown() = %q, want %q", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
+func TestLocateSkillDirByNameField(t *testing.T) {
+	baseDir := t.TempDir()
+	skillsDir := filepath.Join(baseDir, "skills")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	// Create skill directories where directory name != SKILL.md name field
+	testCases := []struct {
+		dirName     string
+		skillName   string
+		skillNameInMd string
+	}{
+		{"react-best-practices", "vercel-react-best-practices", "vercel-react-best-practices"},
+		{"remotion-practices", "remotion-best-practices", "remotion-best-practices"},
+		{"seo", "seo-audit", "seo-audit"},
+	}
+
+	for _, tc := range testCases {
+		dirPath := filepath.Join(skillsDir, tc.dirName)
+		if err := os.MkdirAll(dirPath, 0o755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+		content := "---\nname: " + tc.skillNameInMd + "\n---\n# " + tc.skillNameInMd
+		if err := os.WriteFile(filepath.Join(dirPath, "SKILL.md"), []byte(content), 0o644); err != nil {
+			t.Fatalf("write SKILL.md failed: %v", err)
+		}
+	}
+
+	// Test lookup by name field (not directory name)
+	for _, tc := range testCases {
+		t.Run(tc.skillName, func(t *testing.T) {
+			found, err := locateSkillDir(baseDir, tc.skillName)
+			if err != nil {
+				t.Fatalf("locateSkillDir(%q) failed: %v", tc.skillName, err)
+			}
+			expectedDir := filepath.Join(skillsDir, tc.dirName)
+			if found != expectedDir {
+				t.Errorf("locateSkillDir(%q) = %q, want %q", tc.skillName, found, expectedDir)
+			}
+		})
+	}
+
+	// Test that directory name still works for backward compatibility
+	t.Run("directory name still works", func(t *testing.T) {
+		found, err := locateSkillDir(baseDir, "react-best-practices")
+		if err != nil {
+			t.Fatalf("locateSkillDir by directory name failed: %v", err)
+		}
+		expectedDir := filepath.Join(skillsDir, "react-best-practices")
+		if found != expectedDir {
+			t.Errorf("locateSkillDir by directory name = %q, want %q", found, expectedDir)
+		}
+	})
+}
+
+func TestLocateSkillDirAutoSelectFirst(t *testing.T) {
+	// Test 1: Single-skill repo (SKILL.md at root) - backward compatible
+	t.Run("single skill repo with root SKILL.md", func(t *testing.T) {
+		baseDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(baseDir, "SKILL.md"), []byte("# Root Skill"), 0o644); err != nil {
+			t.Fatalf("write SKILL.md failed: %v", err)
+		}
+
+		found, err := locateSkillDir(baseDir, "")
+		if err != nil {
+			t.Fatalf("locateSkillDir failed: %v", err)
+		}
+		if found != baseDir {
+			t.Errorf("expected baseDir %q, got %q", baseDir, found)
+		}
+	})
+
+	// Test 2: Multi-skill repo - auto select first skill
+	t.Run("multi-skill repo auto selects first", func(t *testing.T) {
+		baseDir := t.TempDir()
+		skillsDir := filepath.Join(baseDir, "skills")
+		if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+
+		// Create multiple skills
+		skill1 := filepath.Join(skillsDir, "first-skill")
+		skill2 := filepath.Join(skillsDir, "second-skill")
+		if err := os.MkdirAll(skill1, 0o755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+		if err := os.MkdirAll(skill2, 0o755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(skill1, "SKILL.md"), []byte("name: first"), 0o644); err != nil {
+			t.Fatalf("write SKILL.md failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(skill2, "SKILL.md"), []byte("name: second"), 0o644); err != nil {
+			t.Fatalf("write SKILL.md failed: %v", err)
+		}
+
+		// Auto-select first skill when skillName is empty
+		found, err := locateSkillDir(baseDir, "")
+		if err != nil {
+			t.Fatalf("locateSkillDir failed: %v", err)
+		}
+		// First skill found (os.ReadDir ordering)
+		if found != skill1 && found != skill2 {
+			t.Errorf("expected one of %q or %q, got %q", skill1, skill2, found)
+		}
+	})
+
+	// Test 3: Repo with no skill - should return error
+	t.Run("repo with no skill returns error", func(t *testing.T) {
+		baseDir := t.TempDir()
+		// Only README.md, no SKILL.md
+		if err := os.WriteFile(filepath.Join(baseDir, "README.md"), []byte("# Readme"), 0o644); err != nil {
+			t.Fatalf("write README.md failed: %v", err)
+		}
+
+		_, err := locateSkillDir(baseDir, "")
+		if err == nil {
+			t.Fatal("expected error for repo with no skill, got nil")
+		}
+	})
+
+	// Test 4: Empty skills/ directory
+	t.Run("empty skills directory returns error", func(t *testing.T) {
+		baseDir := t.TempDir()
+		skillsDir := filepath.Join(baseDir, "skills")
+		if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+
+		_, err := locateSkillDir(baseDir, "")
+		if err == nil {
+			t.Fatal("expected error for empty skills directory, got nil")
+		}
+	})
 }
 
 func TestBuildEnv(t *testing.T) {
@@ -281,4 +564,3 @@ func TestConfigDefaults(t *testing.T) {
 		t.Errorf("Default K8sTTLSeconds = %d, want %d", cfg.K8sTTLSeconds, 600)
 	}
 }
-

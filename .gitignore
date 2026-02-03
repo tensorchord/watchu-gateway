@@ -75,6 +75,11 @@ go.work.sum
 
 # binary
 bin/
+*.bin
+skill-runner/skill-runner
+collector/collector
+gateway/watchu-gateway
+gateway/bin/
 
 # db file
 *.db

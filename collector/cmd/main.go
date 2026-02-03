@@ -31,7 +31,7 @@ func main() {
 	address := flag.String("gateway", "", "the gateway address, e.g., 'http://localhost:8080' (optional). Leave it empty to disable pushing events to the gateway")
 	tetragonPath := flag.String("tetragon-path", "",
 		fmt.Sprintf("the Tetragon gRPC path (Unix domain socket or HTTP) (optional). e.g., '%s'. Leave it empty to disable Tetragon integration", TetragonSocket))
-	otelAddr := flag.String("otel-addr", "", "OTLP gRPC receiver address, e.g., ':4317' (optional). Enable to capture AI tool telemetry without SSL interception")
+	otelAddr := flag.String("otel-addr", "", "OTLP gRPC receiver address, e.g., ':4317' (optional). Enable to capture AI tool telemetry")
 	flag.Parse()
 
 	logger.SetUpLogger(*debug)

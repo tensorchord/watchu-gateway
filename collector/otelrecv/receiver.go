@@ -1,5 +1,5 @@
 // Package otelrecv provides an OpenTelemetry OTLP receiver for capturing
-// telemetry from AI coding tools like Codex CLI, Claude Code, and Gemini CLI.
+// telemetry from AI coding tools like Codex, Claude Code, and Gemini CLI.
 package otelrecv
 
 import (
@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/phuslu/log"
@@ -26,8 +27,22 @@ type OTELReceiver struct {
 	listener   net.Listener
 	eventChan  chan *export.RecordAgentEvent
 	client     *export.GatewayClient
-	host       string
 }
+
+const (
+	ToolCodex      = "codex"
+	ToolClaudeCode = "claude_code"
+	ToolGeminiCLI  = "gemini_cli"
+)
+
+const (
+	eventTypeUserPrompt  = "user_prompt"
+	eventTypeAPIRequest  = "api_request"
+	eventTypeAPIResponse = "api_response"
+	eventTypeAPIError    = "api_error"
+	eventTypeToolResult  = "tool_result"
+	eventTypeToolCall    = "tool_call"
+)
 
 func NewOTELReceiver(ctx context.Context, grpcAddr string, client *export.GatewayClient) (*OTELReceiver, error) {
 	lc := net.ListenConfig{}
@@ -41,7 +56,6 @@ func NewOTELReceiver(ctx context.Context, grpcAddr string, client *export.Gatewa
 		listener:   listener,
 		eventChan:  make(chan *export.RecordAgentEvent, export.GatewayChannelSize),
 		client:     client,
-		host:       export.GetHostName(),
 	}
 
 	collogspb.RegisterLogsServiceServer(receiver.grpcServer, receiver)
@@ -84,15 +98,15 @@ func (r *OTELReceiver) Export(ctx context.Context, req *collogspb.ExportLogsServ
 	return &collogspb.ExportLogsServiceResponse{}, nil
 }
 
-func (r *OTELReceiver) parseLogRecord(record *logspb.LogRecord, _ map[string]string) *export.RecordAgentEvent {
+func (r *OTELReceiver) parseLogRecord(record *logspb.LogRecord, _ map[string]*commonpb.AnyValue) *export.RecordAgentEvent {
 	attrs := extractAttributes(record.GetAttributes())
 
-	eventName, ok := attrs["event.name"]
-	if !ok {
+	eventName := getStringAttr(attrs, "event.name")
+	if eventName == "" {
 		return nil
 	}
 
-	tool, eventType := export.ParseEventName(eventName)
+	tool, eventType := parseEventName(eventName)
 	if tool == "" {
 		return nil
 	}
@@ -108,69 +122,75 @@ func (r *OTELReceiver) parseLogRecord(record *logspb.LogRecord, _ map[string]str
 
 	// Set common fields based on tool
 	switch tool {
-	case export.ToolCodex:
-		event.ConversationID = attrs["conversation.id"]
-		event.Model = attrs["model"]
-		event.Slug = attrs["slug"]
-		event.AppVersion = attrs["app.version"]
-	case export.ToolClaudeCode:
-		event.SessionID = attrs["session.id"]
-		event.Model = attrs["model"]
-		event.AppVersion = attrs["app.version"]
-	case export.ToolGeminiCLI:
-		event.SessionID = attrs["sessionId"]
-		event.Model = attrs["model"]
+	case ToolCodex:
+		event.ConversationID = getStringAttr(attrs, "conversation.id")
+		event.Model = getStringAttr(attrs, "model")
+		event.Slug = getStringAttr(attrs, "slug")
+		event.AppVersion = getStringAttr(attrs, "app.version")
+	case ToolClaudeCode:
+		event.SessionID = getStringAttr(attrs, "session.id")
+		event.Model = getStringAttr(attrs, "model")
+		event.AppVersion = getStringAttr(attrs, "app.version")
+	case ToolGeminiCLI:
+		event.SessionID = getStringAttr(attrs, "sessionId")
+		event.Model = getStringAttr(attrs, "model")
 	}
 
 	// Store all attributes as JSON
-	if attrsJSON, err := json.Marshal(attrs); err == nil {
+	if attrsJSON, err := json.Marshal(attributesToJSON(attrs)); err == nil {
 		event.Attributes = attrsJSON
 	}
 
 	// Parse event-specific fields based on event type
 	switch eventType {
-	case export.EventTypeUserPrompt:
-		event.Prompt = attrs["prompt"]
-		event.PromptLength = parseIntAttr(attrs["prompt_length"])
+	case eventTypeUserPrompt:
+		event.Prompt = getStringAttr(attrs, "prompt")
+		event.PromptLength = parseIntAttr(attrs, "prompt_length")
 
-	case export.EventTypeToolResult, export.EventTypeToolCall:
-		event.ToolName = coalesce(attrs["tool_name"], attrs["function_name"])
-		event.CallID = attrs["call_id"]
-		event.Arguments = coalesce(attrs["arguments"], attrs["function_args"])
-		event.Output = attrs["output"]
-		event.Success = attrs["success"] == "true"
-		event.DurationMs = parseIntAttr(attrs["duration_ms"])
-		event.Decision = attrs["decision"]
-		event.ErrorMsg = attrs["error"]
+	case eventTypeToolResult, eventTypeToolCall:
+		event.ToolName = coalesce(
+			getStringAttr(attrs, "tool_name"),
+			getStringAttr(attrs, "function_name"),
+		)
+		event.CallID = getStringAttr(attrs, "call_id")
+		event.Arguments = coalesce(
+			getStringAttr(attrs, "arguments"),
+			getStringAttr(attrs, "function_args"),
+		)
+		event.Output = getStringAttr(attrs, "output")
+		event.Success = getBoolAttr(attrs, "success")
+		event.DurationMs = parseIntAttr(attrs, "duration_ms")
+		event.Decision = getStringAttr(attrs, "decision")
+		event.ErrorMsg = getStringAttr(attrs, "error")
 
-	case export.EventTypeAPIRequest:
-		event.DurationMs = parseIntAttr(attrs["duration_ms"])
-		event.StatusCode = parseIntAttr(attrs["status_code"])
-		event.CostUSD = parseFloatAttr(attrs["cost_usd"])
+	case eventTypeAPIRequest:
+		event.DurationMs = parseIntAttr(attrs, "duration_ms")
+		event.StatusCode = parseIntAttr(attrs, "status_code")
+		event.CostUSD = parseFloatAttr(attrs, "cost_usd")
 
-	case export.EventTypeAPIResponse:
-		event.DurationMs = parseIntAttr(attrs["duration_ms"])
-		event.StatusCode = parseIntAttr(attrs["status_code"])
-		event.InputTokenCount = parseIntAttr(coalesce(attrs["input_token_count"], attrs["input_tokens"]))
-		event.OutputTokenCount = parseIntAttr(coalesce(attrs["output_token_count"], attrs["output_tokens"]))
-		event.CachedTokenCount = parseIntAttr(coalesce(attrs["cached_token_count"], attrs["cache_read_tokens"], attrs["cached_content_token_count"]))
-		event.CostUSD = parseFloatAttr(attrs["cost_usd"])
+	case eventTypeAPIResponse:
+		event.DurationMs = parseIntAttr(attrs, "duration_ms")
+		event.StatusCode = parseIntAttr(attrs, "status_code")
+		event.InputTokenCount = parseIntAttr(attrs, firstAttrKey(attrs, "input_token_count", "input_tokens"))
+		event.OutputTokenCount = parseIntAttr(attrs, firstAttrKey(attrs, "output_token_count", "output_tokens"))
+		event.CachedTokenCount = parseIntAttr(attrs, firstAttrKey(attrs, "cached_token_count", "cache_read_tokens", "cached_content_token_count"))
+		event.CostUSD = parseFloatAttr(attrs, "cost_usd")
 
-	case export.EventTypeAPIError:
-		event.ErrorMsg = attrs["error"]
-		event.StatusCode = parseIntAttr(attrs["status_code"])
-		event.DurationMs = parseIntAttr(attrs["duration_ms"])
+	case eventTypeAPIError:
+		event.ErrorMsg = getStringAttr(attrs, "error")
+		event.StatusCode = parseIntAttr(attrs, "status_code")
+		event.DurationMs = parseIntAttr(attrs, "duration_ms")
 	}
 
 	// Handle Codex-specific sse_event with response.completed
-	if tool == export.ToolCodex && eventName == "codex.sse_event" && attrs["event.kind"] == "response.completed" {
-		event.InputTokenCount = parseIntAttr(attrs["input_token_count"])
-		event.OutputTokenCount = parseIntAttr(attrs["output_token_count"])
-		event.CachedTokenCount = parseIntAttr(attrs["cached_token_count"])
-		event.ReasoningTokenCount = parseIntAttr(attrs["reasoning_token_count"])
+	if tool == ToolCodex && eventName == "codex.sse_event" && getStringAttr(attrs, "event.kind") == "response.completed" {
+		event.InputTokenCount = parseIntAttr(attrs, "input_token_count")
+		event.OutputTokenCount = parseIntAttr(attrs, "output_token_count")
+		event.CachedTokenCount = parseIntAttr(attrs, "cached_token_count")
+		event.ReasoningTokenCount = parseIntAttr(attrs, "reasoning_token_count")
 	}
 
-	log.Debug().
+	log.Trace().
 		Str("tool", tool).
 		Str("event", eventName).
 		Str("type", eventType).
@@ -179,8 +199,8 @@ func (r *OTELReceiver) parseLogRecord(record *logspb.LogRecord, _ map[string]str
 	return event
 }
 
-func extractAttributes(attrs []*commonpb.KeyValue) map[string]string {
-	result := make(map[string]string, len(attrs))
+func extractAttributes(attrs []*commonpb.KeyValue) map[string]*commonpb.AnyValue {
+	result := make(map[string]*commonpb.AnyValue, len(attrs))
 	for _, kv := range attrs {
 		key := kv.GetKey()
 		value := kv.GetValue()
@@ -188,22 +208,18 @@ func extractAttributes(attrs []*commonpb.KeyValue) map[string]string {
 			continue
 		}
 
-		switch v := value.GetValue().(type) {
-		case *commonpb.AnyValue_StringValue:
-			result[key] = v.StringValue
-		case *commonpb.AnyValue_IntValue:
-			result[key] = fmt.Sprintf("%d", v.IntValue)
-		case *commonpb.AnyValue_DoubleValue:
-			result[key] = fmt.Sprintf("%f", v.DoubleValue)
-		case *commonpb.AnyValue_BoolValue:
-			if v.BoolValue {
-				result[key] = "true"
-			} else {
-				result[key] = "false"
-			}
-		}
+		result[key] = value
 	}
 	return result
+}
+
+func parseEventName(eventName string) (string, string) {
+	for _, prefix := range []string{ToolCodex, ToolClaudeCode, ToolGeminiCLI} {
+		if len(eventName) > len(prefix)+1 && eventName[:len(prefix)+1] == prefix+"." {
+			return prefix, eventName[len(prefix)+1:]
+		}
+	}
+	return "", ""
 }
 
 func coalesce(values ...string) string {
@@ -215,16 +231,116 @@ func coalesce(values ...string) string {
 	return ""
 }
 
-func parseIntAttr(s string) int64 {
-	var v int64
-	_, _ = fmt.Sscanf(s, "%d", &v)
-	return v
+func firstAttrKey(attrs map[string]*commonpb.AnyValue, keys ...string) string {
+	for _, key := range keys {
+		if _, ok := attrs[key]; ok {
+			return key
+		}
+	}
+	return ""
 }
 
-func parseFloatAttr(s string) float64 {
-	var v float64
-	_, _ = fmt.Sscanf(s, "%f", &v)
-	return v
+func getStringAttr(attrs map[string]*commonpb.AnyValue, key string) string {
+	value, ok := attrs[key]
+	if !ok {
+		return ""
+	}
+
+	switch v := value.GetValue().(type) {
+	case *commonpb.AnyValue_StringValue:
+		return v.StringValue
+	case *commonpb.AnyValue_IntValue:
+		return strconv.FormatInt(v.IntValue, 10)
+	case *commonpb.AnyValue_DoubleValue:
+		return strconv.FormatFloat(v.DoubleValue, 'g', -1, 64)
+	case *commonpb.AnyValue_BoolValue:
+		if v.BoolValue {
+			return "true"
+		}
+		return "false"
+	}
+	return ""
+}
+
+func getBoolAttr(attrs map[string]*commonpb.AnyValue, key string) bool {
+	value, ok := attrs[key]
+	if !ok {
+		return false
+	}
+
+	switch v := value.GetValue().(type) {
+	case *commonpb.AnyValue_BoolValue:
+		return v.BoolValue
+	case *commonpb.AnyValue_StringValue:
+		parsed, err := strconv.ParseBool(v.StringValue)
+		if err != nil {
+			return false
+		}
+		return parsed
+	}
+	return false
+}
+
+func parseIntAttr(attrs map[string]*commonpb.AnyValue, key string) int64 {
+	value, ok := attrs[key]
+	if !ok || key == "" {
+		return 0
+	}
+
+	switch v := value.GetValue().(type) {
+	case *commonpb.AnyValue_IntValue:
+		return v.IntValue
+	case *commonpb.AnyValue_DoubleValue:
+		return int64(v.DoubleValue)
+	case *commonpb.AnyValue_StringValue:
+		parsed, err := strconv.ParseInt(v.StringValue, 10, 64)
+		if err != nil {
+			return 0
+		}
+		return parsed
+	}
+	return 0
+}
+
+func parseFloatAttr(attrs map[string]*commonpb.AnyValue, key string) float64 {
+	value, ok := attrs[key]
+	if !ok || key == "" {
+		return 0
+	}
+
+	switch v := value.GetValue().(type) {
+	case *commonpb.AnyValue_DoubleValue:
+		return v.DoubleValue
+	case *commonpb.AnyValue_IntValue:
+		return float64(v.IntValue)
+	case *commonpb.AnyValue_StringValue:
+		parsed, err := strconv.ParseFloat(v.StringValue, 64)
+		if err != nil {
+			return 0
+		}
+		return parsed
+	}
+	return 0
+}
+
+func attributesToJSON(attrs map[string]*commonpb.AnyValue) map[string]any {
+	result := make(map[string]any, len(attrs))
+	for key, value := range attrs {
+		if value == nil {
+			continue
+		}
+		switch v := value.GetValue().(type) {
+		case *commonpb.AnyValue_StringValue:
+			result[key] = v.StringValue
+		case *commonpb.AnyValue_IntValue:
+			result[key] = v.IntValue
+		case *commonpb.AnyValue_DoubleValue:
+			result[key] = v.DoubleValue
+		case *commonpb.AnyValue_BoolValue:
+			result[key] = v.BoolValue
+		}
+	}
+	return result
 }
 
 // Close stops the receiver

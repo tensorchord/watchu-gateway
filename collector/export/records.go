@@ -284,22 +284,6 @@ func (raw *RawPostgres) ToRecord(ctx context.Context, host string) any {
 	}
 }
 
-const (
-	ToolCodex      = "codex"
-	ToolClaudeCode = "claude_code"
-	ToolGeminiCLI  = "gemini_cli"
-)
-
-const (
-	EventTypeUserPrompt   = "user_prompt"
-	EventTypeAPIRequest   = "api_request"
-	EventTypeAPIResponse  = "api_response"
-	EventTypeAPIError     = "api_error"
-	EventTypeToolResult   = "tool_result"
-	EventTypeToolCall     = "tool_call"
-	EventTypeToolDecision = "tool_decision"
-)
-
 type RecordAgentEvent struct {
 	Timestamp      time.Time       `json:"timestamp"`
 	Tool           string          `json:"tool"`
@@ -337,13 +321,4 @@ type RecordAgentEvent struct {
 func (r *RecordAgentEvent) ToRecord(_ context.Context, host string) any {
 	r.Host = host
 	return *r
-}
-
-func ParseEventName(eventName string) (string, string) {
-	for _, prefix := range []string{ToolCodex, ToolClaudeCode, ToolGeminiCLI} {
-		if len(eventName) > len(prefix)+1 && eventName[:len(prefix)+1] == prefix+"." {
-			return prefix, eventName[len(prefix)+1:]
-		}
-	}
-	return "", ""
 }

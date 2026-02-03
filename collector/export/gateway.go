@@ -17,15 +17,15 @@ import (
 )
 
 const (
-	EndpointHealth = "/healthz"
-	EndpointIngest = "/api/v1/ingest"
+	endpointHealth = "/healthz"
+	endpointIngest = "/api/v1/ingest"
 
-	PathExec       = "exec_event"
-	PathRequest    = "http_request"
-	PathResponse   = "http_response"
-	PathStdIO      = "mcp_stdio"
-	PathPostgres   = "pg_event"
-	PathAgentEvent = "agent_event"
+	pathExec       = "exec_event"
+	pathRequest    = "http_request"
+	pathResponse   = "http_response"
+	pathStdIO      = "mcp_stdio"
+	pathPostgres   = "pg_event"
+	pathAgentEvent = "agent_event"
 
 	requestInterval    = time.Second
 	maxBatchSize       = 1024
@@ -68,7 +68,7 @@ func GetHostName() string {
 }
 
 func gatewayHealthCheck(ctx context.Context, baseURL string) error {
-	link, err := url.JoinPath(baseURL, EndpointHealth)
+	link, err := url.JoinPath(baseURL, endpointHealth)
 	if err != nil {
 		return fmt.Errorf("failed to join URL path: %w", err)
 	}
@@ -115,7 +115,7 @@ func (gc *GatewayClient) SendEvents(ctx context.Context, endpoint string, events
 		log.Error().Err(err).Msg("failed to marshal events")
 		return
 	}
-	link, err := url.JoinPath(gc.baseURL, EndpointIngest, endpoint)
+	link, err := url.JoinPath(gc.baseURL, endpointIngest, endpoint)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to join URL path")
 		return

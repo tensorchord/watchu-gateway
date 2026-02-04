@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
+	"github.com/tensorchord/watchu/gateway/pkg/parser"
 	"github.com/tensorchord/watchu/gateway/pkg/s3"
 	"github.com/tensorchord/watchu/gateway/pkg/securityinsight"
 )
@@ -34,15 +35,15 @@ type Runner interface {
 }
 
 type Service struct {
-	queries            *sqlc.Queries
-	runner             Runner
-	security           *securityinsight.Service
-	s3                 *s3.Client
-	registry           RegistryResolver
-	executionTrace     *ExecutionTraceService
-	logger             *slog.Logger
-	now                func() time.Time
-	refreshCache       sync.Map // key: "host:since_minute:until_minute", value: refreshCacheEntry
+	queries        *sqlc.Queries
+	runner         Runner
+	security       *securityinsight.Service
+	s3             *s3.Client
+	registry       RegistryResolver
+	executionTrace *ExecutionTraceService
+	logger         *slog.Logger
+	now            func() time.Time
+	refreshCache   sync.Map // key: "host:since_minute:until_minute", value: refreshCacheEntry
 }
 
 type CreateRunInput struct {
@@ -390,12 +391,12 @@ func (s *Service) ListRuns(ctx context.Context, status, sourceType string, limit
 }
 
 type SkillSummary struct {
-	SourceType      string
-	SourceRef       string
-	ArtifactPath    string
-	LastRunAt       *time.Time
-	RunCount        int64
-	LastRunnerMode  string
+	SourceType     string
+	SourceRef      string
+	ArtifactPath   string
+	LastRunAt      *time.Time
+	RunCount       int64
+	LastRunnerMode string
 }
 
 func (s *Service) ListSkills(ctx context.Context, sourceType string, limit int32) ([]SkillSummary, error) {
@@ -428,12 +429,12 @@ func (s *Service) ListSkills(ctx context.Context, sourceType string, limit int32
 			lastRunnerMode = "local"
 		}
 		result = append(result, SkillSummary{
-			SourceType:      row.SourceType,
-			SourceRef:       row.SourceRef,
-			ArtifactPath:    stringFromText(row.ArtifactPath),
-			LastRunAt:       lastRun,
-			RunCount:        row.RunCount,
-			LastRunnerMode:  lastRunnerMode,
+			SourceType:     row.SourceType,
+			SourceRef:      row.SourceRef,
+			ArtifactPath:   stringFromText(row.ArtifactPath),
+			LastRunAt:      lastRun,
+			RunCount:       row.RunCount,
+			LastRunnerMode: lastRunnerMode,
 		})
 	}
 	return result, nil
@@ -643,6 +644,20 @@ func (s *Service) inferRootExecID(ctx context.Context, pid int, startedAt time.T
 
 	// Step 5: Retry finding match after refresh
 	return s.findMatchInProcessLifecycle(ctx, hosts, pid, rootHint, since, until, window)
+}
+
+func (s *Service) GetExecutionTrace(ctx context.Context, analysisID pgtype.UUID) (*parser.ExecutionTrace, error) {
+	if s.executionTrace == nil {
+		return nil, fmt.Errorf("execution trace service is not configured")
+	}
+	return s.executionTrace.GetExecutionTrace(ctx, analysisID)
+}
+
+func (s *Service) ParseExecutionTrace(ctx context.Context, analysisID pgtype.UUID) error {
+	if s.executionTrace == nil {
+		return fmt.Errorf("execution trace service is not configured")
+	}
+	return s.executionTrace.ParseAndStore(ctx, analysisID)
 }
 
 // refreshAndGetHosts gets hosts from exec_events and refreshes process_lifecycle for them
@@ -949,10 +964,10 @@ func timestamptzOrNull(value time.Time) pgtype.Timestamptz {
 
 func (s *Service) updateStatus(ctx context.Context, id pgtype.UUID, status, errMsg string) error {
 	return s.queries.UpdateSkillAnalysisStatus(ctx, sqlc.UpdateSkillAnalysisStatusParams{
-		ID:            id,
-		Status:        status,
-		ErrorMessage:  textOrNull(errMsg),
-		UpdatedAt:     timestamptzNow(s.now),
+		ID:           id,
+		Status:       status,
+		ErrorMessage: textOrNull(errMsg),
+		UpdatedAt:    timestamptzNow(s.now),
 	})
 }
 

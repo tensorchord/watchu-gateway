@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,9 +12,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tensorchord/watchu/gateway/pkg/gen/sqlc"
+	"github.com/tensorchord/watchu/gateway/pkg/parser"
 	"github.com/tensorchord/watchu/gateway/pkg/s3"
 	"github.com/tensorchord/watchu/gateway/pkg/securityinsight"
 	"github.com/tensorchord/watchu/gateway/pkg/skillsecurity"
@@ -65,6 +68,7 @@ func registerSkillSecuritySaaSInternalRoutes(router *gin.RouterGroup, queries *s
 			analyses.GET("/:id", h.getAnalysis)
 			analyses.GET("/:id/security-events", h.getSecurityEvents)
 			analyses.GET("/:id/threat", h.getAnalysisThreat)
+			analyses.GET("/:id/execution-trace", h.getExecutionTrace)
 			analyses.GET("/:id/notifications", h.getAnalysisNotifications)
 			analyses.POST("/:id/rerun", h.rerunAnalysis)
 			analyses.DELETE("/:id", h.deleteAnalysis)
@@ -91,17 +95,17 @@ func registerSkillSecuritySaaSInternalRoutes(router *gin.RouterGroup, queries *s
 
 // Request/Response types
 type CreateSkillRequest struct {
-	Name          string                 `json:"name" binding:"required"`
-	Description   *string                `json:"description,omitempty"`
-	SourceType    string                 `json:"source_type" binding:"required"`
-	SourceURI     *string                `json:"source_uri,omitempty"`
-	S3Path        string                 `json:"s3_path" binding:"required"`
-	S3Bucket      string                 `json:"s3_bucket" binding:"required"`
-	Checksum      string                 `json:"checksum" binding:"required"`
-	SizeBytes     *int64                 `json:"size_bytes,omitempty"`
-	ContentType   *string                `json:"content_type,omitempty"`
-	Version       string                 `json:"version"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	Name        string                 `json:"name" binding:"required"`
+	Description *string                `json:"description,omitempty"`
+	SourceType  string                 `json:"source_type" binding:"required"`
+	SourceURI   *string                `json:"source_uri,omitempty"`
+	S3Path      string                 `json:"s3_path" binding:"required"`
+	S3Bucket    string                 `json:"s3_bucket" binding:"required"`
+	Checksum    string                 `json:"checksum" binding:"required"`
+	SizeBytes   *int64                 `json:"size_bytes,omitempty"`
+	ContentType *string                `json:"content_type,omitempty"`
+	Version     string                 `json:"version"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
 type CreateAnalysisRequest struct {
@@ -166,23 +170,23 @@ type FindingResponse struct {
 
 // SecurityEventResponse is the unified response for security events (consolidates findings and security_analyses)
 type SecurityEventResponse struct {
-	ID                string                 `json:"id"`
-	AnalysisID        string                 `json:"analysis_id"`
-	SourceType        string                 `json:"source_type"` // static, dynamic, agent, overall
-	Severity          string                 `json:"severity"`
-	Category          *string                `json:"category,omitempty"`
-	Title             string                 `json:"title"`
-	Description       *string                `json:"description,omitempty"`
-	Confidence        *float64               `json:"confidence,omitempty"`
-	CodeSnippet       *string                `json:"code_snippet,omitempty"`       // for static analysis
-	FilePath          *string                `json:"file_path,omitempty"`         // for static analysis
-	References        []interface{}          `json:"references,omitempty"`
-	TelemetrySummary  map[string]interface{} `json:"telemetry_summary,omitempty"`  // for dynamic analysis
-	AIGeneratedSummary *string               `json:"ai_generated_summary,omitempty"` // for overall assessment
-	Recommendations   []string               `json:"recommendations,omitempty"`
-	Evidence          []interface{}          `json:"evidence,omitempty"`
-	CreatedAt         string                 `json:"created_at"`
-	Metadata          map[string]interface{} `json:"metadata,omitempty"`
+	ID                 string                 `json:"id"`
+	AnalysisID         string                 `json:"analysis_id"`
+	SourceType         string                 `json:"source_type"` // static, dynamic, agent, overall
+	Severity           string                 `json:"severity"`
+	Category           *string                `json:"category,omitempty"`
+	Title              string                 `json:"title"`
+	Description        *string                `json:"description,omitempty"`
+	Confidence         *float64               `json:"confidence,omitempty"`
+	CodeSnippet        *string                `json:"code_snippet,omitempty"` // for static analysis
+	FilePath           *string                `json:"file_path,omitempty"`    // for static analysis
+	References         []interface{}          `json:"references,omitempty"`
+	TelemetrySummary   map[string]interface{} `json:"telemetry_summary,omitempty"`    // for dynamic analysis
+	AIGeneratedSummary *string                `json:"ai_generated_summary,omitempty"` // for overall assessment
+	Recommendations    []string               `json:"recommendations,omitempty"`
+	Evidence           []interface{}          `json:"evidence,omitempty"`
+	CreatedAt          string                 `json:"created_at"`
+	Metadata           map[string]interface{} `json:"metadata,omitempty"`
 }
 
 type NotificationResponse struct {
@@ -196,6 +200,31 @@ type NotificationResponse struct {
 	DismissedAt *string                `json:"dismissed_at,omitempty"`
 	CreatedAt   string                 `json:"created_at"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+}
+
+type ExecutionTraceSummaryResponse struct {
+	SessionID           string  `json:"session_id"`
+	Status              string  `json:"status"`
+	DurationMs          int     `json:"duration_ms"`
+	NumTurns            int     `json:"num_turns"`
+	TotalCostUsd        float64 `json:"total_cost_usd"`
+	TotalToolCalls      int     `json:"total_tool_calls"`
+	TotalFileAccess     int     `json:"total_file_access"`
+	TotalExternalAccess int     `json:"total_external_access"`
+	TotalErrors         int     `json:"total_errors"`
+	TotalSecurityAlerts int     `json:"total_security_alerts"`
+}
+
+type ExecutionTraceResponse struct {
+	AnalysisID     string                         `json:"analysis_id"`
+	TraceReady     bool                           `json:"trace_ready"`
+	Summary        *ExecutionTraceSummaryResponse `json:"summary,omitempty"`
+	ToolCalls      []parser.ToolCall              `json:"tool_calls,omitempty"`
+	FileAccess     []parser.FileAccess            `json:"file_access,omitempty"`
+	ExternalAccess []parser.ExternalAccess        `json:"external_access,omitempty"`
+	Errors         []parser.ErrorRecord           `json:"errors,omitempty"`
+	SecurityAlerts []parser.SecurityAlert         `json:"security_alerts,omitempty"`
+	Timeline       []parser.TimelineEvent         `json:"timeline,omitempty"`
 }
 
 // Skills handlers
@@ -215,7 +244,7 @@ func (h *skillSecuritySaaSHandlers) createSkill(c *gin.Context) {
 	}
 
 	skill, err := h.queries.CreateSaaSSkill(c.Request.Context(), sqlc.CreateSaaSSkillParams{
-		Name:       req.Name,
+		Name:        req.Name,
 		Description: textPtrFromPtr(req.Description),
 		SourceType:  req.SourceType,
 		SourceUri:   textPtrFromPtr(req.SourceURI),
@@ -530,7 +559,7 @@ func (h *skillSecuritySaaSHandlers) getAnalysisThreat(c *gin.Context) {
 	if !analysis.RootExecID.Valid || analysis.RootExecID.String == "" {
 		// Analysis doesn't have root_exec_id yet - return pending message
 		c.JSON(http.StatusOK, SaaSThreatAnalysisResponse{
-			Summary: "Threat analysis not yet available. The analysis is waiting for process telemetry to be correlated.",
+			Summary:       "Threat analysis not yet available. The analysis is waiting for process telemetry to be correlated.",
 			AnalysisReady: false,
 			Status:        "pending",
 		})
@@ -549,8 +578,8 @@ func (h *skillSecuritySaaSHandlers) getAnalysisThreat(c *gin.Context) {
 		// No threat analysis found - return pending message with root_exec_id
 		rootExecID := analysis.RootExecID.String
 		c.JSON(http.StatusOK, SaaSThreatAnalysisResponse{
-			RootExecID: &rootExecID,
-			Summary:    "Threat analysis not yet available. The analysis is waiting for process telemetry to be correlated.",
+			RootExecID:    &rootExecID,
+			Summary:       "Threat analysis not yet available. The analysis is waiting for process telemetry to be correlated.",
 			AnalysisReady: false,
 			Status:        "pending",
 		})
@@ -583,6 +612,72 @@ func (h *skillSecuritySaaSHandlers) getAnalysisThreat(c *gin.Context) {
 		AnalysisReady:   analysisReady,
 		Status:          status,
 	})
+}
+
+func (h *skillSecuritySaaSHandlers) getExecutionTrace(c *gin.Context) {
+	if h.skillSec == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "execution trace service not configured"})
+		return
+	}
+
+	id := c.Param("id")
+	analysisUUID, err := uuid.Parse(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid analysis ID"})
+		return
+	}
+
+	analysisID := pgtype.UUID{Bytes: analysisUUID, Valid: true}
+	trace, err := h.skillSec.GetExecutionTrace(c.Request.Context(), analysisID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			if parseErr := h.skillSec.ParseExecutionTrace(c.Request.Context(), analysisID); parseErr == nil {
+				trace, err = h.skillSec.GetExecutionTrace(c.Request.Context(), analysisID)
+				if err == nil {
+					c.JSON(http.StatusOK, buildExecutionTraceResponse(trace))
+					return
+				}
+			}
+			c.JSON(http.StatusOK, ExecutionTraceResponse{
+				AnalysisID: id,
+				TraceReady: false,
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load execution trace"})
+		return
+	}
+
+	c.JSON(http.StatusOK, buildExecutionTraceResponse(trace))
+}
+
+func buildExecutionTraceResponse(trace *parser.ExecutionTrace) ExecutionTraceResponse {
+	if trace == nil {
+		return ExecutionTraceResponse{TraceReady: false}
+	}
+	summary := &ExecutionTraceSummaryResponse{
+		SessionID:           trace.SessionID,
+		Status:              trace.Status,
+		DurationMs:          trace.DurationMS,
+		NumTurns:            trace.NumTurns,
+		TotalCostUsd:        trace.TotalCostUSD,
+		TotalToolCalls:      len(trace.ToolCalls),
+		TotalFileAccess:     len(trace.FileAccess),
+		TotalExternalAccess: len(trace.ExternalAccess),
+		TotalErrors:         len(trace.Errors),
+		TotalSecurityAlerts: len(trace.SecurityAlerts),
+	}
+	return ExecutionTraceResponse{
+		AnalysisID:     trace.AnalysisID,
+		TraceReady:     true,
+		Summary:        summary,
+		ToolCalls:      trace.ToolCalls,
+		FileAccess:     trace.FileAccess,
+		ExternalAccess: trace.ExternalAccess,
+		Errors:         trace.Errors,
+		SecurityAlerts: trace.SecurityAlerts,
+		Timeline:       trace.Timeline,
+	}
 }
 
 func (h *skillSecuritySaaSHandlers) getAnalysisNotifications(c *gin.Context) {
@@ -1012,7 +1107,6 @@ func toAnalysisResponseWithSkill(row interface{}) AnalysisResponse {
 
 	return resp
 }
-
 
 // toSecurityEventResponse converts a sqlc.SecurityEvent to SecurityEventResponse
 func toSecurityEventResponse(event sqlc.SecurityEvent) SecurityEventResponse {

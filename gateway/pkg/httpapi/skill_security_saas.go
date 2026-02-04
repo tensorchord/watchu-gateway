@@ -210,7 +210,7 @@ type ExecutionTraceSummaryResponse struct {
 	TotalCostUsd        float64 `json:"total_cost_usd"`
 	TotalToolCalls      int     `json:"total_tool_calls"`
 	TotalFileAccess     int     `json:"total_file_access"`
-	TotalExternalAccess int     `json:"total_external_access"`
+	TotalCommands       int     `json:"total_commands"`
 	TotalErrors         int     `json:"total_errors"`
 	TotalSecurityAlerts int     `json:"total_security_alerts"`
 }
@@ -221,7 +221,7 @@ type ExecutionTraceResponse struct {
 	Summary        *ExecutionTraceSummaryResponse `json:"summary,omitempty"`
 	ToolCalls      []parser.ToolCall              `json:"tool_calls,omitempty"`
 	FileAccess     []parser.FileAccess            `json:"file_access,omitempty"`
-	ExternalAccess []parser.ExternalAccess        `json:"external_access,omitempty"`
+	Commands       []parser.Command               `json:"commands,omitempty"`
 	Errors         []parser.ErrorRecord           `json:"errors,omitempty"`
 	SecurityAlerts []parser.SecurityAlert         `json:"security_alerts,omitempty"`
 	Timeline       []parser.TimelineEvent         `json:"timeline,omitempty"`
@@ -663,7 +663,7 @@ func buildExecutionTraceResponse(trace *parser.ExecutionTrace) ExecutionTraceRes
 		TotalCostUsd:        trace.TotalCostUSD,
 		TotalToolCalls:      len(trace.ToolCalls),
 		TotalFileAccess:     len(trace.FileAccess),
-		TotalExternalAccess: len(trace.ExternalAccess),
+		TotalCommands:       len(trace.Commands),
 		TotalErrors:         len(trace.Errors),
 		TotalSecurityAlerts: len(trace.SecurityAlerts),
 	}
@@ -673,7 +673,7 @@ func buildExecutionTraceResponse(trace *parser.ExecutionTrace) ExecutionTraceRes
 		Summary:        summary,
 		ToolCalls:      trace.ToolCalls,
 		FileAccess:     trace.FileAccess,
-		ExternalAccess: trace.ExternalAccess,
+		Commands:       trace.Commands,
 		Errors:         trace.Errors,
 		SecurityAlerts: trace.SecurityAlerts,
 		Timeline:       trace.Timeline,

@@ -15,7 +15,7 @@ CREATE TABLE execution_traces (
     -- Parsed results (JSONB format)
     tool_calls JSONB NOT NULL,          -- []ToolCall
     file_access JSONB NOT NULL,         -- []FileAccess
-    external_access JSONB NOT NULL,     -- []ExternalAccess
+    commands JSONB NOT NULL,            -- []Command
     timeline JSONB NOT NULL,            -- []TimelineEvent
     errors JSONB NOT NULL DEFAULT '[]'::jsonb,     -- []ErrorRecord
     security_alerts JSONB NOT NULL DEFAULT '[]'::jsonb, -- []SecurityAlert
@@ -23,7 +23,7 @@ CREATE TABLE execution_traces (
     -- Statistics (for efficient querying)
     total_tool_calls INTEGER DEFAULT 0,
     total_file_access INTEGER DEFAULT 0,
-    total_external_access INTEGER DEFAULT 0,
+    total_commands INTEGER DEFAULT 0,
     total_errors INTEGER DEFAULT 0,
     total_security_alerts INTEGER DEFAULT 0,
 
@@ -43,7 +43,7 @@ CREATE INDEX idx_execution_traces_parsed_at ON execution_traces(parsed_at);
 -- JSONB indexes (accelerate queries)
 CREATE INDEX idx_execution_traces_tool_calls_gin ON execution_traces USING GIN (tool_calls);
 CREATE INDEX idx_execution_traces_file_access_gin ON execution_traces USING GIN (file_access);
-CREATE INDEX idx_execution_traces_external_access_gin ON execution_traces USING GIN (external_access);
+CREATE INDEX idx_execution_traces_commands_gin ON execution_traces USING GIN (commands);
 
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_execution_traces_updated_at()
@@ -65,6 +65,6 @@ COMMENT ON TABLE execution_traces IS 'Stores structured execution trace data par
 COMMENT ON COLUMN execution_traces.analysis_id IS 'Reference to the skill analysis';
 COMMENT ON COLUMN execution_traces.tool_calls IS 'JSON array of tool calls';
 COMMENT ON COLUMN execution_traces.file_access IS 'JSON array of file access records';
-COMMENT ON COLUMN execution_traces.external_access IS 'JSON array of external access records';
+COMMENT ON COLUMN execution_traces.commands IS 'JSON array of bash command executions';
 COMMENT ON COLUMN execution_traces.timeline IS 'JSON array of timeline events';
 COMMENT ON COLUMN execution_traces.parser_version IS 'Version of the parser used to generate this trace';

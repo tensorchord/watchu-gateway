@@ -91,7 +91,7 @@ func (s *ExecutionTraceService) ParseAndStore(ctx context.Context, analysisID pg
 	if err != nil {
 		return err
 	}
-	externalAccessJSON, err := json.Marshal(trace.ExternalAccess)
+	commandsJSON, err := json.Marshal(trace.Commands)
 	if err != nil {
 		return err
 	}
@@ -118,13 +118,13 @@ func (s *ExecutionTraceService) ParseAndStore(ctx context.Context, analysisID pg
 		TotalCostUsd:       pgtype.Numeric{Valid: false}, // TODO: convert float64 to pgtype.Numeric
 		ToolCalls:          toolCallsJSON,
 		FileAccess:         fileAccessJSON,
-		ExternalAccess:     externalAccessJSON,
+		Commands:           commandsJSON,
 		Timeline:           timelineJSON,
 		Errors:             errorsJSON,
 		SecurityAlerts:     securityAlertsJSON,
 		TotalToolCalls:     pgtype.Int4{Int32: int32(len(trace.ToolCalls)), Valid: true},
 		TotalFileAccess:    pgtype.Int4{Int32: int32(len(trace.FileAccess)), Valid: true},
-		TotalExternalAccess: pgtype.Int4{Int32: int32(len(trace.ExternalAccess)), Valid: true},
+		TotalCommands:      pgtype.Int4{Int32: int32(len(trace.Commands)), Valid: true},
 		TotalErrors:        pgtype.Int4{Int32: int32(len(trace.Errors)), Valid: true},
 		TotalSecurityAlerts: pgtype.Int4{Int32: int32(len(trace.SecurityAlerts)), Valid: true},
 		ParserVersion:      pgtype.Text{String: "1.0.0", Valid: true},
@@ -174,7 +174,7 @@ func (s *ExecutionTraceService) GetExecutionTrace(ctx context.Context, analysisI
 
 	json.Unmarshal(row.ToolCalls, &trace.ToolCalls)
 	json.Unmarshal(row.FileAccess, &trace.FileAccess)
-	json.Unmarshal(row.ExternalAccess, &trace.ExternalAccess)
+	json.Unmarshal(row.Commands, &trace.Commands)
 	json.Unmarshal(row.Timeline, &trace.Timeline)
 	json.Unmarshal(row.Errors, &trace.Errors)
 	json.Unmarshal(row.SecurityAlerts, &trace.SecurityAlerts)

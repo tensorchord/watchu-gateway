@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"time"
 )
 
@@ -27,10 +28,10 @@ type FileAccess struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// ExternalAccess represents an external access record
-type ExternalAccess struct {
-	Type      string                 `json:"type"` // bash_command, web_fetch, database_query
-	Details   map[string]interface{} `json:"details"`
+// Command represents a bash command execution record
+type Command struct {
+	Command   string                 `json:"command"`
+	ExitCode  int                    `json:"exit_code,omitempty"`
 	Success   bool                   `json:"success"`
 	Timestamp time.Time              `json:"timestamp"`
 }
@@ -46,7 +47,7 @@ type ExecutionTrace struct {
 	TotalCostUSD   float64           `json:"total_cost_usd"`
 	ToolCalls      []ToolCall        `json:"tool_calls"`
 	FileAccess     []FileAccess      `json:"file_access"`
-	ExternalAccess []ExternalAccess  `json:"external_access"`
+	Commands       []Command         `json:"commands"`
 	Timeline       []TimelineEvent   `json:"timeline"`
 	Errors         []ErrorRecord     `json:"errors,omitempty"`
 	SecurityAlerts []SecurityAlert   `json:"security_alerts,omitempty"`
@@ -101,7 +102,7 @@ func (t *ExecutionTracer) Trace(events []Event) (*ExecutionTrace, error) {
 		AnalysisID:     t.analysisID,
 		ToolCalls:      make([]ToolCall, 0),
 		FileAccess:     make([]FileAccess, 0),
-		ExternalAccess: make([]ExternalAccess, 0),
+		Commands:       make([]Command, 0),
 		Timeline:       make([]TimelineEvent, 0),
 		Errors:         make([]ErrorRecord, 0),
 		SecurityAlerts: make([]SecurityAlert, 0),
@@ -115,9 +116,9 @@ func (t *ExecutionTracer) Trace(events []Event) (*ExecutionTrace, error) {
 	fileAccess := t.extractFileAccess(events, toolCalls)
 	trace.FileAccess = fileAccess
 
-	// External access tracking
-	externalAccess := t.extractExternalAccess(events, toolCalls)
-	trace.ExternalAccess = externalAccess
+	// Command execution tracking - all bash commands
+	commands := t.extractCommands(toolCalls)
+	trace.Commands = commands
 
 	// Build timeline
 	timeline := t.buildTimeline(events)
@@ -207,17 +208,19 @@ func (t *ExecutionTracer) extractFileAccess(events []Event, toolCalls []ToolCall
 			// Parse file operations from command
 			if cmd, ok := toolCall.Input["command"].(string); ok {
 				fileOps := t.parseFileOpsFromCommand(cmd)
-				for _, fileOp := range fileOps {
-					fileAccessList = append(fileAccessList, FileAccess{
-						FilePath:  fileOp.Path,
-						Operation: fileOp.Operation,
-						Tool:      toolCall.Tool,
-						CallID:    toolCall.CallID,
-						Success:   !toolCall.IsError,
-						Timestamp: toolCall.Timestamp,
-					})
+				if len(fileOps) > 0 {
+					for _, fileOp := range fileOps {
+						fileAccessList = append(fileAccessList, FileAccess{
+							FilePath:  fileOp.Path,
+							Operation: fileOp.Operation,
+							Tool:      toolCall.Tool,
+							CallID:    toolCall.CallID,
+							Success:   !toolCall.IsError,
+							Timestamp: toolCall.Timestamp,
+						})
+					}
+					continue
 				}
-				continue
 			}
 		}
 
@@ -244,42 +247,252 @@ type FileOp struct {
 
 // parseFileOpsFromCommand parses file operations from Bash command
 func (t *ExecutionTracer) parseFileOpsFromCommand(command string) []FileOp {
-	// Simplified implementation, actual needs more complex parsing logic
-	// TODO: Implement command parsing logic
-	// - Detect ls, cat, head, tail, grep for read commands
-	// - Detect touch, echo >, >> for write commands
-	// - Detect rm, mv for delete/move commands
-	return make([]FileOp, 0)
-}
+	fileOps := make([]FileOp, 0)
 
-// extractExternalAccess extracts external access
-func (t *ExecutionTracer) extractExternalAccess(events []Event, toolCalls []ToolCall) []ExternalAccess {
-	externalAccessList := make([]ExternalAccess, 0)
+	// Trim whitespace and get the first word (command name)
+	cmd := strings.TrimSpace(command)
+	if cmd == "" {
+		return fileOps
+	}
 
-	for _, toolCall := range toolCalls {
-		switch toolCall.Tool {
-		case "Bash":
-			if cmd, ok := toolCall.Input["command"].(string); ok {
-				externalAccessList = append(externalAccessList, ExternalAccess{
-					Type: "bash_command",
-					Details: map[string]interface{}{
-						"command":   cmd,
-						"exit_code": t.extractExitCode(toolCall.Output),
-						"call_id":   toolCall.CallID,
-					},
-					Success:   !toolCall.IsError,
-					Timestamp: toolCall.Timestamp,
+	// Split by command separators to handle compound commands like "cmd1 && cmd2"
+	// We only parse the first command before &&, ||, or ;
+	firstCmd := t.extractFirstCommand(cmd)
+	if firstCmd == "" {
+		return fileOps
+	}
+
+	// Split by spaces to get command and args
+	parts := strings.Fields(firstCmd)
+	if len(parts) == 0 {
+		return fileOps
+	}
+
+	cmdName := parts[0]
+
+	switch cmdName {
+	case "mkdir", "mkdirs", "makedirs":
+		// mkdir: create directory
+		if len(parts) > 1 {
+			for _, arg := range parts[1:] {
+				if !strings.HasPrefix(arg, "-") { // Skip flags like -p, -v, etc.
+					fileOps = append(fileOps, FileOp{
+						Path:      arg,
+						Operation: "create_dir",
+					})
+				}
+			}
+		}
+
+	case "touch":
+		// touch: create empty file
+		if len(parts) > 1 {
+			for _, arg := range parts[1:] {
+				fileOps = append(fileOps, FileOp{
+					Path:      arg,
+					Operation: "create",
 				})
 			}
-		case "WebFetch":
-			// Handle web requests
-			if url, ok := toolCall.Input["url"].(string); ok {
-				externalAccessList = append(externalAccessList, ExternalAccess{
-					Type: "web_fetch",
-					Details: map[string]interface{}{
-						"url":     url,
-						"call_id": toolCall.CallID,
-					},
+		}
+
+	case "rm", "rmdir":
+		// rm/rmdir: delete file or directory
+		if len(parts) > 1 {
+			for _, arg := range parts[1:] {
+				if !strings.HasPrefix(arg, "-") {
+					fileOps = append(fileOps, FileOp{
+						Path:      arg,
+						Operation: "delete",
+					})
+				}
+			}
+		}
+
+	case "mv":
+		// mv: move/rename file (source -> destination)
+		if len(parts) >= 3 {
+			// Skip flags, find source and destination
+			args := parts[1:]
+			nonFlags := make([]string, 0)
+			for _, arg := range args {
+				if !strings.HasPrefix(arg, "-") {
+					nonFlags = append(nonFlags, arg)
+				}
+			}
+			if len(nonFlags) >= 2 {
+				fileOps = append(fileOps, FileOp{
+					Path:      nonFlags[0], // source
+					Operation: "move",
+				})
+			}
+		}
+
+	case "cp":
+		// cp: copy file
+		if len(parts) >= 3 {
+			args := parts[1:]
+			nonFlags := make([]string, 0)
+			for _, arg := range args {
+				if !strings.HasPrefix(arg, "-") {
+					nonFlags = append(nonFlags, arg)
+				}
+			}
+			if len(nonFlags) >= 1 {
+				fileOps = append(fileOps, FileOp{
+					Path:      nonFlags[0], // source
+					Operation: "read",
+				})
+			}
+		}
+
+	case "ls", "ll", "la", "lla":
+		// ls: list directory (read operation)
+		// The directory path is usually the last non-flag argument
+		if len(parts) > 1 {
+			lastArg := parts[len(parts)-1]
+			if !strings.HasPrefix(lastArg, "-") {
+				fileOps = append(fileOps, FileOp{
+					Path:      lastArg,
+					Operation: "read",
+				})
+			}
+		}
+
+	case "cat", "head", "tail", "less", "more":
+		// Read file contents
+		if len(parts) > 1 {
+			for _, arg := range parts[1:] {
+				if !strings.HasPrefix(arg, "-") {
+					fileOps = append(fileOps, FileOp{
+						Path:      arg,
+						Operation: "read",
+					})
+				}
+			}
+		}
+
+	case "grep", "rg", "ag":
+		// Grep: read file(s) to search
+		// The file path is usually the last argument(s)
+		if len(parts) > 1 {
+			lastIdx := len(parts) - 1
+			if !strings.HasPrefix(parts[lastIdx], "-") {
+				fileOps = append(fileOps, FileOp{
+					Path:      parts[lastIdx],
+					Operation: "read",
+				})
+			}
+		}
+
+	case "find":
+		// find: search files in directory
+		if len(parts) > 1 {
+			// First non-flag argument is usually the start directory
+			for _, arg := range parts[1:] {
+				if !strings.HasPrefix(arg, "-") {
+					fileOps = append(fileOps, FileOp{
+						Path:      arg,
+						Operation: "read",
+					})
+					break // Only take the first non-flag as directory
+				}
+			}
+		}
+
+	case "echo":
+		// Check if output is redirected to a file (> or >>)
+		for i, arg := range parts {
+			if arg == ">" || arg == ">>" {
+				if i+1 < len(parts) {
+					fileOps = append(fileOps, FileOp{
+						Path:      parts[i+1],
+						Operation: "write",
+					})
+					break
+				}
+			}
+		}
+
+	case "tee":
+		// tee: read stdin and write to file(s)
+		if len(parts) > 1 {
+			for _, arg := range parts[1:] {
+				if !strings.HasPrefix(arg, "-") {
+					fileOps = append(fileOps, FileOp{
+						Path:      arg,
+						Operation: "write",
+					})
+				}
+			}
+		}
+
+	case "chmod", "chown":
+		// chmod/chown: modify file metadata
+		if len(parts) > 1 {
+			// File path is usually the last argument
+			lastArg := parts[len(parts)-1]
+			if !strings.HasPrefix(lastArg, "-") {
+				fileOps = append(fileOps, FileOp{
+					Path:      lastArg,
+					Operation: "metadata",
+				})
+			}
+		}
+
+	case "ln":
+		// ln: create link
+		if len(parts) >= 3 {
+			args := parts[1:]
+			nonFlags := make([]string, 0)
+			for _, arg := range args {
+				if !strings.HasPrefix(arg, "-") {
+					nonFlags = append(nonFlags, arg)
+				}
+			}
+			if len(nonFlags) >= 2 {
+				fileOps = append(fileOps, FileOp{
+					Path:      nonFlags[1], // link name
+					Operation: "create",
+				})
+			}
+		}
+	}
+
+	return fileOps
+}
+
+// extractFirstCommand extracts the first command before &&, ||, or ;
+// This handles compound commands like "mkdir dir && cd dir && ls"
+func (t *ExecutionTracer) extractFirstCommand(command string) string {
+	// Find the first occurrence of a command separator
+	separators := []string{"&&", "||", ";"}
+
+	lowestIdx := -1
+	for _, sep := range separators {
+		idx := strings.Index(command, sep)
+		if idx != -1 && (lowestIdx == -1 || idx < lowestIdx) {
+			lowestIdx = idx
+		}
+	}
+
+	if lowestIdx == -1 {
+		return command // No separator found, return entire command
+	}
+
+	// Return only the part before the first separator
+	return strings.TrimSpace(command[:lowestIdx])
+}
+
+// extractCommands extracts bash command executions
+func (t *ExecutionTracer) extractCommands(toolCalls []ToolCall) []Command {
+	commands := make([]Command, 0)
+
+	for _, toolCall := range toolCalls {
+		if toolCall.Tool == "Bash" {
+			if cmd, ok := toolCall.Input["command"].(string); ok {
+				commands = append(commands, Command{
+					Command:   cmd,
+					ExitCode:  t.extractExitCode(toolCall.Output),
 					Success:   !toolCall.IsError,
 					Timestamp: toolCall.Timestamp,
 				})
@@ -287,7 +500,7 @@ func (t *ExecutionTracer) extractExternalAccess(events []Event, toolCalls []Tool
 		}
 	}
 
-	return externalAccessList
+	return commands
 }
 
 // extractExitCode extracts exit code from tool output

@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS execution_traces (
     -- Parsed results (JSONB format)
     tool_calls JSONB NOT NULL,
     file_access JSONB NOT NULL,
-    external_access JSONB NOT NULL,
+    commands JSONB NOT NULL,
     timeline JSONB NOT NULL,
     errors JSONB NOT NULL DEFAULT '[]'::jsonb,
     security_alerts JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS execution_traces (
     -- Statistics (for efficient querying)
     total_tool_calls INTEGER DEFAULT 0,
     total_file_access INTEGER DEFAULT 0,
-    total_external_access INTEGER DEFAULT 0,
+    total_commands INTEGER DEFAULT 0,
     total_errors INTEGER DEFAULT 0,
     total_security_alerts INTEGER DEFAULT 0,
 
@@ -39,4 +39,4 @@ CREATE INDEX IF NOT EXISTS idx_execution_traces_status ON execution_traces(statu
 CREATE INDEX IF NOT EXISTS idx_execution_traces_parsed_at ON execution_traces(parsed_at);
 CREATE INDEX IF NOT EXISTS idx_execution_traces_tool_calls_gin ON execution_traces USING GIN (tool_calls);
 CREATE INDEX IF NOT EXISTS idx_execution_traces_file_access_gin ON execution_traces USING GIN (file_access);
-CREATE INDEX IF NOT EXISTS idx_execution_traces_external_access_gin ON execution_traces USING GIN (external_access);
+CREATE INDEX IF NOT EXISTS idx_execution_traces_commands_gin ON execution_traces USING GIN (commands);

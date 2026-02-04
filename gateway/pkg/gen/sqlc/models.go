@@ -93,13 +93,13 @@ type ExecutionTrace struct {
 	TotalCostUsd        pgtype.Numeric
 	ToolCalls           []byte
 	FileAccess          []byte
-	ExternalAccess      []byte
+	Commands            []byte
 	Timeline            []byte
 	Errors              []byte
 	SecurityAlerts      []byte
 	TotalToolCalls      pgtype.Int4
 	TotalFileAccess     pgtype.Int4
-	TotalExternalAccess pgtype.Int4
+	TotalCommands       pgtype.Int4
 	TotalErrors         pgtype.Int4
 	TotalSecurityAlerts pgtype.Int4
 	ParsedAt            pgtype.Timestamp

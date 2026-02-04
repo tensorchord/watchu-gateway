@@ -27,7 +27,7 @@ func (q *Queries) CheckExecutionTraceExists(ctx context.Context, analysisID pgty
 const getExecutionTraceByAnalysisID = `-- name: GetExecutionTraceByAnalysisID :one
 SELECT
     session_id, status, duration_ms, num_turns, total_cost_usd,
-    tool_calls, file_access, external_access, timeline, errors, security_alerts
+    tool_calls, file_access, commands, timeline, errors, security_alerts
 FROM execution_traces
 WHERE analysis_id = $1
 `
@@ -40,7 +40,7 @@ type GetExecutionTraceByAnalysisIDRow struct {
 	TotalCostUsd   pgtype.Numeric
 	ToolCalls      []byte
 	FileAccess     []byte
-	ExternalAccess []byte
+	Commands       []byte
 	Timeline       []byte
 	Errors         []byte
 	SecurityAlerts []byte
@@ -57,7 +57,7 @@ func (q *Queries) GetExecutionTraceByAnalysisID(ctx context.Context, analysisID 
 		&i.TotalCostUsd,
 		&i.ToolCalls,
 		&i.FileAccess,
-		&i.ExternalAccess,
+		&i.Commands,
 		&i.Timeline,
 		&i.Errors,
 		&i.SecurityAlerts,
@@ -112,13 +112,13 @@ func (q *Queries) GetTimelineByAnalysisID(ctx context.Context, analysisID pgtype
 const insertExecutionTrace = `-- name: InsertExecutionTrace :one
 INSERT INTO execution_traces (
     analysis_id, session_id, status, duration_ms, num_turns, total_cost_usd,
-    tool_calls, file_access, external_access, timeline, errors, security_alerts,
-    total_tool_calls, total_file_access, total_external_access, total_errors, total_security_alerts,
+    tool_calls, file_access, commands, timeline, errors, security_alerts,
+    total_tool_calls, total_file_access, total_commands, total_errors, total_security_alerts,
     parser_version
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
 )
-RETURNING id, analysis_id, session_id, status, duration_ms, num_turns, total_cost_usd, tool_calls, file_access, external_access, timeline, errors, security_alerts, total_tool_calls, total_file_access, total_external_access, total_errors, total_security_alerts, parsed_at, parser_version, created_at, updated_at
+RETURNING id, analysis_id, session_id, status, duration_ms, num_turns, total_cost_usd, tool_calls, file_access, commands, timeline, errors, security_alerts, total_tool_calls, total_file_access, total_commands, total_errors, total_security_alerts, parsed_at, parser_version, created_at, updated_at
 `
 
 type InsertExecutionTraceParams struct {
@@ -130,13 +130,13 @@ type InsertExecutionTraceParams struct {
 	TotalCostUsd        pgtype.Numeric
 	ToolCalls           []byte
 	FileAccess          []byte
-	ExternalAccess      []byte
+	Commands            []byte
 	Timeline            []byte
 	Errors              []byte
 	SecurityAlerts      []byte
 	TotalToolCalls      pgtype.Int4
 	TotalFileAccess     pgtype.Int4
-	TotalExternalAccess pgtype.Int4
+	TotalCommands       pgtype.Int4
 	TotalErrors         pgtype.Int4
 	TotalSecurityAlerts pgtype.Int4
 	ParserVersion       pgtype.Text
@@ -152,13 +152,13 @@ func (q *Queries) InsertExecutionTrace(ctx context.Context, arg InsertExecutionT
 		arg.TotalCostUsd,
 		arg.ToolCalls,
 		arg.FileAccess,
-		arg.ExternalAccess,
+		arg.Commands,
 		arg.Timeline,
 		arg.Errors,
 		arg.SecurityAlerts,
 		arg.TotalToolCalls,
 		arg.TotalFileAccess,
-		arg.TotalExternalAccess,
+		arg.TotalCommands,
 		arg.TotalErrors,
 		arg.TotalSecurityAlerts,
 		arg.ParserVersion,
@@ -174,13 +174,13 @@ func (q *Queries) InsertExecutionTrace(ctx context.Context, arg InsertExecutionT
 		&i.TotalCostUsd,
 		&i.ToolCalls,
 		&i.FileAccess,
-		&i.ExternalAccess,
+		&i.Commands,
 		&i.Timeline,
 		&i.Errors,
 		&i.SecurityAlerts,
 		&i.TotalToolCalls,
 		&i.TotalFileAccess,
-		&i.TotalExternalAccess,
+		&i.TotalCommands,
 		&i.TotalErrors,
 		&i.TotalSecurityAlerts,
 		&i.ParsedAt,

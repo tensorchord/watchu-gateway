@@ -67,10 +67,13 @@ func (a *claudeCodeAdapter) Parse(runnerOutput string) ([]Event, error) {
 		return nil, err
 	}
 
-	// Convert claudecode.Event to parser.Event
-	result := make([]Event, len(events))
-	for i, e := range events {
-		result[i] = &claudeCodeEventAdapter{Event: e}
+	// Convert claudecode.Event to parser.Event concrete types
+	result := make([]Event, 0, len(events))
+	for _, e := range events {
+		converted := convertClaudeCodeEvent(e)
+		if converted != nil {
+			result = append(result, converted)
+		}
 	}
 	return result, nil
 }
@@ -80,26 +83,125 @@ func (a *claudeCodeAdapter) ParseEvent(line string) (Event, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &claudeCodeEventAdapter{Event: event}, nil
+	converted := convertClaudeCodeEvent(event)
+	if converted == nil {
+		return nil, fmt.Errorf("failed to convert event")
+	}
+	return converted, nil
 }
 
 func (a *claudeCodeAdapter) GetAgentType() AgentType {
 	return AgentTypeClaudeCode
 }
 
-// claudeCodeEventAdapter adapts claudecode.Event to parser.Event
-type claudeCodeEventAdapter struct {
-	Event *claudecode.Event
-}
+// convertClaudeCodeEvent converts claudecode.Event to parser.Event concrete type
+func convertClaudeCodeEvent(e *claudecode.Event) Event {
+	if e == nil {
+		return nil
+	}
 
-func (a *claudeCodeEventAdapter) Type() string {
-	return a.Event.Type()
-}
-
-func (a *claudeCodeEventAdapter) Timestamp() string {
-	return a.Event.TimestampString()
-}
-
-func (a *claudeCodeEventAdapter) ToJSON() ([]byte, error) {
-	return a.Event.ToJSON()
+	switch e.EventType {
+	case "system":
+		return &SystemEvent{
+			EventType:  e.EventType,
+			Subtype:    e.Subtype,
+			SessionID:  e.SessionID,
+			CWD:        e.CWD,
+			Tools:      e.Tools,
+			MCPServers: e.MCPServers,
+			Model:      e.Model,
+			UUID:       e.UUID,
+			timestamp:  e.Timestamp,
+		}
+	case "assistant":
+		msg := e.Message
+		content := make([]MessageContent, 0)
+		var msgID, msgRole, msgModel string
+		if msg != nil {
+			msgID = msg.ID
+			msgRole = msg.Role
+			msgModel = msg.Model
+			for _, c := range msg.Content {
+				content = append(content, MessageContent{
+					Type:      c.Type,
+					Text:      c.Text,
+					ID:        c.ID,
+					Name:      c.Name,
+					Input:     c.Input,
+					Content:   c.Content,
+					IsError:   c.IsError,
+					ToolUseID: c.ToolUseID,
+				})
+			}
+		}
+		return &AssistantEvent{
+			EventType:       e.EventType,
+			Message: Message{
+				ID:      msgID,
+				Role:    msgRole,
+				Model:   msgModel,
+				Content: content,
+			},
+			ParentToolUseID: e.ParentToolUseID,
+			SessionID:       e.SessionID,
+			UUID:            e.UUID,
+			timestamp:       e.Timestamp,
+		}
+	case "user":
+		msg := e.Message
+		content := make([]MessageContent, 0)
+		var msgID, msgRole, msgModel string
+		if msg != nil {
+			msgID = msg.ID
+			msgRole = msg.Role
+			msgModel = msg.Model
+			for _, c := range msg.Content {
+				content = append(content, MessageContent{
+					Type:      c.Type,
+					Text:      c.Text,
+					ID:        c.ID,
+					Name:      c.Name,
+					Input:     c.Input,
+					Content:   c.Content,
+					IsError:   c.IsError,
+					ToolUseID: c.ToolUseID,
+				})
+			}
+		}
+		return &UserEvent{
+			EventType: e.EventType,
+			Message: Message{
+				ID:      msgID,
+				Role:    msgRole,
+				Model:   msgModel,
+				Content: content,
+			},
+			SessionID:     e.SessionID,
+			UUID:          e.UUID,
+			ToolUseResult: e.ToolUseResult,
+			timestamp:     e.Timestamp,
+		}
+	case "result":
+		return &ResultEvent{
+			EventType:      e.EventType,
+			Subtype:        e.Subtype,
+			IsError:        e.IsError,
+			DurationMS:     e.DurationMS,
+			DurationAPIMS:  e.DurationAPIMS,
+			NumTurns:       e.NumTurns,
+			Result:         e.Result,
+			SessionID:      e.SessionID,
+			TotalCostUSD:   e.TotalCostUSD,
+			Usage:          e.Usage,
+			ModelUsage:     e.ModelUsage,
+			UUID:           e.UUID,
+			timestamp:      e.Timestamp,
+		}
+	default:
+		return &UnknownEvent{
+			EventType: e.EventType,
+			RawData:   e.RawData,
+			timestamp: e.Timestamp,
+		}
+	}
 }

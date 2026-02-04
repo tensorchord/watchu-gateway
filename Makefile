@@ -1,6 +1,6 @@
 .PHONY: help build build-all push push-all \
-	build-collector build-gateway build-frontend build-skill-runner \
-	push-collector push-gateway push-frontend push-skill-runner \
+	build-collector build-gateway build-frontend build-skill-runner build-agent \
+	push-collector push-gateway push-frontend push-skill-runner push-agent \
 	login
 
 # Default image repository (can be overridden via environment variable)
@@ -18,7 +18,7 @@ help: ## Show this help message
 	@sed -n 's/^##//p' ${MAKEFILE_LIST} | column -t -s ':' | sed -e 's/^/  /'
 
 ## Build targets
-build-all: build-collector build-gateway build-frontend build-skill-runner ## Build all images
+build-all: build-collector build-gateway build-frontend build-skill-runner build-agent ## Build all images
 
 build-collector: ## Build collector image
 	@echo "Building collector:$(VERSION)..."
@@ -36,8 +36,12 @@ build-skill-runner: ## Build skill-runner image
 	@echo "Building skill-runner:$(VERSION)..."
 	docker build -t $(REPO)/watchu-skill-runner:$(VERSION) -f skill-runner/Dockerfile .
 
+build-agent: ## Build claude-code agent image
+	@echo "Building claude-code agent:$(VERSION)..."
+	docker build -t $(REPO)/watchu-claude-code-agent:$(VERSION) -f skill-runner/agents/claude-code/Dockerfile skill-runner/agents/claude-code
+
 ## Push targets
-push-all: push-collector push-gateway push-frontend push-skill-runner ## Push all images
+push-all: push-collector push-gateway push-frontend push-skill-runner push-agent ## Push all images
 
 push-collector: build-collector ## Push collector image
 	@echo "Pushing collector:$(VERSION)..."
@@ -54,6 +58,10 @@ push-frontend: build-frontend ## Push frontend image
 push-skill-runner: build-skill-runner ## Push skill-runner image
 	@echo "Pushing skill-runner:$(VERSION)..."
 	docker push $(REPO)/watchu-skill-runner:$(VERSION)
+
+push-agent: build-agent ## Push claude-code agent image
+	@echo "Pushing claude-code agent:$(VERSION)..."
+	docker push $(REPO)/watchu-claude-code-agent:$(VERSION)
 
 ## Utility targets
 login: ## Login to container registry

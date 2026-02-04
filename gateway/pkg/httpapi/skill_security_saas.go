@@ -413,7 +413,7 @@ func (h *skillSecuritySaaSHandlers) createAnalysis(c *gin.Context) {
 		SourceRef:      sourceRef,
 		ArtifactPath:   artifactPath,
 		AgentType:      "claude-code",
-		RunnerMode:     "local",
+		RunnerMode:     "docker",
 		PromptStrategy: promptStrategy,
 		PromptInput:    promptInput,
 	})

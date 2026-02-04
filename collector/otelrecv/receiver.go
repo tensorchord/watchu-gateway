@@ -4,7 +4,6 @@ package otelrecv
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/phuslu/log"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
@@ -79,11 +79,9 @@ func (r *OTELReceiver) Start(ctx context.Context) {
 // Export implements the OTLP LogsService Export RPC
 func (r *OTELReceiver) Export(ctx context.Context, req *collogspb.ExportLogsServiceRequest) (*collogspb.ExportLogsServiceResponse, error) {
 	for _, resourceLogs := range req.GetResourceLogs() {
-		resourceAttrs := extractAttributes(resourceLogs.GetResource().GetAttributes())
-
 		for _, scopeLogs := range resourceLogs.GetScopeLogs() {
 			for _, logRecord := range scopeLogs.GetLogRecords() {
-				event := r.parseLogRecord(logRecord, resourceAttrs)
+				event := r.parseLogRecord(logRecord)
 				if event != nil {
 					select {
 					case r.eventChan <- event:
@@ -98,7 +96,7 @@ func (r *OTELReceiver) Export(ctx context.Context, req *collogspb.ExportLogsServ
 	return &collogspb.ExportLogsServiceResponse{}, nil
 }
 
-func (r *OTELReceiver) parseLogRecord(record *logspb.LogRecord, _ map[string]*commonpb.AnyValue) *export.RecordAgentEvent {
+func (r *OTELReceiver) parseLogRecord(record *logspb.LogRecord) *export.RecordAgentEvent {
 	attrs := extractAttributes(record.GetAttributes())
 
 	eventName := getStringAttr(attrs, "event.name")
@@ -108,6 +106,10 @@ func (r *OTELReceiver) parseLogRecord(record *logspb.LogRecord, _ map[string]*co
 
 	tool, eventType := parseEventName(eventName)
 	if tool == "" {
+		return nil
+	}
+	// only collect the user prompt & tool use for now
+	if eventType != eventTypeUserPrompt && eventType != eventTypeToolCall && eventType != eventTypeToolResult {
 		return nil
 	}
 
@@ -137,7 +139,7 @@ func (r *OTELReceiver) parseLogRecord(record *logspb.LogRecord, _ map[string]*co
 	}
 
 	// Store all attributes as JSON
-	if attrsJSON, err := json.Marshal(attributesToJSON(attrs)); err == nil {
+	if attrsJSON, err := protojson.Marshal(&commonpb.KeyValueList{Values: record.GetAttributes()}); err == nil {
 		event.Attributes = attrsJSON
 	}
 
@@ -190,10 +192,12 @@ func (r *OTELReceiver) parseLogRecord(record *logspb.LogRecord, _ map[string]*co
 		event.ReasoningTokenCount = parseIntAttr(attrs, "reasoning_token_count")
 	}
 
-	log.Trace().
-		Str("tool", tool).
+	log.Debug().
+		Str("agent", tool).
 		Str("event", eventName).
 		Str("type", eventType).
+		Str("prompt", event.Prompt).
+		Str("tool", event.ToolName).
 		Msg("received AI tool OTEL event")
 
 	return event
@@ -321,26 +325,6 @@ func parseFloatAttr(attrs map[string]*commonpb.AnyValue, key string) float64 {
 		return parsed
 	}
 	return 0
-}
-
-func attributesToJSON(attrs map[string]*commonpb.AnyValue) map[string]any {
-	result := make(map[string]any, len(attrs))
-	for key, value := range attrs {
-		if value == nil {
-			continue
-		}
-		switch v := value.GetValue().(type) {
-		case *commonpb.AnyValue_StringValue:
-			result[key] = v.StringValue
-		case *commonpb.AnyValue_IntValue:
-			result[key] = v.IntValue
-		case *commonpb.AnyValue_DoubleValue:
-			result[key] = v.DoubleValue
-		case *commonpb.AnyValue_BoolValue:
-			result[key] = v.BoolValue
-		}
-	}
-	return result
 }
 
 // Close stops the receiver

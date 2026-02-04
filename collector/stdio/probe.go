@@ -14,7 +14,7 @@ import (
 	"github.com/phuslu/log"
 	"github.com/tidwall/gjson"
 
-	"github.com/tensorchord/watchu/collector"
+	"github.com/tensorchord/watchu/collector/export"
 	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
@@ -83,11 +83,11 @@ type StdioProbe struct {
 	rb      *ringbuf.Reader
 	objs    *stdioObjects
 	links   []link.Link
-	client  *collector.GatewayClient
-	channel chan *collector.RawStdIO
+	client  *export.GatewayClient
+	channel chan *export.RawStdIO
 }
 
-func NewStdioProbe(client *collector.GatewayClient) *StdioProbe {
+func NewStdioProbe(client *export.GatewayClient) *StdioProbe {
 	objs := stdioObjects{}
 	if err := loadStdioObjects(&objs, nil); err != nil {
 		log.Fatal().Err(err).Msg("failed to load eBPF spec")
@@ -106,7 +106,7 @@ func NewStdioProbe(client *collector.GatewayClient) *StdioProbe {
 		objs:    &objs,
 		links:   links,
 		client:  client,
-		channel: make(chan *collector.RawStdIO, collector.GatewayChannelSize),
+		channel: make(chan *export.RawStdIO, export.GatewayChannelSize),
 	}
 }
 
@@ -143,7 +143,7 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 			msgType = "response"
 		}
 		select {
-		case sp.channel <- &collector.RawStdIO{
+		case sp.channel <- &export.RawStdIO{
 			ElapsedNs:   event.TimestampNs,
 			PidTid:      event.PidTgid,
 			UidGid:      event.UidGid,

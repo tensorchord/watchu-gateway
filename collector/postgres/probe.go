@@ -13,7 +13,7 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
 
-	"github.com/tensorchord/watchu/collector"
+	"github.com/tensorchord/watchu/collector/export"
 	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
@@ -48,11 +48,11 @@ type PostgresProbe struct {
 	rb      *ringbuf.Reader
 	objs    *pgObjects
 	links   []link.Link
-	client  *collector.GatewayClient
-	channel chan *collector.RawPostgres
+	client  *export.GatewayClient
+	channel chan *export.RawPostgres
 }
 
-func NewPostgresProbe(client *collector.GatewayClient) *PostgresProbe {
+func NewPostgresProbe(client *export.GatewayClient) *PostgresProbe {
 	objs := pgObjects{}
 	if err := loadPgObjects(&objs, nil); err != nil {
 		log.Panic().Err(err).Msg("failed to load ebpf spec")
@@ -70,7 +70,7 @@ func NewPostgresProbe(client *collector.GatewayClient) *PostgresProbe {
 		objs:    &objs,
 		links:   links,
 		client:  client,
-		channel: make(chan *collector.RawPostgres, collector.GatewayChannelSize),
+		channel: make(chan *export.RawPostgres, export.GatewayChannelSize),
 	}
 }
 
@@ -96,7 +96,7 @@ func (pp *PostgresProbe) Start(ctx context.Context) {
 		}
 
 		select {
-		case pp.channel <- &collector.RawPostgres{
+		case pp.channel <- &export.RawPostgres{
 			ElapsedNs: event.TimestampNs,
 			PidTid:    event.PidTgid,
 			UidGid:    event.UidGid,

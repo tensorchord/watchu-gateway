@@ -12,7 +12,7 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
 
-	"github.com/tensorchord/watchu/collector"
+	"github.com/tensorchord/watchu/collector/export"
 	"github.com/tensorchord/watchu/collector/internal/container"
 	"github.com/tensorchord/watchu/collector/internal/tool"
 )
@@ -33,13 +33,13 @@ type TLSProbe interface {
 type SSLProbe struct {
 	mu           sync.Mutex // lock the probes
 	probes       map[container.LibKey]TLSProbe
-	client       *collector.GatewayClient
-	reqChan      chan *collector.RawRequest
-	respChan     chan *collector.RawResponse
-	postgresChan chan *collector.RawPostgres
+	client       *export.GatewayClient
+	reqChan      chan *export.RawRequest
+	respChan     chan *export.RawResponse
+	postgresChan chan *export.RawPostgres
 }
 
-func NewSSLProbe(sslPath, rustlsPath *string, client *collector.GatewayClient) *SSLProbe {
+func NewSSLProbe(sslPath, rustlsPath *string, client *export.GatewayClient) *SSLProbe {
 	probes := make(map[container.LibKey]TLSProbe)
 
 	// OpenSSL
@@ -92,9 +92,9 @@ func NewSSLProbe(sslPath, rustlsPath *string, client *collector.GatewayClient) *
 	return &SSLProbe{
 		probes:       probes,
 		client:       client,
-		reqChan:      make(chan *collector.RawRequest, collector.GatewayChannelSize),
-		respChan:     make(chan *collector.RawResponse, collector.GatewayChannelSize),
-		postgresChan: make(chan *collector.RawPostgres, collector.GatewayChannelSize),
+		reqChan:      make(chan *export.RawRequest, export.GatewayChannelSize),
+		respChan:     make(chan *export.RawResponse, export.GatewayChannelSize),
+		postgresChan: make(chan *export.RawPostgres, export.GatewayChannelSize),
 	}
 }
 

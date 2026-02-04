@@ -83,6 +83,31 @@ type ExecEvent struct {
 	ContainerID pgtype.Text
 }
 
+type ExecutionTrace struct {
+	ID                  pgtype.UUID
+	AnalysisID          pgtype.UUID
+	SessionID           pgtype.Text
+	Status              pgtype.Text
+	DurationMs          pgtype.Int4
+	NumTurns            pgtype.Int4
+	TotalCostUsd        pgtype.Numeric
+	ToolCalls           []byte
+	FileAccess          []byte
+	ExternalAccess      []byte
+	Timeline            []byte
+	Errors              []byte
+	SecurityAlerts      []byte
+	TotalToolCalls      pgtype.Int4
+	TotalFileAccess     pgtype.Int4
+	TotalExternalAccess pgtype.Int4
+	TotalErrors         pgtype.Int4
+	TotalSecurityAlerts pgtype.Int4
+	ParsedAt            pgtype.Timestamp
+	ParserVersion       pgtype.Text
+	CreatedAt           pgtype.Timestamp
+	UpdatedAt           pgtype.Timestamp
+}
+
 type HeuristicAlert struct {
 	AlertID    string
 	AlertType  string

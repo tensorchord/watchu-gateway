@@ -34,14 +34,15 @@ type Runner interface {
 }
 
 type Service struct {
-	queries      *sqlc.Queries
-	runner       Runner
-	security     *securityinsight.Service
-	s3           *s3.Client
-	registry     RegistryResolver
-	logger       *slog.Logger
-	now          func() time.Time
-	refreshCache sync.Map // key: "host:since_minute:until_minute", value: refreshCacheEntry
+	queries            *sqlc.Queries
+	runner             Runner
+	security           *securityinsight.Service
+	s3                 *s3.Client
+	registry           RegistryResolver
+	executionTrace     *ExecutionTraceService
+	logger             *slog.Logger
+	now                func() time.Time
+	refreshCache       sync.Map // key: "host:since_minute:until_minute", value: refreshCacheEntry
 }
 
 type CreateRunInput struct {
@@ -61,13 +62,14 @@ func NewService(queries *sqlc.Queries, runner Runner, security *securityinsight.
 		logger = slog.Default()
 	}
 	return &Service{
-		queries:  queries,
-		runner:   runner,
-		security: security,
-		s3:       s3Client,
-		registry: registry,
-		logger:   logger,
-		now:      time.Now,
+		queries:        queries,
+		runner:         runner,
+		security:       security,
+		s3:             s3Client,
+		registry:       registry,
+		executionTrace: NewExecutionTraceService(queries, logger),
+		logger:         logger,
+		now:            time.Now,
 	}
 }
 
@@ -573,7 +575,12 @@ func (s *Service) pollRunnerStatus(runID pgtype.UUID, runnerRunID string, create
 		}
 
 		if status == "completed" || status == "failed" {
-			// Step 1: Extract agent insights from runner output
+			// Step 1: Parse and store execution trace from runner output
+			if runnerOutput != "" && s.executionTrace != nil {
+				s.executionTrace.OnSkillAnalysisCompleted(ctx, runID)
+			}
+
+			// Step 2: Extract agent insights from runner output
 			// This analyzes the agent's own logs for threat detection messages
 			if runnerOutput != "" && s.security != nil {
 				if err := s.security.ExtractAndStore(ctx, runID.Bytes, rootExecID, agentType, runnerOutput); err != nil {
@@ -581,7 +588,7 @@ func (s *Service) pollRunnerStatus(runID pgtype.UUID, runnerRunID string, create
 				}
 			}
 
-			// Step 2: Run threat analysis using telemetry + extracted agent insights
+			// Step 3: Run threat analysis using telemetry + extracted agent insights
 			if status == "completed" && rootExecID != "" && s.security != nil {
 				if _, err := s.security.AnalyzeThreat(ctx, runID); err != nil {
 					s.logger.Warn("skill security threat analysis failed", slog.String("analysis_id", runID.String()), slog.String("root_exec_id", rootExecID), slog.String("error", err.Error()))

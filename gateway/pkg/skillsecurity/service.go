@@ -653,6 +653,13 @@ func (s *Service) GetExecutionTrace(ctx context.Context, analysisID pgtype.UUID)
 	return s.executionTrace.GetExecutionTrace(ctx, analysisID)
 }
 
+func (s *Service) GetTimeline(ctx context.Context, analysisID pgtype.UUID) ([]parser.TimelineEvent, error) {
+	if s.executionTrace == nil {
+		return nil, fmt.Errorf("execution trace service is not configured")
+	}
+	return s.executionTrace.GetTimeline(ctx, analysisID)
+}
+
 func (s *Service) ParseExecutionTrace(ctx context.Context, analysisID pgtype.UUID) error {
 	if s.executionTrace == nil {
 		return fmt.Errorf("execution trace service is not configured")

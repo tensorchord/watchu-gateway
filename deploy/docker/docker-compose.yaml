@@ -99,9 +99,9 @@ services:
       - http://gateway:8080
       - --tetragon-path
       - unix:///var/run/tetragon/tetragon.sock
+      # - --scan-host-proc
       #- --ssl-path
       #- ${COLLECTOR_SSL_PATH:-/home/xieyuandong/.nvm/versions/node/v24.10.0/bin/node}
-      #- --scan-host-proc
     pid: "host"
     uts: "host"
     privileged: true

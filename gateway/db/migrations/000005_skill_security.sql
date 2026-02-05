@@ -26,9 +26,13 @@ CREATE INDEX IF NOT EXISTS idx_skill_security_runs_status
 CREATE INDEX IF NOT EXISTS idx_skill_security_runs_created_at
     ON skill_security_runs(created_at DESC);
 
--- Fix strip_sse_data to properly handle Anthropic SSE format
--- Anthropic API returns Server-Sent Events with message_start/message_delta events
--- that contain the full response metadata, while the last event is just message_stop
+-- Fix strip_sse_data to properly handle Anthropic SSE format with tool_use support
+-- Anthropic API returns Server-Sent Events with:
+-- - message_start: contains message metadata (id, model, content array)
+-- - content_block_start: defines a new content block (text, tool_use, thinking, etc.)
+-- - content_block_delta: provides incremental updates to the current block
+-- - content_block_stop: marks the end of the current block
+-- - message_delta: contains message-level metadata (usage, stop_reason)
 
 CREATE OR REPLACE FUNCTION strip_sse_data(p_text TEXT)
 RETURNS TEXT LANGUAGE plpgsql IMMUTABLE AS $$
@@ -38,8 +42,16 @@ DECLARE
     v_response_json TEXT;
     v_anthropic_message JSONB;
     v_anthropic_usage JSONB;
-    v_accumulated_text TEXT := '';
     v_temp_json JSONB;
+    v_accumulated_text TEXT := '';
+
+    -- Track tool_use blocks
+    v_tool_use_id TEXT;
+    v_tool_use_name TEXT;
+    v_tool_use_input TEXT := '';
+
+    -- Track all content blocks in order
+    v_has_content BOOLEAN := FALSE;
 BEGIN
     IF p_text IS NULL THEN
         RETURN NULL;
@@ -70,21 +82,25 @@ BEGIN
                     END;
                 END IF;
 
-                -- Priority 3: Anthropic content_block_delta (accumulate text content)
-                IF POSITION('"type":"content_block_delta"' IN v_line) > 0
-                   OR POSITION('"type": "content_block_delta"' IN v_line) > 0 THEN
+                -- Priority 3: Anthropic content_block_start (initiate a new content block)
+                IF POSITION('"type":"content_block_start"' IN v_line) > 0
+                   OR POSITION('"type": "content_block_start"' IN v_line) > 0 THEN
                     BEGIN
                         v_temp_json := v_line::jsonb;
-                        IF v_temp_json ? 'delta' THEN
+                        IF v_temp_json ? 'content_block' THEN
                             DECLARE
-                                v_delta JSONB;
+                                v_content_block JSONB := v_temp_json->'content_block';
+                                v_block_type TEXT := v_content_block->>'type';
                             BEGIN
-                                v_delta := v_temp_json->'delta';
-                                -- Check if this is a text delta and accumulate text
-                                IF v_delta ? 'type' AND (v_delta->>'type') = 'text_delta' THEN
-                                    IF v_delta ? 'text' THEN
-                                        v_accumulated_text := v_accumulated_text || (v_delta->>'text');
-                                    END IF;
+                                -- For tool_use blocks, capture the initial metadata
+                                IF v_block_type = 'tool_use' THEN
+                                    v_tool_use_id := COALESCE(v_content_block->>'id', v_tool_use_id);
+                                    v_tool_use_name := COALESCE(v_content_block->>'name', v_tool_use_name);
+                                    v_tool_use_input := '';  -- Reset input for accumulation
+                                    v_has_content := TRUE;
+                                -- For text blocks, just mark that we have content
+                                ELSIF v_block_type = 'text' THEN
+                                    v_has_content := TRUE;
                                 END IF;
                             END;
                         END IF;
@@ -93,7 +109,33 @@ BEGIN
                     END;
                 END IF;
 
-                -- Priority 4: Anthropic message_delta (has final usage)
+                -- Priority 4: Anthropic content_block_delta (incremental updates to blocks)
+                IF POSITION('"type":"content_block_delta"' IN v_line) > 0
+                   OR POSITION('"type": "content_block_delta"' IN v_line) > 0 THEN
+                    BEGIN
+                        v_temp_json := v_line::jsonb;
+                        IF v_temp_json ? 'delta' THEN
+                            DECLARE
+                                v_delta JSONB := v_temp_json->'delta';
+                                v_delta_type TEXT := COALESCE(v_delta->>'type', '');
+                            BEGIN
+                                -- Handle text_delta for text blocks
+                                IF v_delta_type = 'text_delta' AND v_delta ? 'text' THEN
+                                    v_accumulated_text := v_accumulated_text || (v_delta->>'text');
+                                    v_has_content := TRUE;
+                                -- Handle input_json_delta for tool_use blocks
+                                ELSIF v_delta_type = 'input_json_delta' AND v_delta ? 'partial_json' THEN
+                                    v_tool_use_input := v_tool_use_input || (v_delta->>'partial_json');
+                                    v_has_content := TRUE;
+                                END IF;
+                            END;
+                        END IF;
+                    EXCEPTION WHEN OTHERS THEN
+                        NULL;
+                    END;
+                END IF;
+
+                -- Priority 5: Anthropic message_delta (has final usage)
                 IF POSITION('"type":"message_delta"' IN v_line) > 0
                    OR POSITION('"type": "message_delta"' IN v_line) > 0 THEN
                     -- Extract usage from message_delta
@@ -115,30 +157,58 @@ BEGIN
         RETURN v_response_json;
     END IF;
 
-    -- Return Anthropic message with merged usage and accumulated content
+    -- Return Anthropic message with reconstructed content blocks
     IF v_anthropic_message IS NOT NULL THEN
-        -- If we accumulated text, replace content with a text block
-        IF v_accumulated_text <> '' THEN
-            v_anthropic_message := jsonb_set(
-                v_anthropic_message,
-                '{content}',
-                jsonb_build_array(
-                    jsonb_build_object(
+        DECLARE
+            v_content_array JSONB := '[]'::jsonb;
+        BEGIN
+            -- Reconstruct content array from accumulated data
+            IF v_has_content THEN
+                -- Add text block if we have accumulated text
+                IF v_accumulated_text <> '' THEN
+                    v_content_array := v_content_array || jsonb_build_object(
                         'type', 'text',
                         'text', v_accumulated_text
-                    )
-                )
-            );
-        END IF;
-        -- Merge usage into message if available
-        IF v_anthropic_usage IS NOT NULL THEN
-            v_anthropic_message := jsonb_set(
-                COALESCE(v_anthropic_message, '{}'::jsonb),
-                '{usage}',
-                v_anthropic_usage
-            );
-        END IF;
-        RETURN v_anthropic_message::text;
+                    );
+                END IF;
+
+                -- Add tool_use block if we captured tool_use data
+                IF v_tool_use_id IS NOT NULL THEN
+                    v_content_array := v_content_array || jsonb_build_object(
+                        'type', 'tool_use',
+                        'id', v_tool_use_id,
+                        'name', COALESCE(v_tool_use_name, 'unknown'),
+                        'input', CASE
+                            WHEN v_tool_use_input <> '' THEN
+                                -- Try to parse as JSON, fall back to string
+                                (v_tool_use_input::jsonb)
+                            ELSE
+                                '{}'::jsonb
+                        END
+                    );
+                END IF;
+            END IF;
+
+            -- Set reconstructed content array
+            IF jsonb_array_length(v_content_array) > 0 THEN
+                v_anthropic_message := jsonb_set(
+                    v_anthropic_message,
+                    '{content}',
+                    v_content_array
+                );
+            END IF;
+
+            -- Merge usage into message if available
+            IF v_anthropic_usage IS NOT NULL THEN
+                v_anthropic_message := jsonb_set(
+                    v_anthropic_message,
+                    '{usage}',
+                    v_anthropic_usage
+                );
+            END IF;
+
+            RETURN v_anthropic_message::text;
+        END;
     END IF;
 
     -- Fallback to last data line
@@ -172,7 +242,8 @@ BEGIN
             rl.root_pid,
             req_match.id AS http_request_id,
             safe_json_from_bytea(rl.request_body)  AS req_json,
-            safe_json_from_bytea(rl.response_body) AS resp_json,
+            -- Parse SSE format to extract proper JSON structure
+            NULLIF(strip_sse_data(safe_text_from_bytea(rl.response_body)), '')::jsonb AS resp_json,
             safe_text_from_bytea(rl.request_body)  AS raw_request,
             safe_text_from_bytea(rl.response_body) AS raw_response
         FROM response_lineage rl
@@ -257,7 +328,13 @@ BEGIN
             END AS usage_json,
             CASE
                 WHEN n.provider = 'gemini' THEN jsonb_path_query_array(COALESCE(n.resp_json, '{}'::jsonb), '$.candidates[*].content.parts[*].functionCall')
-                WHEN n.provider = 'claude-code' THEN jsonb_path_query_array(COALESCE(n.resp_json, '{}'::jsonb), '$.content[*].tool_calls[*]')
+                WHEN n.provider = 'claude-code' THEN
+                    -- Check if OpenAI format has results, otherwise use Anthropic format
+                    CASE
+                        WHEN jsonb_array_length(jsonb_path_query_array(COALESCE(n.resp_json, '{}'::jsonb), '$.content[*].tool_calls[*]')) > 0
+                            THEN jsonb_path_query_array(COALESCE(n.resp_json, '{}'::jsonb), '$.content[*].tool_calls[*]')
+                        ELSE jsonb_path_query_array(COALESCE(n.resp_json, '{}'::jsonb), '$.content[*]?(@.type == "tool_use")')
+                    END
             END AS tool_calls_json
         FROM normalized n
         WHERE (

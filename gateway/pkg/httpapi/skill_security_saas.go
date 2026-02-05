@@ -74,6 +74,12 @@ func registerSkillSecuritySaaSInternalRoutes(router *gin.RouterGroup, queries *s
 			analyses.DELETE("/:id", h.deleteAnalysis)
 		}
 
+		// Process Telemetry (by root_exec_id)
+		telemetry := internalAPI.Group("/telemetry")
+		{
+			telemetry.GET("/root/:root_exec_id/traces", h.getTracesByRootExecID)
+		}
+
 		// Notifications
 		notifications := internalAPI.Group("/notifications")
 		{
@@ -1338,6 +1344,53 @@ func generateRecommendation(alertType, severity string) string {
 	}
 
 	return baseRec
+}
+
+// getTracesByRootExecID retrieves process telemetry traces by root_exec_id
+func (h *skillSecuritySaaSHandlers) getTracesByRootExecID(c *gin.Context) {
+	rootExecID := c.Param("root_exec_id")
+	if rootExecID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "root_exec_id is required"})
+		return
+	}
+
+	// Get agent run by root_exec_id
+	run, err := h.queries.GetAgentRunByRootExecID(c.Request.Context(), pgtype.Text{String: rootExecID, Valid: true})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent run not found for this root_exec_id"})
+		return
+	}
+
+	// Get traces for this agent run
+	traces, err := h.queries.ListTracesByAgentRun(c.Request.Context(), run.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Build trace responses using analytics helper
+	analyticsHandler := analyticsHandlers{queries: h.queries}
+	traceResponses, err := analyticsHandler.buildTraceResponses(c.Request.Context(), run.Host, traces)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Convert AgentRun to response format
+	agentRunResp := AgentRunResponse{
+		ID:         run.ID.String(),
+		Host:       run.Host,
+		RootExecID: stringPtrFromText(run.RootExecID),
+		RootPID:    int64PtrFromInt8(run.RootPid),
+		Provider:   stringPtrFromText(run.Provider),
+		StartedAt:  timePtrFromTimestamptz(run.StartedAt),
+		EndedAt:    timePtrFromTimestamptz(run.EndedAt),
+	}
+
+	c.JSON(http.StatusOK, TraceGraphResponse{
+		AgentRun: agentRunResp,
+		Traces:   traceResponses,
+	})
 }
 
 func int8PtrFromPtr(v *int64) pgtype.Int8 {

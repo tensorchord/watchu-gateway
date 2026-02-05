@@ -99,6 +99,7 @@ func (cld *ContainerLibsDetector) cleanupExpiredSkips() {
 }
 
 func (cld *ContainerLibsDetector) scan() error {
+	log.Info().Msg("scanning for container processes with libssl")
 	newProcLib := make(map[string]string)
 	newProcSkip := make(map[string]procSkipEntry)
 	if cld.scanHostProc {

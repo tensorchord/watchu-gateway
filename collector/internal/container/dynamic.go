@@ -22,15 +22,20 @@ import (
 )
 
 const (
-	SCAN_INTERVAL    = time.Second * 5
-	PROC_EXE_FORMAT  = "/proc/%s/exe"
-	PROC_MAPS_FORMAT = "/proc/%s/maps"
-	REGEX_LIBSSL     = `libssl\.so(\.\d+)*`
+	SCAN_INTERVAL         = time.Second * 5
+	PROC_SKIP_EXPIRE_TIME = time.Minute * 1 // Expire skip entries after 1 minute
+	PROC_EXE_FORMAT       = "/proc/%s/exe"
+	PROC_MAPS_FORMAT      = "/proc/%s/maps"
+	REGEX_LIBSSL          = `libssl\.so(\.\d+)*`
 )
 
 var (
 	PATTERN_LIBSSL = regexp.MustCompile(REGEX_LIBSSL)
 )
+
+type procSkipEntry struct {
+	timestamp time.Time
+}
 
 type ContainerLibsDetector struct {
 	mu sync.RWMutex
@@ -39,7 +44,7 @@ type ContainerLibsDetector struct {
 	scanHostProc bool
 	// <proc:path>
 	procLib  map[string]string
-	procSkip map[string]struct{}
+	procSkip map[string]procSkipEntry
 }
 
 func NewContainerLibsDetector(scanHostProc bool) *ContainerLibsDetector {
@@ -47,13 +52,17 @@ func NewContainerLibsDetector(scanHostProc bool) *ContainerLibsDetector {
 		re:           regexp.MustCompile(REGEX_CONTAINER_ID),
 		scanHostProc: scanHostProc,
 		procLib:      make(map[string]string),
-		procSkip:     make(map[string]struct{}),
+		procSkip:     make(map[string]procSkipEntry),
 	}
 }
 
 func (cld *ContainerLibsDetector) Start(ctx context.Context, ch chan ContainerOpenSSL) {
 	ticker := time.NewTicker(SCAN_INTERVAL)
 	defer ticker.Stop()
+
+	// Ticker for cleaning up expired skip entries
+	cleanupTicker := time.NewTicker(PROC_SKIP_EXPIRE_TIME)
+	defer cleanupTicker.Stop()
 
 	for {
 		select {
@@ -62,6 +71,8 @@ func (cld *ContainerLibsDetector) Start(ctx context.Context, ch chan ContainerOp
 				log.Error().Err(err).Msg("failed to scan container libs")
 			}
 			ch <- cld.Export()
+		case <-cleanupTicker.C:
+			cld.cleanupExpiredSkips()
 		case <-ctx.Done():
 			log.Info().Msg("stop container libs detector")
 			close(ch)
@@ -70,9 +81,26 @@ func (cld *ContainerLibsDetector) Start(ctx context.Context, ch chan ContainerOp
 	}
 }
 
+func (cld *ContainerLibsDetector) cleanupExpiredSkips() {
+	cld.mu.Lock()
+	defer cld.mu.Unlock()
+	
+	now := time.Now()
+	expiredCount := 0
+	for proc, entry := range cld.procSkip {
+		if now.Sub(entry.timestamp) >= PROC_SKIP_EXPIRE_TIME {
+			delete(cld.procSkip, proc)
+			expiredCount++
+		}
+	}
+	if expiredCount > 0 {
+		log.Info().Int("count", expiredCount).Msg("cleaned up expired skip entries")
+	}
+}
+
 func (cld *ContainerLibsDetector) scan() error {
 	newProcLib := make(map[string]string)
-	newProcSkip := make(map[string]struct{})
+	newProcSkip := make(map[string]procSkipEntry)
 	if cld.scanHostProc {
 		if err := cld.scanHostProcs(newProcLib, newProcSkip); err != nil {
 			log.Error().Err(err).Msg("failed to scan host proc")
@@ -91,7 +119,7 @@ func (cld *ContainerLibsDetector) scan() error {
 	return nil
 }
 
-func (cld *ContainerLibsDetector) scanCgroupProcs(newProcLib map[string]string, newProcSkip map[string]struct{}) error {
+func (cld *ContainerLibsDetector) scanCgroupProcs(newProcLib map[string]string, newProcSkip map[string]procSkipEntry) error {
 	return filepath.WalkDir(CGROUP_DIR, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return nil
@@ -116,7 +144,7 @@ func (cld *ContainerLibsDetector) scanCgroupProcs(newProcLib map[string]string, 
 	})
 }
 
-func (cld *ContainerLibsDetector) scanHostProcs(newProcLib map[string]string, newProcSkip map[string]struct{}) error {
+func (cld *ContainerLibsDetector) scanHostProcs(newProcLib map[string]string, newProcSkip map[string]procSkipEntry) error {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return err
@@ -146,23 +174,29 @@ func isNumericPID(value string) bool {
 	return true
 }
 
-func (cld *ContainerLibsDetector) scanProc(proc string, newProcLib map[string]string, newProcSkip map[string]struct{}) {
+func (cld *ContainerLibsDetector) scanProc(proc string, newProcLib map[string]string, newProcSkip map[string]procSkipEntry) {
 	cld.mu.RLock()
 	if lib, ok := cld.procLib[proc]; ok {
 		newProcLib[proc] = lib
 		cld.mu.RUnlock()
 		return
 	}
-	if _, ok := cld.procSkip[proc]; ok {
-		newProcSkip[proc] = struct{}{}
-		cld.mu.RUnlock()
-		return
+	// Check if process is in skip cache and if entry hasn't expired
+	if skipEntry, ok := cld.procSkip[proc]; ok {
+		if time.Since(skipEntry.timestamp) < PROC_SKIP_EXPIRE_TIME {
+			// Still valid, keep in skip cache
+			newProcSkip[proc] = skipEntry
+			cld.mu.RUnlock()
+			return
+		}
+		// Entry expired, will rescan
+		log.Debug().Str("proc", proc).Msg("skip entry expired, rescanning process")
 	}
 	cld.mu.RUnlock()
 
 	path, err := os.Readlink(fmt.Sprintf(PROC_EXE_FORMAT, proc))
 	if err != nil {
-		log.Warn().Err(err).Str("proc", proc).Msg("failed to readlink")
+		log.Debug().Err(err).Str("proc", proc).Msg("failed to readlink")
 		return
 	}
 	absPath := filepath.Join("/proc", proc, "root", path)
@@ -177,13 +211,16 @@ func (cld *ContainerLibsDetector) scanProc(proc string, newProcLib map[string]st
 			return
 		}
 		if !hasOpenSSL {
-			newProcSkip[proc] = struct{}{}
+			// No SSL found, add to skip cache with current timestamp
+			newProcSkip[proc] = procSkipEntry{timestamp: time.Now()}
+			log.Debug().Str("proc", proc).Msg("no SSL found, added to skip cache")
 			return
 		}
 		libsslPath = absPath
 	} else {
 		libsslPath = filepath.Join("/proc", proc, "root", libsslPath)
 	}
+	log.Info().Str("proc", proc).Str("libssl_path", libsslPath).Msg("found SSL library")
 	newProcLib[proc] = libsslPath
 }
 

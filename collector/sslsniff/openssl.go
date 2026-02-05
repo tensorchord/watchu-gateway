@@ -1,24 +1,21 @@
 package sslsniff
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
-	"sync"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
 
-	"github.com/tensorchord/watchu/collector/internal/container"
 	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
-const MAX_DYNAMIC_CHANNEL_SIZE = 16
+const maxDynamicChannelSize = 16
 
-func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links *[]link.Link) error {
+func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string) ([]link.Link, error) {
 	probes := []struct {
 		symbol string
 		prog   *ebpf.Program
@@ -49,10 +46,9 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string, links
 		for _, link := range newLinks {
 			_ = link.Close()
 		}
-		return fmt.Errorf("failed to inject the prog %d/%d", failedProbes, len(probes))
+		return nil, fmt.Errorf("failed to inject the prog %d/%d", failedProbes, len(probes))
 	}
-	*links = append(*links, newLinks...)
-	return nil
+	return newLinks, nil
 }
 
 var libSSLCandidates = []string{
@@ -72,7 +68,7 @@ var libSDirs = []string{
 	"/usr/local/lib64",
 }
 
-func findLibSSLPath() (string, error) {
+func findLibOpenSSLPath() (string, error) {
 	for _, path := range libSSLCandidates {
 		if ok, err := tool.IsFilePath(path); err == nil && ok {
 			return path, nil
@@ -93,104 +89,53 @@ func findLibSSLPath() (string, error) {
 	return "", fmt.Errorf("libssl not found, please set the path via args `--ssl-path`")
 }
 
-func addSSLProbe(sslPath *string, links *[]link.Link) (*sslObjects, error) {
-	attachPaths := []string{}
-	libPaths, err := findLibSSLPath()
-	if err != nil {
-		log.Warn().Err(err).Msg("cannot find the libssl path from the common paths")
-	} else {
-		attachPaths = append(attachPaths, libPaths)
-	}
-
-	if sslPath != nil && len(*sslPath) > 0 {
-		if ok, err := tool.IsFilePath(*sslPath); err != nil || !ok {
-			return nil, fmt.Errorf("invalid SSL file path: %w", err)
-		}
-		attachPaths = append(attachPaths, *sslPath)
-	}
-	if len(attachPaths) == 0 {
-		log.Warn().Msg("no valid libssl path to attach")
-	}
-	log.Info().Any("default_path", attachPaths).Msg("using libssl")
-
+func addSSLProbe(sslPath string) ([]link.Link, *sslObjects, error) {
 	sslObjs := sslObjects{}
 	SSLSpec, err := ebpf.LoadCollectionSpec(sslSpecPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load eBPF spec: %w", err)
+		return nil, nil, fmt.Errorf("failed to load eBPF spec: %w", err)
 	}
 
 	if err := SSLSpec.LoadAndAssign(&sslObjs, nil); err != nil {
-		return nil, fmt.Errorf("failed to load and assign eBPF objects: %w", err)
+		return nil, nil, fmt.Errorf("failed to load and assign eBPF objects: %w", err)
 	}
 
-	var final error
-	for _, p := range attachPaths {
-		exec, err := link.OpenExecutable(p)
-		if err != nil {
-			final = errors.Join(final, fmt.Errorf("failed to open OpenSSL file %s: %w", p, err))
-		}
-		if err = attachSSLProbes(exec, &sslObjs, p, links); err != nil {
-			final = errors.Join(final, fmt.Errorf("failed to inject OpenSSL probes to %s: %w", p, err))
-		}
-		log.Info().Str("path", p).Msg("attaching SSL uprobes")
+	exec, err := link.OpenExecutable(sslPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open OpenSSL file %s: %w", sslPath, err)
+	}
+	links, err := attachSSLProbes(exec, &sslObjs, sslPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to inject OpenSSL probes to %s: %w", sslPath, err)
 	}
 
-	return &sslObjs, final
+	return links, &sslObjs, nil
 }
 
 type OpenSSLProbe struct {
-	links         []link.Link
-	obj           *sslObjects
-	rb            *ringbuf.Reader
-	mu            sync.Mutex
-	dynamicProbes map[container.LibKey]string
-	libDetector   *container.ContainerLibsDetector
+	links []link.Link
+	obj   *sslObjects
+	rb    *ringbuf.Reader
 }
 
-func NewOpenSSLProbe(sslPath *string, scanHostProc bool) (*OpenSSLProbe, error) {
-	links := []link.Link{}
-	obj, err := addSSLProbe(sslPath, &links)
+func NewOpenSSLProbe(sslPath string) (*OpenSSLProbe, error) {
+	links, obj, err := addSSLProbe(sslPath)
 	if obj == nil {
 		return nil, fmt.Errorf("failed to create OpenSSL probe: %w", err)
 	}
 	// continuous as long as some probes work
 	if err != nil {
-		log.Warn().Err(err).Msg("some errors occurred while attaching OpenSSL probes")
+		return nil, fmt.Errorf("failed to create OpenSSL probe: %w", err)
 	}
 	rb, err := ringbuf.NewReader(obj.Events)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open OpenSSL ringbuf reader: %w", err)
 	}
 	return &OpenSSLProbe{
-		links:         links,
-		obj:           obj,
-		rb:            rb,
-		dynamicProbes: make(map[container.LibKey]string),
-		libDetector:   container.NewContainerLibsDetector(scanHostProc),
+		links: links,
+		obj:   obj,
+		rb:    rb,
 	}, nil
-}
-
-func (op *OpenSSLProbe) Start(ctx context.Context) {
-	channel := make(chan container.ContainerOpenSSL, MAX_DYNAMIC_CHANNEL_SIZE)
-	go op.libDetector.Start(ctx, channel)
-	for containerLibs := range channel {
-		for key, path := range containerLibs.Libs {
-			op.mu.Lock()
-			if _, ok := op.dynamicProbes[key]; ok {
-				continue
-			}
-			exec, err := link.OpenExecutable(path)
-			if err != nil {
-				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to open the SSL lib")
-			}
-			if err = attachSSLProbes(exec, op.obj, path, &op.links); err != nil {
-				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to attach SSL probes to the lib")
-			}
-			log.Info().Str("path", path).Any("key", key).Msg("attaching dynamic SSL uprobes")
-			op.dynamicProbes[key] = path
-			op.mu.Unlock()
-		}
-	}
 }
 
 func (op *OpenSSLProbe) ReadBuffer() (ringbuf.Record, error) {
@@ -205,12 +150,10 @@ func (op *OpenSSLProbe) Close() error {
 	if err := op.rb.Close(); err != nil {
 		final = errors.Join(final, fmt.Errorf("failed to close OpenSSL ringbuf reader: %w", err))
 	}
-	op.mu.Lock()
 	for i, l := range op.links {
 		if err := l.Close(); err != nil {
 			final = errors.Join(final, fmt.Errorf("failed to close %d-OpenSSL link: %w", i, err))
 		}
 	}
-	op.mu.Unlock()
 	return final
 }

@@ -9,17 +9,18 @@ import (
 
 	"github.com/phuslu/log"
 
-	"github.com/tensorchord/watchu/collector"
 	"github.com/tensorchord/watchu/collector/execve"
+	"github.com/tensorchord/watchu/collector/export"
 	"github.com/tensorchord/watchu/collector/internal/logger"
 	"github.com/tensorchord/watchu/collector/internal/tool"
+	"github.com/tensorchord/watchu/collector/otelrecv"
 	"github.com/tensorchord/watchu/collector/postgres"
 	"github.com/tensorchord/watchu/collector/sslsniff"
 	"github.com/tensorchord/watchu/collector/stdio"
 )
 
 const (
-	TETRAGON_SOCKET = "unix:///var/run/tetragon/tetragon.sock"
+	TetragonSocket = "unix:///var/run/tetragon/tetragon.sock"
 )
 
 func main() {
@@ -30,15 +31,16 @@ func main() {
 	scanHostProc := flag.Bool("scan-host-proc", false, "scan host /proc to detect libssl in non-container processes (optional)")
 	address := flag.String("gateway", "", "the gateway address, e.g., 'http://localhost:8080' (optional). Leave it empty to disable pushing events to the gateway")
 	tetragonPath := flag.String("tetragon-path", "",
-		fmt.Sprintf("the Tetragon gRPC path (Unix domain socket or HTTP) (optional). e.g., '%s'. Leave it empty to disable Tetragon integration", TETRAGON_SOCKET))
+		fmt.Sprintf("the Tetragon gRPC path (Unix domain socket or HTTP) (optional). e.g., '%s'. Leave it empty to disable Tetragon integration", TetragonSocket))
 	execFilterDisabled := flag.Bool("exec-filter-disabled", false, "disable exec event filtering. When enabled (default), only events with WATCHU_CORRELATION_ID are collected. Set this flag to collect ALL exec events (warning: high volume)")
+	otelAddr := flag.String("otel-addr", "", "OTLP gRPC receiver address, e.g., ':4317' (optional). Enable to capture AI tool telemetry")
 	flag.Parse()
 
 	logger.SetUpLogger(*debug)
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	gatewayClient, err := collector.NewGatewayClient(ctx, *address)
+	gatewayClient, err := export.NewGatewayClient(ctx, *address)
 	if err != nil {
 		log.Panic().Err(err).Msg("failed to initialize gateway client")
 	}
@@ -66,6 +68,18 @@ func main() {
 		}
 		defer tetragonClient.Close()
 		go tetragonClient.Start(ctx)
+	}
+
+	// OTEL receiver for AI tool telemetry (alternative to SSL interception)
+	var otelReceiver *otelrecv.OTELReceiver
+	if len(*otelAddr) > 0 {
+		log.Info().Str("addr", *otelAddr).Msg("enable OTEL receiver for AI tool telemetry")
+		otelReceiver, err = otelrecv.NewOTELReceiver(ctx, *otelAddr, gatewayClient)
+		if err != nil {
+			log.Panic().Err(err).Msg("failed to create OTEL receiver")
+		}
+		defer otelReceiver.Close()
+		go otelReceiver.Start(ctx)
 	}
 
 	<-ctx.Done()

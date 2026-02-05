@@ -15,12 +15,12 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
-	"github.com/tensorchord/watchu/collector"
+	"github.com/tensorchord/watchu/collector/export"
 )
 
 const (
-	MAX_RETRY_COUNT        = 8
-	DEFAULT_SLEEP_DURATION = time.Second
+	maxRetryCount        = 8
+	defaultSleepDuration = time.Second
 )
 
 func sleepWithContext(ctx context.Context, d time.Duration) error {
@@ -36,7 +36,7 @@ func isServiceAvailable(client tetragon.FineGuidanceSensorsClient, ctx context.C
 	retry := 0
 	var health *tetragon.GetHealthStatusResponse
 	var errHealth error
-	for health == nil && retry < MAX_RETRY_COUNT {
+	for health == nil && retry < maxRetryCount {
 		health, errHealth = client.GetHealth(ctx, &tetragon.GetHealthStatusRequest{})
 		if errHealth == nil {
 			break
@@ -44,13 +44,13 @@ func isServiceAvailable(client tetragon.FineGuidanceSensorsClient, ctx context.C
 		log.Error().Err(errHealth).Msg("failed to get the health status of the tetragon")
 		health = nil
 		retry++
-		if err := sleepWithContext(ctx, DEFAULT_SLEEP_DURATION*time.Duration(retry)); err != nil {
+		if err := sleepWithContext(ctx, defaultSleepDuration*time.Duration(retry)); err != nil {
 			// context canceled, exit
 			break
 		}
 	}
 	if health == nil {
-		log.Error().Err(errHealth).Int("retry", MAX_RETRY_COUNT).Msg("failed to wait for the tetragon service to become available")
+		log.Error().Err(errHealth).Int("retry", maxRetryCount).Msg("failed to wait for the tetragon service to become available")
 		return false
 	}
 	log.Info().Str("status", health.String()).Msg("tetragon service is available")
@@ -61,7 +61,7 @@ func connectWithRetry(path string, ctx context.Context) (*grpc.ClientConn, error
 	retry := 0
 	var conn *grpc.ClientConn
 	var errDial error
-	for conn == nil && retry < MAX_RETRY_COUNT {
+	for conn == nil && retry < maxRetryCount {
 		conn, errDial = grpc.NewClient(path, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if errDial == nil {
 			break
@@ -69,13 +69,13 @@ func connectWithRetry(path string, ctx context.Context) (*grpc.ClientConn, error
 		log.Error().Err(errDial).Msg("failed to dial tetragon gRPC server")
 		conn = nil
 		retry++
-		if err := sleepWithContext(ctx, DEFAULT_SLEEP_DURATION*time.Duration(retry)); err != nil {
+		if err := sleepWithContext(ctx, defaultSleepDuration*time.Duration(retry)); err != nil {
 			// context canceled, exit
 			break
 		}
 	}
 	if conn == nil {
-		return nil, fmt.Errorf("failed to connect to tetragon gRPC server after %d retries: %w", MAX_RETRY_COUNT, errDial)
+		return nil, fmt.Errorf("failed to connect to tetragon gRPC server after %d retries: %w", maxRetryCount, errDial)
 	}
 	return conn, nil
 }
@@ -83,8 +83,8 @@ func connectWithRetry(path string, ctx context.Context) (*grpc.ClientConn, error
 type TetragonClient struct {
 	conn          *grpc.ClientConn
 	client        tetragon.FineGuidanceSensorsClient
-	gatewayClient *collector.GatewayClient
-	channel       chan *collector.RawExec
+	gatewayClient *export.GatewayClient
+	channel       chan *export.RawExec
 
 	// Process tree tracking for correlation_id filtering
 	// Maps exec_id -> correlation_id (inherited from parent or self)
@@ -95,11 +95,11 @@ type TetragonClient struct {
 	filterEnabled bool
 }
 
-func NewTetragonClient(path string, gatewayClient *collector.GatewayClient, ctx context.Context) (*TetragonClient, error) {
+func NewTetragonClient(path string, gatewayClient *export.GatewayClient, ctx context.Context) (*TetragonClient, error) {
 	return NewTetragonClientWithFilter(path, gatewayClient, ctx, true)
 }
 
-func NewTetragonClientWithFilter(path string, gatewayClient *collector.GatewayClient, ctx context.Context, filterEnabled bool) (*TetragonClient, error) {
+func NewTetragonClientWithFilter(path string, gatewayClient *export.GatewayClient, ctx context.Context, filterEnabled bool) (*TetragonClient, error) {
 	conn, err := connectWithRetry(path, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial: %w", err)
@@ -116,12 +116,11 @@ func NewTetragonClientWithFilter(path string, gatewayClient *collector.GatewayCl
 		conn:           conn,
 		client:         client,
 		gatewayClient:  gatewayClient,
-		channel:        make(chan *collector.RawExec, collector.GatewayChannelSize),
+		channel:        make(chan *export.RawExec, export.GatewayChannelSize),
 		correlationMap: make(map[string]string),
 		filterEnabled:  filterEnabled,
 	}, nil
 }
-
 
 // extractCorrelationID extracts WATCHU_CORRELATION_ID from environment variables
 func extractCorrelationID(envVars []*tetragon.EnvVar) string {
@@ -253,12 +252,12 @@ func (tc *TetragonClient) Start(ctx context.Context) {
 				if pp != nil && pp.Pid != nil {
 					ppid = pp.Pid.Value
 				}
-				tc.channel <- &collector.RawExec{
+				tc.channel <- &export.RawExec{
 					Timestamp:     exec.Process.StartTime.AsTime(),
 					Pid:           exec.Process.Pid.Value,
 					PPid:          ppid,
-					ExecId:        execID,
-					PExecId:       parentExecID,
+					ExecId:        exec.Process.ExecId,
+					PExecId:       exec.Process.ParentExecId,
 					Cwd:           exec.Process.Cwd,
 					Comm:          exec.Process.Binary,
 					Args:          exec.Process.Arguments,

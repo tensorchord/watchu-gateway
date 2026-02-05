@@ -14,15 +14,15 @@ import (
 	"github.com/phuslu/log"
 	"github.com/tidwall/gjson"
 
-	"github.com/tensorchord/watchu/collector"
+	"github.com/tensorchord/watchu/collector/export"
 	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 stdio stdio.bpf.c -- -I../headers
 
 const (
-	STDIO_READ  = 4
-	STDIO_WRITE = 2
+	stdioRead  = 4
+	stdioWrite = 2
 )
 
 type MCPRequest struct {
@@ -43,9 +43,9 @@ func isValidMCPMessage(event *stdioEvent) bool {
 		return false
 	}
 	switch event.Rw {
-	case STDIO_READ:
+	case stdioRead:
 		return gjson.GetBytes(event.Data[:event.DataLen], "method").Exists()
-	case STDIO_WRITE:
+	case stdioWrite:
 		return gjson.GetBytes(event.Data[:event.DataLen], "result").Exists()
 	default:
 		log.Error().Uint8("rw", event.Rw).Msg("unknown RW type")
@@ -83,11 +83,11 @@ type StdioProbe struct {
 	rb      *ringbuf.Reader
 	objs    *stdioObjects
 	links   []link.Link
-	client  *collector.GatewayClient
-	channel chan *collector.RawStdIO
+	client  *export.GatewayClient
+	channel chan *export.RawStdIO
 }
 
-func NewStdioProbe(client *collector.GatewayClient) *StdioProbe {
+func NewStdioProbe(client *export.GatewayClient) *StdioProbe {
 	objs := stdioObjects{}
 	if err := loadStdioObjects(&objs, nil); err != nil {
 		log.Fatal().Err(err).Msg("failed to load eBPF spec")
@@ -106,7 +106,7 @@ func NewStdioProbe(client *collector.GatewayClient) *StdioProbe {
 		objs:    &objs,
 		links:   links,
 		client:  client,
-		channel: make(chan *collector.RawStdIO, collector.GatewayChannelSize),
+		channel: make(chan *export.RawStdIO, export.GatewayChannelSize),
 	}
 }
 
@@ -137,13 +137,13 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 
 		var msgType string
 		switch event.Rw {
-		case STDIO_READ:
+		case stdioRead:
 			msgType = "request"
-		case STDIO_WRITE:
+		case stdioWrite:
 			msgType = "response"
 		}
 		select {
-		case sp.channel <- &collector.RawStdIO{
+		case sp.channel <- &export.RawStdIO{
 			ElapsedNs:   event.TimestampNs,
 			PidTid:      event.PidTgid,
 			UidGid:      event.UidGid,

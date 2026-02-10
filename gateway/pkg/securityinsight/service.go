@@ -188,15 +188,43 @@ func (s *Service) GetThreatAnalysis(ctx context.Context, analysisID pgtype.UUID)
 	return s.createUnifiedAnalysis(ctx, analysisID, staticEvents, dynamicEvents)
 }
 
-// getDefaultNoThreatResult returns a default "no threats" result when no security events exist
+// getDefaultNoThreatResult returns a default "no threats" result when no security events exist.
+// If the analysis was recently completed (within 90 seconds), it returns "analyzing" status
+// instead of "ready" to allow the async threat analysis pipeline (ExtractAndStore + AnalyzeThreat)
+// time to finish writing security_events before the frontend stops polling.
 func (s *Service) getDefaultNoThreatResult(ctx context.Context, analysisID pgtype.UUID) (*threatinsight.AnalysisResult, error) {
 	rootExecID := ""
+	recentlyCompleted := false
+
 	if analysis, err := s.queries.GetSaaSSkillAnalysisByID(ctx, analysisID); err == nil {
 		if analysis.RootExecID.Valid {
 			rootExecID = analysis.RootExecID.String
 		}
+		// Check if the analysis was completed very recently (within 90 seconds).
+		// The async pipeline (ExtractAndStore → AnalyzeThreat → createUnifiedAnalysis)
+		// typically takes 10-60 seconds. 90s window prevents premature "SECURE" display
+		// while avoiding indefinite "ANALYZING" loop (LLM rate limiting cases still need manual refresh).
+		if analysis.CompletedAt.Valid && time.Since(analysis.CompletedAt.Time) < 90*time.Second {
+			recentlyCompleted = true
+		}
 	}
 
+	// If recently completed, the async threat pipeline is likely still running.
+	// Return "analyzing" so the frontend keeps polling instead of showing a premature "SECURE".
+	if recentlyCompleted {
+		return &threatinsight.AnalysisResult{
+			ThreatLevel:     0,
+			ThreatType:      "pending",
+			Confidence:      0,
+			Summary:         "Security analysis in progress",
+			Details:         "Threat analysis is being performed. Results will be available shortly.",
+			Recommendations: []string{},
+			Evidence:        []map[string]interface{}{},
+			Status:          "analyzing",
+		}, nil
+	}
+
+	// Analysis completed more than 90 seconds ago with no events — genuinely no threats.
 	result := &threatinsight.AnalysisResult{
 		ThreatLevel:     1,
 		ThreatType:      "none",

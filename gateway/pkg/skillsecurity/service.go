@@ -261,6 +261,10 @@ func (s *Service) RerunAnalysis(ctx context.Context, analysis sqlc.SkillAnalysis
 		s.logger.Warn("failed to delete old security events on rerun", slog.String("analysis_id", analysis.ID.String()), slog.String("error", err.Error()))
 		// Don't fail the rerun if security events deletion fails
 	}
+	if err := s.queries.DeleteExecutionTraceByAnalysisID(ctx, analysis.ID); err != nil {
+		s.logger.Warn("failed to delete old execution trace on rerun", slog.String("analysis_id", analysis.ID.String()), slog.String("error", err.Error()))
+		// Don't fail the rerun if execution trace deletion fails
+	}
 	if err := s.queries.CascadeSoftDeleteNotificationsByAnalysisID(ctx, sqlc.CascadeSoftDeleteNotificationsByAnalysisIDParams{
 		AnalysisID: analysis.ID,
 		DeletedAt:  pgtype.Timestamptz{Time: time.Now(), Valid: true},
@@ -349,8 +353,10 @@ func (s *Service) RerunAnalysis(ctx context.Context, analysis sqlc.SkillAnalysis
 			RunnerRunID: textOrNull(runnerRunID),
 			UpdatedAt:   timestamptzNow(s.now),
 		})
-		go s.pollRunnerStatus(run.ID, runnerRunID, run.CreatedAt, analysis.AgentType)
-		go s.preRefreshProcessLifecycle(run.CreatedAt)
+		// Use StartedAt (reset to now() on rerun) instead of CreatedAt (original creation time)
+		// so that pollRunnerStatus / inferRootExecID uses the correct time window
+		go s.pollRunnerStatus(run.ID, runnerRunID, run.StartedAt, analysis.AgentType)
+		go s.preRefreshProcessLifecycle(run.StartedAt)
 	}
 	var agentRunID pgtype.UUID
 	if rootExecID != "" {

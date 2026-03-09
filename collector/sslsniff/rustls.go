@@ -19,8 +19,7 @@ type RusTLSProbe struct {
 }
 
 func NewRusTLSProbe(rustlsPath *string) (*RusTLSProbe, error) {
-	links := []link.Link{}
-	obj, err := addRustlsProbe(rustlsPath, &links)
+	links, obj, err := addRustlsProbe(rustlsPath)
 	if obj == nil || err != nil {
 		return nil, err
 	}
@@ -55,36 +54,37 @@ func (rp *RusTLSProbe) Close() error {
 	return final
 }
 
-func addRustlsProbe(rustlsPath *string, links *[]link.Link) (*rustlsObjects, error) {
+func addRustlsProbe(rustlsPath *string) ([]link.Link, *rustlsObjects, error) {
 	if rustlsPath == nil || len(*rustlsPath) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	logger := log.DefaultLogger
 	logger.Context = log.NewContext(nil).Str("path", *rustlsPath).Value()
 	if ok, err := tool.IsFilePath(*rustlsPath); err != nil || !ok {
-		return nil, fmt.Errorf("invalid rustls file path: %w", err)
+		return nil, nil, fmt.Errorf("invalid rustls file path: %w", err)
 	}
 	logger.Info().Msg("using rustls")
 	obj := rustlsObjects{}
 	rustSpec, err := ebpf.LoadCollectionSpec(rustlsSpecPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load rustls eBPF spec: %w", err)
+		return nil, nil, fmt.Errorf("failed to load rustls eBPF spec: %w", err)
 	}
 	if err := rustSpec.LoadAndAssign(&obj, nil); err != nil {
-		return nil, fmt.Errorf("failed to load and assign rustls eBPF objects: %w", err)
+		return nil, nil, fmt.Errorf("failed to load and assign rustls eBPF objects: %w", err)
 	}
 	exec, err := link.OpenExecutable(*rustlsPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open rustls executable: %w", err)
+		return nil, nil, fmt.Errorf("failed to open rustls executable: %w", err)
 	}
-	if err = attachRustlsProbes(exec, &obj, *rustlsPath, links); err != nil {
-		return nil, fmt.Errorf("failed to attach rustls probes")
+	links, err := attachRustlsProbes(exec, &obj, *rustlsPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to attach rustls probes")
 	}
 	logger.Info().Msg("attaching rustls uprobes")
-	return &obj, nil
+	return links, &obj, nil
 }
 
-func attachRustlsProbes(ex *link.Executable, objs *rustlsObjects, target string, links *[]link.Link) error {
+func attachRustlsProbes(ex *link.Executable, objs *rustlsObjects, target string) ([]link.Link, error) {
 	probes := []struct {
 		address uint64
 		prog    *ebpf.Program
@@ -96,7 +96,7 @@ func attachRustlsProbes(ex *link.Executable, objs *rustlsObjects, target string,
 	}
 
 	failedProbes := 0
-	newLinks := []link.Link{}
+	links := []link.Link{}
 	for _, probe := range probes {
 		up, err := probe.inject("rustls", probe.prog, &link.UprobeOptions{Address: probe.address})
 		if err != nil {
@@ -104,14 +104,13 @@ func attachRustlsProbes(ex *link.Executable, objs *rustlsObjects, target string,
 			failedProbes++
 			continue
 		}
-		newLinks = append(newLinks, up)
+		links = append(links, up)
 	}
 	if failedProbes > 0 {
-		for _, link := range newLinks {
+		for _, link := range links {
 			_ = link.Close()
 		}
-		return fmt.Errorf("failed to inject %d/%d rustls probes", failedProbes, len(probes))
+		return nil, fmt.Errorf("failed to inject %d/%d rustls probes", failedProbes, len(probes))
 	}
-	*links = append(*links, newLinks...)
-	return nil
+	return links, nil
 }

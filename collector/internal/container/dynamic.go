@@ -27,23 +27,27 @@ const (
 	procMapsFormat = "/proc/%s/maps"
 	procRootFormat = "/proc/%s/root/%s"
 	regexLibSSL    = `libssl[0-9a-zA-Z_-]*\.so(\.\d+)*`
+	regexClaude    = `claude/versions/[\d.]+`
 )
 
 var (
-	patternLibSSL = regexp.MustCompile(regexLibSSL)
+	patternLibSSL    = regexp.MustCompile(regexLibSSL)
+	patternBoringSSL = regexp.MustCompile(regexClaude)
 )
 
 type ContainerLibsDetector struct {
 	mu sync.RWMutex
 	re *regexp.Regexp
 	// <proc:[paths]>
-	procLib map[string][]string
+	procOpenSSLLib   map[string][]string
+	procBoringSSLLib map[string][]string
 }
 
 func NewContainerLibsDetector() *ContainerLibsDetector {
 	return &ContainerLibsDetector{
-		re:      regexp.MustCompile(regexContainerID),
-		procLib: make(map[string][]string),
+		re:               regexp.MustCompile(regexContainerID),
+		procOpenSSLLib:   make(map[string][]string),
+		procBoringSSLLib: make(map[string][]string),
 	}
 }
 
@@ -67,7 +71,8 @@ func (cld *ContainerLibsDetector) Start(ctx context.Context, ch chan ContainerOp
 }
 
 func (cld *ContainerLibsDetector) scan() error {
-	newProcLib := make(map[string][]string)
+	newOpenSSLLib := make(map[string][]string)
+	newBoringSSLLib := make(map[string][]string)
 	if err := filepath.WalkDir(cgroupDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return nil
@@ -87,8 +92,13 @@ func (cld *ContainerLibsDetector) scan() error {
 				continue
 			}
 			cld.mu.RLock()
-			if libs, ok := cld.procLib[string(proc)]; ok {
-				newProcLib[string(proc)] = libs
+			if libs, ok := cld.procOpenSSLLib[string(proc)]; ok {
+				newOpenSSLLib[string(proc)] = libs
+				cld.mu.RUnlock()
+				continue
+			}
+			if libs, ok := cld.procBoringSSLLib[string(proc)]; ok {
+				newBoringSSLLib[string(proc)] = libs
 				cld.mu.RUnlock()
 				continue
 			}
@@ -109,7 +119,16 @@ func (cld *ContainerLibsDetector) scan() error {
 					libsslPaths = append(libsslPaths, absPath)
 				}
 			}
-			newProcLib[string(proc)] = libsslPaths
+			newOpenSSLLib[string(proc)] = libsslPaths
+			exist, err := findBoringSSLInMaps(proc)
+			if err != nil {
+				continue
+			}
+			boringPaths := []string{}
+			if exist {
+				boringPaths = append(boringPaths, absPath)
+			}
+			newBoringSSLLib[string(proc)] = boringPaths
 		}
 		return nil
 	}); err != nil {
@@ -117,9 +136,31 @@ func (cld *ContainerLibsDetector) scan() error {
 		return err
 	}
 	cld.mu.Lock()
-	cld.procLib = newProcLib
+	cld.procOpenSSLLib = newOpenSSLLib
+	cld.procBoringSSLLib = newBoringSSLLib
 	cld.mu.Unlock()
 	return nil
+}
+
+// for now, it only detect the `claude`
+func findBoringSSLInMaps(proc []byte) (bool, error) {
+	filename := fmt.Sprintf(procMapsFormat, proc)
+	file, err := os.Open(filename)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if loc := patternBoringSSL.FindStringIndex(line); len(loc) > 0 {
+			return true, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func findLibSSLInMaps(proc []byte) ([]string, error) {
@@ -221,23 +262,35 @@ func FindLibKey(path string) (*LibKey, error) {
 }
 
 type ContainerOpenSSL struct {
-	Libs map[LibKey]string
+	OpenSSLLibs   map[LibKey]string
+	BoringSSLLibs map[LibKey]string
 }
 
 func (cld *ContainerLibsDetector) Export() ContainerOpenSSL {
 	cld.mu.RLock()
 	defer cld.mu.RUnlock()
 	res := ContainerOpenSSL{
-		Libs: make(map[LibKey]string),
+		OpenSSLLibs:   make(map[LibKey]string),
+		BoringSSLLibs: make(map[LibKey]string),
 	}
-	for _, libPaths := range cld.procLib {
+	for _, libPaths := range cld.procOpenSSLLib {
 		for _, libPath := range libPaths {
 			key, err := FindLibKey(libPath)
 			if err != nil {
 				log.Error().Err(err).Str("lib_path", libPath).Msg("failed to find lib key")
 				continue
 			}
-			res.Libs[*key] = libPath
+			res.OpenSSLLibs[*key] = libPath
+		}
+	}
+	for _, libPaths := range cld.procBoringSSLLib {
+		for _, libPath := range libPaths {
+			key, err := FindLibKey(libPath)
+			if err != nil {
+				log.Error().Err(err).Str("boring_path", libPath).Msg("failed to find lib key")
+				continue
+			}
+			res.BoringSSLLibs[*key] = libPath
 		}
 	}
 	return res

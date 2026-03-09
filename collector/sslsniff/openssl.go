@@ -32,7 +32,7 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string) ([]li
 	}
 
 	failedProbes := 0
-	newLinks := []link.Link{}
+	links := []link.Link{}
 	for _, probe := range probes {
 		up, err := probe.inject(probe.symbol, probe.prog, nil)
 		if err != nil {
@@ -40,15 +40,15 @@ func attachSSLProbes(ex *link.Executable, objs *sslObjects, target string) ([]li
 			failedProbes++
 			continue
 		}
-		newLinks = append(newLinks, up)
+		links = append(links, up)
 	}
 	if failedProbes > 0 {
-		for _, link := range newLinks {
+		for _, link := range links {
 			_ = link.Close()
 		}
 		return nil, fmt.Errorf("failed to inject the prog %d/%d", failedProbes, len(probes))
 	}
-	return newLinks, nil
+	return links, nil
 }
 
 var libSSLCandidates = []string{

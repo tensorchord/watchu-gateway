@@ -18,10 +18,12 @@ import (
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 ssl ssl.bpf.c -- -I../headers
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 boring boring.bpf.c -- -I../headers
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 rustls rustls.bpf.c -- -I../headers
 
 const (
 	sslSpecPath    = "sslsniff/ssl_x86_bpfel.o"
+	boringSpecPath = "sslsniff/boring_x86_bpfel.o"
 	rustlsSpecPath = "sslsniff/rustls_x86_bpfel.o"
 )
 
@@ -156,7 +158,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 	channel := make(chan container.ContainerOpenSSL, maxDynamicChannelSize)
 	go container.NewContainerLibsDetector().Start(ctx, channel)
 	for containerLibs := range channel {
-		for key, path := range containerLibs.Libs {
+		for key, path := range containerLibs.OpenSSLLibs {
 			// there is no Time-of-Check to Time-of-Use (TOCTOU) here
 			sp.mu.Lock()
 			_, exist := sp.probes[key]
@@ -166,7 +168,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 			}
 			probe, err := NewOpenSSLProbe(path)
 			if err != nil {
-				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to probe the SSL lib")
+				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to probe the OpenSSL lib")
 				continue
 			}
 			sp.mu.Lock()
@@ -174,7 +176,26 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 			wg.Go(func() { handle(key, probe, store) })
 			sp.probes[key] = probe
 			sp.mu.Unlock()
-			log.Info().Int("index", index).Str("path", path).Any("key", key).Msg("attaching dynamic SSL uprobes")
+			log.Info().Int("index", index).Str("path", path).Any("key", key).Msg("attaching dynamic OpenSSL uprobes")
+		}
+		for key, path := range containerLibs.BoringSSLLibs {
+			sp.mu.Lock()
+			_, exist := sp.probes[key]
+			sp.mu.Unlock()
+			if exist {
+				continue
+			}
+			probe, err := NewBoringSSLProbe(path)
+			if err != nil {
+				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to probe the BoringSSL lib")
+				continue
+			}
+			sp.mu.Lock()
+			index := len(sp.probes)
+			wg.Go(func() { handle(key, probe, store) })
+			sp.probes[key] = probe
+			sp.mu.Unlock()
+			log.Info().Int("index", index).Str("path", path).Any("key", key).Msg("attaching dynamic BoringSSL uprobes")
 		}
 	}
 

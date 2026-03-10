@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -53,7 +54,7 @@ func isValidMCPMessage(event *stdioEvent) bool {
 	}
 }
 
-func attachStdioProbes(objs stdioObjects, links *[]link.Link) {
+func attachStdioProbes(objs stdioObjects) ([]link.Link, error) {
 	probes := []struct {
 		group string
 		name  string
@@ -64,19 +65,24 @@ func attachStdioProbes(objs stdioObjects, links *[]link.Link) {
 		{"syscalls", "sys_enter_write", objs.TracepointEnterWrite},
 	}
 
-	failedProbes := 0
+	failed := 0
+	links := []link.Link{}
 	for _, probe := range probes {
 		tp, err := link.Tracepoint(probe.group, probe.name, probe.prog, nil)
 		if err != nil {
 			log.Error().Err(err).Str("group", probe.group).Str("name", probe.name).Msg("failed to attach stdio tracepoint")
-			failedProbes++
+			failed++
 			continue
 		}
-		*links = append(*links, tp)
+		links = append(links, tp)
 	}
-	if failedProbes > 0 {
-		log.Fatal().Int("failed", failedProbes).Msg("failed to attach stdio")
+	if failed > 0 {
+		for _, link := range links {
+			_ = link.Close()
+		}
+		return nil, fmt.Errorf("failed to inject %d/%d stdio probe", failed, len(probes))
 	}
+	return links, nil
 }
 
 type StdioProbe struct {
@@ -87,18 +93,23 @@ type StdioProbe struct {
 	channel chan *export.RawStdIO
 }
 
-func NewStdioProbe(client *export.GatewayClient) *StdioProbe {
+func NewStdioProbe(client *export.GatewayClient) (*StdioProbe, error) {
 	objs := stdioObjects{}
 	if err := loadStdioObjects(&objs, nil); err != nil {
-		log.Fatal().Err(err).Msg("failed to load eBPF spec")
+		log.Error().Err(err).Msg("failed to load eBPF stdio spec")
+		return nil, err
 	}
 
-	links := []link.Link{}
-	attachStdioProbes(objs, &links)
+	links, err := attachStdioProbes(objs)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to attach stdio probes")
+		return nil, err
+	}
 
 	rb, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to open ringbuf reader for stdio")
+		log.Error().Err(err).Msg("failed to open ringbuf reader for stdio")
+		return nil, err
 	}
 
 	return &StdioProbe{
@@ -107,7 +118,7 @@ func NewStdioProbe(client *export.GatewayClient) *StdioProbe {
 		links:   links,
 		client:  client,
 		channel: make(chan *export.RawStdIO, export.GatewayChannelSize),
-	}
+	}, nil
 }
 
 func (sp *StdioProbe) Start(ctx context.Context) {

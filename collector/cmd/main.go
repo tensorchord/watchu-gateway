@@ -49,12 +49,18 @@ func main() {
 	}
 
 	sslProbe := sslsniff.NewSSLProbe(SSLPath, rustlsPath, gatewayClient)
+	defer sslProbe.Close()
 	go sslProbe.Start(ctx)
 
-	stdioProbe := stdio.NewStdioProbe(gatewayClient)
+	stdioProbe, err := stdio.NewStdioProbe(gatewayClient)
+	if err != nil {
+		log.Panic().Err(err).Msg("failed to initialize stdio probe")
+	}
+	defer stdioProbe.Close()
 	go stdioProbe.Start(ctx)
 
 	pgProbe := postgres.NewPostgresProbe(gatewayClient)
+	defer pgProbe.Close()
 	go pgProbe.Start(ctx)
 
 	if len(*tetragonPath) > 0 {
@@ -80,7 +86,4 @@ func main() {
 	}
 
 	<-ctx.Done()
-	sslProbe.Close()
-	stdioProbe.Close()
-	pgProbe.Close()
 }

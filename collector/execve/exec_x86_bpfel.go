@@ -8,9 +8,18 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"structs"
 
 	"github.com/cilium/ebpf"
 )
+
+type execEvent struct {
+	_        structs.HostLayout
+	Pid      int32
+	OldPid   int32
+	Comm     [16]int8
+	Filename [256]int8
+}
 
 // loadExec returns the embedded CollectionSpec for exec.
 func loadExec() (*ebpf.CollectionSpec, error) {
@@ -61,7 +70,8 @@ type execProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type execMapSpecs struct {
-	Events *ebpf.MapSpec `ebpf:"events"`
+	FakeEventMap *ebpf.MapSpec `ebpf:"_fake_event_map"`
+	Events       *ebpf.MapSpec `ebpf:"events"`
 }
 
 // execVariableSpecs contains global variables before they are loaded into the kernel.
@@ -90,11 +100,13 @@ func (o *execObjects) Close() error {
 //
 // It can be passed to loadExecObjects or ebpf.CollectionSpec.LoadAndAssign.
 type execMaps struct {
-	Events *ebpf.Map `ebpf:"events"`
+	FakeEventMap *ebpf.Map `ebpf:"_fake_event_map"`
+	Events       *ebpf.Map `ebpf:"events"`
 }
 
 func (m *execMaps) Close() error {
 	return _ExecClose(
+		m.FakeEventMap,
 		m.Events,
 	)
 }

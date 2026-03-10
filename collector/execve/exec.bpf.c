@@ -7,11 +7,9 @@
 #include "bpf_helpers.h"
 #include "bpf_tracing.h"
 
-#define MAX_ENTRIES 10240
 #define TASK_COMM_LEN 16
 #define MAX_FILENAME_LEN 256
-#define RING_BUFFER_SIZE (8 * 1024 * 1024) // 8 MiB
-#define MAX_BUF_SIZE (128 * 1024) // 128 KiB
+#define RING_BUFFER_SIZE (4 * 1024 * 1024) // 4 MiB
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
@@ -30,22 +28,31 @@ struct {
 } events SEC(".maps");
 
 struct event {
-    u64 timestamp_ns;
-    u64 cgroup_id;
     s32 pid;
+    s32 old_pid;
     char comm[TASK_COMM_LEN];
     char filename[MAX_FILENAME_LEN];
 };
 
+// used to make the bpf2go generate event struct
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, struct event);
+} _fake_event_map SEC(".maps");
+
 SEC("tracepoint/sched/sched_process_exec")
 int tracepoint_sched_process_exec(struct sched_process_ctx *ctx) {
+    if (ctx->pid == 0)
+        return 0;
+
     struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
     if (!evt)
         return 0;
 
-    evt->timestamp_ns = bpf_ktime_get_ns();
-    evt->pid          = evt->pid;
-    evt->cgroup_id    = bpf_get_current_cgroup_id();
+    evt->pid     = ctx->pid;
+    evt->old_pid = ctx->old_pid;
     bpf_get_current_comm(&evt->comm, TASK_COMM_LEN);
 
     u32 length = ctx->filename >> 16;

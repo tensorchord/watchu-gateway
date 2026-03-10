@@ -1,13 +1,37 @@
 package sslsniff
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
+	"golang.org/x/sys/unix"
+)
+
+const addressDiff = 3232
+
+var (
+	// The current bun BoringSSL SSL_read/SSL_write function bytes.
+	// This may change in the future if bun updates the BoringSSL code.
+	BoringSSLReadPattern = []byte{
+		0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56,
+		0x53, 0x50, 0x48, 0x83, 0xbf, 0x98, 0x00, 0x00,
+	}
+	BoringSSLWritePattern = []byte{
+		0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56,
+		0x41, 0x55, 0x41, 0x54, 0x53, 0x48, 0x83, 0xec,
+		0x18, 0x41, 0x89, 0xd7, 0x49, 0x89, 0xf6, 0x48,
+		0x89, 0xfb, 0x48, 0x8b, 0x47, 0x30, 0xc7, 0x80,
+	}
+
+	// errors
+	errUprobeNotFound = errors.New("cannot find the pattern")
+	errWrongAddrDiff  = errors.New("wrong address diff")
 )
 
 type BoringSSLProbe struct {
@@ -73,14 +97,19 @@ func addBoringProbe(path string) ([]link.Link, *boringObjects, error) {
 }
 
 func attachBoringProbes(ex *link.Executable, objs *boringObjects, target string) ([]link.Link, error) {
+	read, write, err := searchUprobeAddresses(target)
+	if err != nil {
+		log.Warn().Err(err).Msg("cannot find the BoringSSL uprobe address")
+		return nil, err
+	}
 	probes := []struct {
 		address uint64
 		prog    *ebpf.Program
 		inject  func(string, *ebpf.Program, *link.UprobeOptions) (link.Link, error)
 	}{
-		{0x630bb90, objs.ProbeBoringSslReadEntry, ex.Uprobe},
-		{0x630bb90, objs.ProbeBoringSslReadExit, ex.Uretprobe},
-		{0x630c830, objs.ProbeBoringSslWriteExit, ex.Uprobe},
+		{uint64(read), objs.ProbeBoringSslReadEntry, ex.Uprobe},
+		{uint64(read), objs.ProbeBoringSslReadExit, ex.Uretprobe},
+		{uint64(write), objs.ProbeBoringSslWriteExit, ex.Uprobe},
 	}
 
 	failed := 0
@@ -101,4 +130,37 @@ func attachBoringProbes(ex *link.Executable, objs *boringObjects, target string)
 		return nil, fmt.Errorf("failed to inject %d/%d BoringSSL probe", failed, len(probes))
 	}
 	return links, nil
+}
+
+func searchUprobeAddresses(path string) (read int, write int, err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return
+	}
+
+	buf, err := unix.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), unix.PROT_READ, unix.MAP_PRIVATE)
+	if err != nil {
+		return
+	}
+	defer func() {
+		if err := unix.Munmap(buf); err != nil {
+			log.Warn().Err(err).Msg("failed to un-mmap the file")
+		}
+	}()
+
+	read = bytes.Index(buf, BoringSSLReadPattern)
+	write = bytes.Index(buf, BoringSSLWritePattern)
+	if read < 0 || write < 0 {
+		err = fmt.Errorf("failed to find read(%d) write(%d): %w", read, write, errUprobeNotFound)
+	}
+	if write > 0 && read > 0 && write-read != addressDiff {
+		err = fmt.Errorf("failed to validate %d != %d: %w", write-read, addressDiff, errWrongAddrDiff)
+	}
+	return
 }

@@ -26,7 +26,7 @@ function isHighSeverity(alert: HeuristicAlertResponse): boolean {
 export default function HighRiskAlertMonitor() {
     const navigate = useNavigate();
     const { host, since, until, limit } = useSettings();
-    const alertsQuery = useHeuristicAlerts(host, since, until, Math.max(50, limit));
+    const alertsQuery = useHeuristicAlerts(host, since, until, limit === -1 ? 999999 : Math.max(50, limit));
     const [api, contextHolder] = notification.useNotification();
     const seenRef = useRef<Set<string>>(new Set());
     const [snoozedUntil, setSnoozedUntil] = useState<number | null>(null);

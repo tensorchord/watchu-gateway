@@ -1,4 +1,4 @@
-import { DatePicker, Select, Space, Tooltip, type SelectProps } from "antd";
+import { DatePicker, Select, Space, Tooltip, Switch, type SelectProps } from "antd";
 import { useEffect, useMemo } from "react";
 import dayjs, { Dayjs } from "dayjs";
 
@@ -7,7 +7,9 @@ import { useHosts } from "../hooks/useAnalytics";
 
 const presetOptions: Array<{ label: string; value: TimeRangePreset; minutes?: number }> = [
     { label: "Last 15m", value: "15m", minutes: 15 },
+    { label: "Last 30m", value: "30m", minutes: 30 },
     { label: "Last 1h", value: "1h", minutes: 60 },
+    { label: "Last 2h", value: "2h", minutes: 120 },
     { label: "Last 6h", value: "6h", minutes: 360 },
     { label: "Last 24h", value: "24h", minutes: 1440 },
     { label: "Custom", value: "custom" }
@@ -25,7 +27,20 @@ function calculateRange(preset: TimeRangePreset): [Dayjs, Dayjs] {
 }
 
 export default function GlobalFilters() {
-    const { host, setHost, since, setSince, until, setUntil, timePreset, setTimePreset } = useSettings();
+    const {
+        host,
+        setHost,
+        since,
+        setSince,
+        until,
+        setUntil,
+        timePreset,
+        setTimePreset,
+        limit,
+        setLimit,
+        autoRefresh,
+        setAutoRefresh
+    } = useSettings();
     const { data: hosts = [], isLoading: hostsLoading } = useHosts();
 
     const hostOptions = useMemo<SelectProps<string>["options"]>(
@@ -35,7 +50,7 @@ export default function GlobalFilters() {
 
     // Auto-update time range when using preset (not custom)
     useEffect(() => {
-        if (timePreset === "custom") {
+        if (timePreset === "custom" || !autoRefresh) {
             return;
         }
 
@@ -52,7 +67,7 @@ export default function GlobalFilters() {
         }, 30000); // 30 seconds
 
         return () => clearInterval(intervalId);
-    }, [timePreset, setSince, setUntil]);
+    }, [timePreset, autoRefresh, setSince, setUntil]);
 
     useEffect(() => {
         if (!hostOptions || hostOptions.length === 0) {
@@ -178,6 +193,29 @@ export default function GlobalFilters() {
                         };
                     }}
                 />
+            </Tooltip>
+            <Select<number>
+                value={limit}
+                style={{ width: 160 }}
+                onChange={(value) => setLimit(value)}
+                options={[
+                    { label: "Limit: 500", value: 500 },
+                    { label: "Limit: 1000", value: 1000 },
+                    { label: "Limit: 2000", value: 2000 },
+                    { label: "Limit: 5000", value: 5000 },
+                    { label: "Limit: 10000", value: 10000 },
+                    { label: "No Limit", value: -1 }
+                ]}
+            />
+            <Tooltip title={autoRefresh ? "Auto refresh is on" : "Auto refresh is off"}>
+                <Space size={6}>
+                    <span style={{ fontSize: 12, color: "#6b7280" }}>Auto refresh</span>
+                    <Switch
+                        size="small"
+                        checked={autoRefresh}
+                        onChange={(value) => setAutoRefresh(value)}
+                    />
+                </Space>
             </Tooltip>
         </Space>
     );

@@ -643,7 +643,23 @@ export function buildSeries(categories: string[], grouped: Map<string, CombinedE
             type: "scatter",
             symbolSize: 12,
             symbol,
-            emphasis: { focus: "series" },
+            cursor: "pointer",
+            selectedMode: "single",
+            emphasis: {
+                focus: "series",
+                scale: true,
+                itemStyle: {
+                    borderColor: "#0f172a",
+                    borderWidth: 2
+                }
+            },
+            select: {
+                itemStyle: {
+                    borderColor: "#0f172a",
+                    borderWidth: 2
+                },
+                symbolSize: 16
+            },
             data,
             ...(color ? { itemStyle: { color } } : {})
         } satisfies ScatterSeriesOption;
@@ -662,6 +678,7 @@ export function mapHttpEvents(events: ProcessHTTPEventResponse[] | undefined): T
             }
             const httpTypeRaw = toPrimitiveString(event.http_type);
             const httpType = httpTypeRaw ? httpTypeRaw.toUpperCase() : "UNKNOWN";
+            const httpId = toPrimitiveString(event.http_id);
             const method = toPrimitiveString(event.method);
             const statusCode = event.status_code != null ? Number(event.status_code) : null;
             const url = toPrimitiveString(event.url);
@@ -677,6 +694,7 @@ export function mapHttpEvents(events: ProcessHTTPEventResponse[] | undefined): T
                     formatTimestamp(timestampMs) ?? (typeof event.timestamp === "string" ? event.timestamp : `${timestampMs}`),
                 timestampMs,
                 kind: "http" as const,
+                httpId,
                 httpType,
                 isMcpHttp: Boolean(event.is_mcp_http),
                 method,

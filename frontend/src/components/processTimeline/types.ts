@@ -10,6 +10,7 @@ export interface TimelineEvent {
     timestamp: string;
     timestampMs: number;
     kind: "http";
+    httpId: string | null;
     httpType: string;
     isMcpHttp: boolean;
     method: string | null;

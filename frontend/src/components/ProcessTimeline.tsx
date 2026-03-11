@@ -1,15 +1,17 @@
-import { DownloadOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
-import { Button, Card, Empty, Flex, Input, Select, Space, Spin, Tag, Typography, message } from "antd";
+import { DownloadOutlined, InfoCircleOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { Button, Card, Empty, Flex, Input, Select, Space, Spin, Switch, Tag, Tooltip, Typography, message } from "antd";
 import type { SelectProps } from "antd";
 import type { ECharts, EChartsOption } from "echarts";
 import ReactECharts, { type ReactEChartsInstance } from "echarts-for-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, KeyboardEvent } from "react";
+import { useNavigate } from "react-router-dom";
 
 import type { ProcessEventResponse, ProcessHTTPEventResponse } from "../types/api";
 import { exportChartAsImage, exportRowsToCSV } from "../utils/export";
 import { CARD_HEAD_STYLE, CARD_TITLE_TEXT_STYLE } from "./cardStyles";
 import { buildAxisLabelFormatter, buildZoomLabelFormatter } from "./processTimeline/chart";
+import { useSettings } from "../context/SettingsContext";
 import {
     GROUP_OPTIONS,
     HTTP_CATEGORY_ORDER,
@@ -40,6 +42,7 @@ import type {
     ProcessEvent,
     SeverityFilterKey,
     TimelineEvent,
+    TimelinePoint,
     TimelineTooltipParam,
     TimeRange
 } from "./processTimeline/types";
@@ -88,6 +91,8 @@ export default function ProcessTimeline({
     onFocusRootExecApplied,
     onFocusRootExecCleared
 }: ProcessTimelineProps) {
+    const navigate = useNavigate();
+    const { limit: settingsLimit } = useSettings();
     const timelineEvents = useMemo(() => mapHttpEvents(httpEvents ?? events), [events, httpEvents]);
     const timelineProcessEvents = useMemo(() => mapProcessEvents(processEvents), [processEvents]);
 
@@ -98,6 +103,8 @@ export default function ProcessTimeline({
         SEVERITY_FILTERS.map((filter) => filter.value)
     );
     const [search, setSearch] = useState("");
+    const [enableRelationalSearch, setEnableRelationalSearch] = useState(false);
+    const [selectedEvent, setSelectedEvent] = useState<CombinedEvent | null>(null);
     const [internalRootExecFilter, setInternalRootExecFilter] = useState<string | null>(null);
     const [rootExecDraftState, setRootExecDraftState] = useState("");
     const chartRef = useRef<ReactEChartsInstance | null>(null);
@@ -220,42 +227,160 @@ export default function ProcessTimeline({
     const filteredEvents = useMemo(() => {
         const searchLower = search.trim().toLowerCase();
         const severitySet = new Set(selectedSeverities);
-        return timelineEvents.filter((event) => {
+
+        // If relational search is disabled, use original simple filtering logic
+        if (!enableRelationalSearch) {
+            return timelineEvents.filter((event) => {
+                if (selectedTypes.length) {
+                    const categoryLabel = getHttpCategoryLabel(event);
+                    const matchesType = selectedTypes.some(
+                        (selected) => selected === event.httpType || selected === categoryLabel
+                    );
+                    if (!matchesType) {
+                        return false;
+                    }
+                }
+                if (!matchesSelectedRootPid(selectedRootPids, event.rootPid, event.pid)) {
+                    return false;
+                }
+                if (rootExecFilter) {
+                    const matchesExec = event.rootExecId === rootExecFilter || event.execId === rootExecFilter;
+                    if (!matchesExec) {
+                        return false;
+                    }
+                }
+                if (event.httpType === "REQUEST") {
+                    const key = toSeverityFilterKey(event.severityLevel);
+                    if (!severitySet.has(key)) {
+                        return false;
+                    }
+                }
+                if (searchLower) {
+                    const haystack = [event.method, event.url, event.execId, event.rootExecId]
+                        .map((value) => (typeof value === "string" ? value.toLowerCase() : ""))
+                        .join(" ");
+                    if (!haystack.includes(searchLower)) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+        }
+
+        // Relational search enabled: two-pass filtering
+        // First pass: identify events that match search criteria directly
+        const directMatches = new Set<TimelineEvent>();
+        const matchedPidTimestamps = new Map<number, number[]>(); // pid -> timestamps[]
+
+        timelineEvents.forEach((event) => {
+            // Apply type filter
             if (selectedTypes.length) {
                 const categoryLabel = getHttpCategoryLabel(event);
                 const matchesType = selectedTypes.some(
                     (selected) => selected === event.httpType || selected === categoryLabel
                 );
                 if (!matchesType) {
-                    return false;
+                    return;
                 }
             }
+
+            // Apply root PID filter
             if (!matchesSelectedRootPid(selectedRootPids, event.rootPid, event.pid)) {
-                return false;
+                return;
             }
+
+            // Apply exec filter
             if (rootExecFilter) {
                 const matchesExec = event.rootExecId === rootExecFilter || event.execId === rootExecFilter;
                 if (!matchesExec) {
-                    return false;
+                    return;
                 }
             }
+
+            // Apply severity filter (only for requests)
             if (event.httpType === "REQUEST") {
                 const key = toSeverityFilterKey(event.severityLevel);
                 if (!severitySet.has(key)) {
-                    return false;
+                    return;
                 }
             }
+
+            // Apply search filter
             if (searchLower) {
                 const haystack = [event.method, event.url, event.execId, event.rootExecId]
                     .map((value) => (typeof value === "string" ? value.toLowerCase() : ""))
                     .join(" ");
-                if (!haystack.includes(searchLower)) {
-                    return false;
+                if (haystack.includes(searchLower)) {
+                    directMatches.add(event);
+                    // Collect (pid, timestamp) for relational matching
+                    // Request and Response are paired by same PID and close timestamp
+                    if (event.pid != null && event.timestampMs != null) {
+                        if (!matchedPidTimestamps.has(event.pid)) {
+                            matchedPidTimestamps.set(event.pid, []);
+                        }
+                        matchedPidTimestamps.get(event.pid)!.push(event.timestampMs);
+                    }
+                    return;
+                }
+                // If search doesn't match, skip this event for now
+                return;
+            }
+
+            // No search filter, include the event
+            directMatches.add(event);
+        });
+
+        // Second pass: include related events with the same pid and nearby timestamp
+        return timelineEvents.filter((event) => {
+            // Already matched directly
+            if (directMatches.has(event)) {
+                return true;
+            }
+
+            // If this event has matching pid and nearby timestamp, include it
+            if (searchLower && event.pid != null && event.timestampMs != null) {
+                const timestamps = matchedPidTimestamps.get(event.pid);
+                if (timestamps) {
+                    // Check if any matched timestamp is within 60 seconds of this event
+                    const isNearby = timestamps.some((matchedTs) =>
+                        Math.abs(event.timestampMs! - matchedTs) <= 60000
+                    );
+
+                    if (isNearby) {
+                        // Still apply non-search filters
+                        if (selectedTypes.length) {
+                            const categoryLabel = getHttpCategoryLabel(event);
+                            const matchesType = selectedTypes.some(
+                                (selected) => selected === event.httpType || selected === categoryLabel
+                            );
+                            if (!matchesType) {
+                                return false;
+                            }
+                        }
+                        if (!matchesSelectedRootPid(selectedRootPids, event.rootPid, event.pid)) {
+                            return false;
+                        }
+                        if (rootExecFilter) {
+                            const matchesExec = event.rootExecId === rootExecFilter || event.execId === rootExecFilter;
+                            if (!matchesExec) {
+                                return false;
+                            }
+                        }
+                        // For responses, don't apply severity filter
+                        if (event.httpType === "REQUEST") {
+                            const key = toSeverityFilterKey(event.severityLevel);
+                            if (!severitySet.has(key)) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    }
                 }
             }
-            return true;
+
+            return false;
         });
-    }, [timelineEvents, rootExecFilter, search, selectedRootPids, selectedSeverities, selectedTypes]);
+    }, [timelineEvents, rootExecFilter, search, selectedRootPids, selectedSeverities, selectedTypes, enableRelationalSearch]);
 
     const filteredProcessEvents = useMemo(() => {
         const searchLower = search.trim().toLowerCase();
@@ -293,14 +418,15 @@ export default function ProcessTimeline({
     const totalEvents = filteredEvents.length + activeProcessEvents.length;
 
     const { displayEvents, displayProcessEvents, sampledTotal } = useMemo(() => {
-        if (totalEvents <= MAX_TIMELINE_POINTS) {
+        const maxPoints = settingsLimit === -1 ? Number.MAX_SAFE_INTEGER : settingsLimit;
+        if (totalEvents <= maxPoints) {
             return {
                 displayEvents: filteredEvents,
                 displayProcessEvents: activeProcessEvents,
                 sampledTotal: totalEvents
             };
         }
-        const ratio = MAX_TIMELINE_POINTS / totalEvents;
+        const ratio = maxPoints / totalEvents;
         const httpBudget = Math.max(1, Math.floor(filteredEvents.length * ratio));
         const procBudget = Math.max(1, Math.floor(activeProcessEvents.length * ratio));
         const sampledHttp = downsampleByTime(filteredEvents, httpBudget);
@@ -310,7 +436,7 @@ export default function ProcessTimeline({
             displayProcessEvents: sampledProc,
             sampledTotal: sampledHttp.length + sampledProc.length
         };
-    }, [activeProcessEvents, filteredEvents, totalEvents]);
+    }, [activeProcessEvents, filteredEvents, totalEvents, settingsLimit]);
 
     const grouped = useMemo(() => {
         const map = new Map<string, CombinedEvent[]>();
@@ -385,13 +511,17 @@ export default function ProcessTimeline({
     const axisLabelFormatter = useMemo(() => buildAxisLabelFormatter(timeRange), [timeRange]);
     const zoomLabelFormatter = useMemo(() => buildZoomLabelFormatter(timeRange), [timeRange]);
 
+    const showLegend = categories.length > 1;
+
     const option = useMemo<EChartsOption>(
         () => ({
             animation: false,
             lazyUpdate: true,
             legend: {
                 type: "scroll",
-                top: 0
+                top: 0,
+                selectedMode: false,
+                show: showLegend
             },
             tooltip: {
                 trigger: "item",
@@ -473,7 +603,7 @@ export default function ProcessTimeline({
             ],
             series: buildSeries(categories, grouped)
         }),
-        [axisLabelFormatter, categories, grouped, zoomLabelFormatter]
+        [axisLabelFormatter, categories, grouped, showLegend, zoomLabelFormatter]
     );
 
     const handleExportChart = useCallback(async () => {
@@ -494,6 +624,42 @@ export default function ProcessTimeline({
         const result = toExportRows(filteredEvents, filteredProcessEvents);
         exportRowsToCSV(result.columns, result.rows, "process-timeline");
     }, [filteredEvents, filteredProcessEvents]);
+
+    const navigateToProcessView = useCallback(
+        (params: { rootExecId?: string | null; rootPid?: number | null }) => {
+            const normalizedRootExecId = (params.rootExecId ?? "").trim();
+            const normalizedRootPid = params.rootPid ?? null;
+
+            if (typeof normalizedRootPid === "number" && Number.isFinite(normalizedRootPid) && normalizedRootPid > 0) {
+                const suffix = normalizedRootExecId ? `?root_exec_id=${encodeURIComponent(normalizedRootExecId)}` : "";
+                navigate(`/processes/${normalizedRootPid}${suffix}`);
+                return;
+            }
+
+            if (normalizedRootExecId) {
+                navigate(`/processes?root_exec_id=${encodeURIComponent(normalizedRootExecId)}`);
+            }
+        },
+        [navigate]
+    );
+
+    const renderRootExecLink = useCallback(
+        (rootExecId?: string | null, rootPid?: number | null) => {
+            const normalizedRootExecId = (rootExecId ?? "").trim();
+            if (!normalizedRootExecId) {
+                return null;
+            }
+            return (
+                <Typography.Link
+                    onClick={() => navigateToProcessView({ rootExecId: normalizedRootExecId, rootPid })}
+                    style={{ fontFamily: "monospace" }}
+                >
+                    {normalizedRootExecId}
+                </Typography.Link>
+            );
+        },
+        [navigateToProcessView]
+    );
 
     const typeSelectOptions: SelectProps["options"] = typeOptions.map((value) => ({ label: value, value }));
     const rootPidSelectOptions: SelectProps["options"] = rootPidOptions.map((value) => ({ label: `Root PID ${value}`, value }));
@@ -611,6 +777,32 @@ export default function ProcessTimeline({
                         onChange={(event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
                         disabled={isDisabled}
                     />
+                    <Flex align="center" gap={8}>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            Relational Search
+                        </Typography.Text>
+                        <Switch
+                            checked={enableRelationalSearch}
+                            onChange={setEnableRelationalSearch}
+                            disabled={isDisabled}
+                            size="small"
+                        />
+                        <Tooltip
+                            title={
+                                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                                    <div style={{ fontWeight: 600, marginBottom: 8 }}>Relational Search Rules:</div>
+                                    <div>• When enabled: Searches also include paired events</div>
+                                    <div>• Pairing logic: Same PID + within 60 seconds</div>
+                                    <div>• Example: Search "codex" matches REQUEST,</div>
+                                    <div style={{ marginLeft: 16 }}>then includes paired RESPONSE</div>
+                                    <div style={{ marginTop: 8 }}>• When disabled: Only exact keyword matches</div>
+                                </div>
+                            }
+                            placement="topRight"
+                        >
+                            <InfoCircleOutlined style={{ color: "#8b5cf6", cursor: "help", fontSize: 14 }} />
+                        </Tooltip>
+                    </Flex>
                 </Flex>
                 {hasRequestEvents ? (
                     <Flex align="center" gap={8} wrap style={{ padding: "4px 0" }}>
@@ -658,13 +850,122 @@ export default function ProcessTimeline({
                         <Spin size="large" />
                     </div>
                 ) : totalEvents > 0 ? (
-                    <ReactECharts
-                        ref={chartRef}
-                        option={option}
-                        style={{ height: 380 }}
-                        notMerge={true}
-                        lazyUpdate={true}
-                    />
+                    <>
+                        <ReactECharts
+                            ref={chartRef}
+                            option={option}
+                            style={{ height: 380 }}
+                            notMerge={true}
+                            lazyUpdate={true}
+                            onEvents={{
+                                click: (params: any) => {
+                                    if (params?.componentType !== "series") {
+                                        return;
+                                    }
+                                    const point = params?.data as TimelinePoint | undefined;
+                                    const directEvent = point?.processEvent;
+                                    if (directEvent) {
+                                        setSelectedEvent(directEvent);
+                                        return;
+                                    }
+                                    const seriesName = typeof params?.seriesName === "string" ? params.seriesName : null;
+                                    const dataIndex = Number.isFinite(params?.dataIndex) ? (params.dataIndex as number) : null;
+                                    if (!seriesName || dataIndex == null) {
+                                        return;
+                                    }
+                                    const bucket = grouped.get(seriesName);
+                                    const indexedEvent = bucket?.[dataIndex];
+                                    if (indexedEvent) {
+                                        setSelectedEvent(indexedEvent);
+                                    }
+                                }
+                            }}
+                        />
+                        {selectedEvent && (
+                            <Card
+                                size="small"
+                                title="Event Details"
+                                extra={
+                                    <Button size="small" onClick={() => setSelectedEvent(null)}>
+                                        Close
+                                    </Button>
+                                }
+                                style={{ marginTop: 16 }}
+                            >
+                                <Space direction="vertical" style={{ width: "100%" }} size="small">
+                                    <div><strong>Timestamp:</strong> {selectedEvent.timestamp ?? "n/a"}</div>
+                                    {isHttpEvent(selectedEvent) ? (
+                                        <>
+                                            <div><strong>Type:</strong> {selectedEvent.httpType}</div>
+                                            {selectedEvent.method && <div><strong>Method:</strong> {selectedEvent.method.toUpperCase()}</div>}
+                                            {selectedEvent.statusCode != null && <div><strong>Status:</strong> {selectedEvent.statusCode}</div>}
+                                            {selectedEvent.httpType === "REQUEST" && selectedEvent.severityLevel && (
+                                                <div><strong>Safety:</strong> <span dangerouslySetInnerHTML={{ __html: buildSeverityBadge(selectedEvent.severityLevel) }} /></div>
+                                            )}
+                                            {selectedEvent.httpType === "REQUEST" && selectedEvent.severityCategories && (
+                                                <div><strong>Categories:</strong> {selectedEvent.severityCategories}</div>
+                                            )}
+                                            {selectedEvent.url && <div><strong>URL:</strong> {selectedEvent.url}</div>}
+                                            {selectedEvent.pid != null && <div><strong>PID:</strong> {selectedEvent.pid}</div>}
+                                            {selectedEvent.rootPid != null && <div><strong>Root PID:</strong> {selectedEvent.rootPid}</div>}
+                                            {selectedEvent.execId && <div><strong>Exec ID:</strong> <code>{selectedEvent.execId}</code></div>}
+                                            {selectedEvent.rootExecId && (
+                                                <div>
+                                                    <strong>Root Exec:</strong> {renderRootExecLink(selectedEvent.rootExecId, selectedEvent.rootPid)}
+                                                </div>
+                                            )}
+                                            {selectedEvent.headers && (
+                                                <div>
+                                                    <strong>Headers:</strong>
+                                                    <div
+                                                        dangerouslySetInnerHTML={{
+                                                            __html: preparePayloadContent(decodePayload(selectedEvent.headers)) ?? '<pre>N/A</pre>'
+                                                        }}
+                                                    />
+                                                </div>
+                                            )}
+                                            {selectedEvent.body && (
+                                                <div>
+                                                    <strong>Body:</strong>
+                                                    <div
+                                                        dangerouslySetInnerHTML={{
+                                                            __html: preparePayloadContent(decodePayload(selectedEvent.body)) ?? '<pre>N/A</pre>'
+                                                        }}
+                                                    />
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div><strong>Type:</strong> {PROCESS_LABEL}</div>
+                                            {selectedEvent.pid != null && <div><strong>PID:</strong> {selectedEvent.pid}</div>}
+                                            {selectedEvent.rootPid != null && <div><strong>Root PID:</strong> {selectedEvent.rootPid}</div>}
+                                            {selectedEvent.execId && <div><strong>Exec ID:</strong> <code>{selectedEvent.execId}</code></div>}
+                                            {selectedEvent.rootExecId && (
+                                                <div>
+                                                    <strong>Root Exec:</strong> {renderRootExecLink(selectedEvent.rootExecId, selectedEvent.rootPid)}
+                                                </div>
+                                            )}
+                                            {selectedEvent.comm && (
+                                                <div>
+                                                    <strong>Command:</strong>
+                                                    <pre style={{ background: "#f5f5f5", padding: 8, borderRadius: 4 }}>{selectedEvent.comm}</pre>
+                                                </div>
+                                            )}
+                                            {selectedEvent.args && (
+                                                <div>
+                                                    <strong>Args:</strong>
+                                                    <pre style={{ background: "#f5f5f5", padding: 8, borderRadius: 4, maxHeight: 200, overflow: "auto" }}>
+                                                        {selectedEvent.args}
+                                                    </pre>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+                                </Space>
+                            </Card>
+                        )}
+                    </>
                 ) : (
                     <Empty description="No timeline events" />
                 )}

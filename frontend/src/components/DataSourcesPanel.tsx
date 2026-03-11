@@ -91,7 +91,7 @@ export default function DataSourcesPanel({ rootExecId, hideRootSelector = false 
     const [s3PidFilter, setS3PidFilter] = useState<number | null>(null);
     const [s3CommFilter, setS3CommFilter] = useState<string | null>(null);
     const [s3RootExecFilter, setS3RootExecFilter] = useState<string | null>(null);
-    const s3EventsQuery = useS3Events(host, since, until, Math.min(500, limit), {
+    const s3EventsQuery = useS3Events(host, since, until, limit === -1 ? 999999 : Math.min(500, limit), {
         rootExecId: effectiveRootExecId,
         bucket: bucketFilter,
         operation: operationFilter
@@ -102,7 +102,7 @@ export default function DataSourcesPanel({ rootExecId, hideRootSelector = false 
     const [sqlHashFilter, setSqlHashFilter] = useState<string | null>(null);
     const [pgCommFilter, setPgCommFilter] = useState<string | null>(null);
     const [pgPidFilter, setPgPidFilter] = useState<number | null>(null);
-    const pgEventsQuery = usePostgresEvents(host, since, until, Math.min(500, limit), {
+    const pgEventsQuery = usePostgresEvents(host, since, until, limit === -1 ? 999999 : Math.min(500, limit), {
         rootExecId: effectiveRootExecId,
         msgType: msgTypeFilter,
         sqlHash: sqlHashFilter

@@ -1,7 +1,7 @@
 import { createContext, ReactNode, useContext, useMemo, useState } from "react";
 import dayjs, { Dayjs } from "dayjs";
 
-export type TimeRangePreset = "15m" | "1h" | "6h" | "24h" | "custom";
+export type TimeRangePreset = "15m" | "30m" | "1h" | "2h" | "6h" | "24h" | "custom";
 
 export interface SettingsContextValue {
     host: string;
@@ -18,6 +18,8 @@ export interface SettingsContextValue {
     setNodeLimit: (limit: number) => void;
     timePreset: TimeRangePreset;
     setTimePreset: (preset: TimeRangePreset) => void;
+    autoRefresh: boolean;
+    setAutoRefresh: (enabled: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | undefined>(undefined);
@@ -27,7 +29,7 @@ interface SettingsProviderProps {
 }
 
 const DEFAULT_HOST = "host:ubuntu";
-const DEFAULT_LIMIT = 500;
+const DEFAULT_LIMIT = 5000;
 const DEFAULT_ROOT_LIMIT = 50;
 const DEFAULT_NODE_LIMIT = 600;
 
@@ -39,6 +41,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     const [rootLimit, setRootLimit] = useState(DEFAULT_ROOT_LIMIT);
     const [nodeLimit, setNodeLimit] = useState(DEFAULT_NODE_LIMIT);
     const [timePreset, setTimePreset] = useState<TimeRangePreset>("1h");
+    const [autoRefresh, setAutoRefresh] = useState(true);
 
     const value = useMemo<SettingsContextValue>(
         () => ({
@@ -55,9 +58,11 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
             nodeLimit,
             setNodeLimit,
             timePreset,
-            setTimePreset
+            setTimePreset,
+            autoRefresh,
+            setAutoRefresh
         }),
-        [host, since, until, limit, rootLimit, nodeLimit, timePreset]
+        [host, since, until, limit, rootLimit, nodeLimit, timePreset, autoRefresh]
     );
 
     return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

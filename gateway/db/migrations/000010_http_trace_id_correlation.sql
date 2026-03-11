@@ -13,20 +13,6 @@ CREATE INDEX IF NOT EXISTS idx_http_request_trace_id
 CREATE INDEX IF NOT EXISTS idx_http_response_trace_id
     ON http_response (trace_id);
 
-CREATE OR REPLACE VIEW response_lineage AS
-SELECT
-    r.id AS response_id,
-    r.timestamp AS response_ts,
-    r.pid,
-    r.tid,
-    r.trace_id,
-    req.id AS request_id,
-    req.timestamp AS request_ts,
-    EXTRACT(EPOCH FROM (r.timestamp - req.timestamp)) AS time_diff_seconds
-FROM http_response r
-LEFT JOIN http_request req
-  ON req.trace_id = r.trace_id;
-
 CREATE OR REPLACE FUNCTION populate_llm_http_events(
     p_host  TEXT,
     p_since TIMESTAMPTZ,

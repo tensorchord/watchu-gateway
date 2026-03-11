@@ -1,4 +1,4 @@
-h1:ERkO4sPHuYaowyIyFC2ejOf3Izf4mEeER47s9pnBODo=
+h1:zKF3vvy9KskdRecaZ6IFt0HDNbSnEnI6ODPCTrXbEcc=
 000001_init.sql h1:GWjvfJgUAecqdeinaA7DL9K9qbIGJ5o/O/p3ie6E2us=
 000002_mcp_stdio.sql h1:QeVL2p2zHrbIGynpS4nRcMwjItWlF8zIEP69k3wYeQM=
 000003_pg_event.sql h1:vEg3nU2Skaw6xs+ZJCsOniapMgsor3pCow8ZtqPxjUE=
@@ -8,4 +8,4 @@ h1:ERkO4sPHuYaowyIyFC2ejOf3Izf4mEeER47s9pnBODo=
 000007_execution_traces.sql h1:uaE52kULK+Omzh19cqw3zHiKSz+8mw8rny7xhIDfs+w=
 000008_optimize_llm_http_events.sql h1:9a84eaAn7xt0iU/E4J4py0sfYAAz0wsL4IjnbIP7Xgg=
 000009_add_openai_codex_support.sql h1:WOQTttM+/u73XyrgUoAtZvgHc9J28e+Tvd/C4WYSF3s=
-000010_http_trace_id_correlation.sql h1:zxKfb313ECgmWPonQ6v3jo02HWgfB1P6ZHl7SnGmJZE=
+000010_http_trace_id_correlation.sql h1:TngtC3TSaBvFMuLYqYC6Y2kIOGktnYUP0nfhmVTifC8=

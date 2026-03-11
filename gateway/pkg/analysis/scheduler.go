@@ -361,7 +361,13 @@ func (s *Scheduler) runOptionalEnrichments(ctx context.Context, host string, sin
 }
 
 func (s *Scheduler) runOptionalStep(ctx context.Context, name string, fn func(ctx context.Context, tx pgx.Tx) error) error {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	// Apply a timeout so a slow optional enrichment step cannot block
+	// the scheduler loop indefinitely (e.g. populate_llm_http_events
+	// scanning the full response_lineage view).
+	stepCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	tx, err := s.pool.BeginTx(stepCtx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
@@ -369,14 +375,14 @@ func (s *Scheduler) runOptionalStep(ctx context.Context, name string, fn func(ct
 		_ = tx.Rollback(ctx)
 	}()
 
-	if err := fn(ctx, tx); err != nil {
+	if err := fn(stepCtx, tx); err != nil {
 		if isMissingFeatureErr(err) {
 			return nil
 		}
 		return err
 	}
 
-	return tx.Commit(ctx)
+	return tx.Commit(stepCtx)
 }
 
 func isMissingFeatureErr(err error) bool {

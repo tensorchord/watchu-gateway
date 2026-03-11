@@ -51,6 +51,7 @@ type RecordRequest struct {
 	Tid           int32           `json:"tid"`
 	Uid           int32           `json:"uid"`
 	Gid           int32           `json:"gid"`
+	TraceID       string          `json:"trace_id"`
 	Comm          string          `json:"comm"`
 	Method        string          `json:"method"`
 	URL           string          `json:"url"`
@@ -69,6 +70,7 @@ type RecordResponse struct {
 	Tid           int32           `json:"tid"`
 	Uid           int32           `json:"uid"`
 	Gid           int32           `json:"gid"`
+	TraceID       string          `json:"trace_id"`
 	Comm          string          `json:"comm"`
 	StatusCode    int32           `json:"status_code"`
 	Protocol      string          `json:"protocol"`
@@ -153,6 +155,7 @@ type RawRequest struct {
 	PidTid        uint64
 	UidGid        uint64
 	CgroupID      uint64
+	TraceID       string
 	Comm          string
 	Method        string
 	URL           string
@@ -176,6 +179,7 @@ func (raw *RawRequest) ToRecord(ctx context.Context, host string) any {
 		Tid:           int32(raw.PidTid >> 32),
 		Uid:           int32(raw.UidGid & 0xFFFFFFFF),
 		Gid:           int32(raw.UidGid >> 32),
+		TraceID:       raw.TraceID,
 		Comm:          raw.Comm,
 		Method:        raw.Method,
 		URL:           raw.URL,
@@ -194,6 +198,7 @@ type RawResponse struct {
 	PidTid        uint64
 	UidGid        uint64
 	CgroupID      uint64
+	TraceID       string
 	Comm          string
 	StatusCode    int
 	Protocol      string
@@ -215,6 +220,7 @@ func (raw *RawResponse) ToRecord(ctx context.Context, host string) any {
 		Tid:           int32(raw.PidTid >> 32),
 		Uid:           int32(raw.UidGid & 0xFFFFFFFF),
 		Gid:           int32(raw.UidGid >> 32),
+		TraceID:       raw.TraceID,
 		Comm:          raw.Comm,
 		StatusCode:    int32(raw.StatusCode),
 		Protocol:      raw.Protocol,

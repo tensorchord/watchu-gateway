@@ -12,6 +12,7 @@ type HTTPRequestEvent struct {
 	TID           int32           `json:"tid" binding:"required" db:"tid"`
 	UID           int32           `json:"uid" binding:"required" db:"uid"`
 	GID           int32           `json:"gid" binding:"required" db:"gid"`
+	TraceID       string          `json:"trace_id" binding:"required" db:"trace_id"`
 	Comm          string          `json:"comm" binding:"required" db:"comm"`
 	Method        string          `json:"method" binding:"required" db:"method"`
 	ContentLength int64           `json:"content_length" db:"content_length"`
@@ -31,6 +32,7 @@ type HTTPResponseEvent struct {
 	TID           int32           `json:"tid" binding:"required" db:"tid"`
 	UID           int32           `json:"uid" binding:"required" db:"uid"`
 	GID           int32           `json:"gid" binding:"required" db:"gid"`
+	TraceID       string          `json:"trace_id" binding:"required" db:"trace_id"`
 	Comm          string          `json:"comm" binding:"required" db:"comm"`
 	StatusCode    int32           `json:"status_code" binding:"required" db:"status_code"`
 	ContentLength int64           `json:"content_length" db:"content_length"`

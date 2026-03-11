@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/google/uuid"
 	"github.com/maypok86/otter/v2"
 	"github.com/phuslu/log"
 	"golang.org/x/net/http2"
@@ -117,21 +118,25 @@ type EventInfo struct {
 }
 
 type SSLRecord struct {
-	Info        []*EventInfo
-	Stream      []uint8
-	LastResp    *http.Response
-	EndOfStream bool
+	Info           []*EventInfo
+	Stream         []uint8
+	LastResp       *http.Response
+	EndOfStream    bool
+	LastActiveTime time.Time // Last time data was appended, used for stale record cleanup
 }
 
 func (r *SSLRecord) Append(data []uint8, info *EventInfo) {
 	r.Stream = append(r.Stream, data...)
 	r.Info = append(r.Info, info)
+	r.LastActiveTime = time.Now()
 }
 
 type SSLStore struct {
 	Request        map[SSLKey]*SSLRecord
 	Response       map[SSLKey]*SSLRecord
+	traceIDs       map[SSLKey]string
 	protocolCache  *otter.Cache[SSLKey, ProtocolType]
+	traceMu        sync.Mutex
 	reqMu          sync.Mutex
 	respMu         sync.Mutex
 	interval       time.Duration
@@ -153,11 +158,43 @@ func NewSSLStore() *SSLStore {
 		interval:       time.Second,
 		Request:        make(map[SSLKey]*SSLRecord),
 		Response:       make(map[SSLKey]*SSLRecord),
+		traceIDs:       make(map[SSLKey]string),
 		protocolCache:  cache,
 		http1Parser:    &HTTP1Parser{},
 		http2Parser:    NewHTTP2Parser(),
 		postgresParser: &PostgresParser{},
 	}
+}
+
+func (s *SSLStore) getOrCreateTraceID(key SSLKey) string {
+	s.traceMu.Lock()
+	defer s.traceMu.Unlock()
+
+	if traceID, ok := s.traceIDs[key]; ok {
+		return traceID
+	}
+
+	traceUUID, err := uuid.NewV7()
+	if err != nil {
+		log.Error().Err(err).Any("key", &key).Msg("failed to generate trace ID, using v4 UUID")
+		traceUUID = uuid.New()
+	}
+
+	traceID := traceUUID.String()
+	s.traceIDs[key] = traceID
+	return traceID
+}
+
+func (s *SSLStore) getTraceID(key SSLKey) string {
+	s.traceMu.Lock()
+	defer s.traceMu.Unlock()
+	return s.traceIDs[key]
+}
+
+func (s *SSLStore) deleteTraceID(key SSLKey) {
+	s.traceMu.Lock()
+	defer s.traceMu.Unlock()
+	delete(s.traceIDs, key)
 }
 
 // detectProtocol tries to determine the protocol type based on the initial bytes of the stream.
@@ -259,7 +296,9 @@ func (s *SSLStore) Add(event *sslEvent) {
 		s.reqMu.Lock()
 		record, ok := s.Request[key]
 		if !ok {
-			record = &SSLRecord{}
+			record = &SSLRecord{
+				LastActiveTime: time.Now(),
+			}
 			s.Request[key] = record
 		}
 		record.Append(event.Data[:event.DataLen], info)
@@ -268,7 +307,9 @@ func (s *SSLStore) Add(event *sslEvent) {
 		s.respMu.Lock()
 		record, ok := s.Response[key]
 		if !ok {
-			record = &SSLRecord{}
+			record = &SSLRecord{
+				LastActiveTime: time.Now(),
+			}
 			s.Response[key] = record
 		}
 		record.Append(event.Data[:event.DataLen], info)
@@ -282,6 +323,14 @@ func (s *SSLStore) parseRequest(reqChan chan *export.RawRequest, postgresChan ch
 
 	var parser ProtocolParser
 	for key, record := range s.Request {
+		// Clean up stale request records older than 10 seconds to prevent cross-time mismatches
+		if time.Since(record.LastActiveTime) > 10*time.Second {
+			log.Debug().Any("key", &key).Msg("cleaning up expired request record")
+			delete(s.Request, key)
+			s.deleteTraceID(key)
+			continue
+		}
+
 		switch s.detectProtocol(key, record) {
 		case ProtocolHTTP2:
 			parser = s.http2Parser
@@ -301,6 +350,7 @@ func (s *SSLStore) parseRequest(reqChan chan *export.RawRequest, postgresChan ch
 		if err != nil {
 			log.Error().Any("key", &key).Bytes("buf", record.Stream[:min(len(record.Stream), consumed)]).Err(err).Msg("failed to parse TLS request")
 			delete(s.Request, key)
+			s.deleteTraceID(key)
 			continue
 		}
 		// wait for more data
@@ -359,6 +409,7 @@ func (s *SSLStore) parseRequest(reqChan chan *export.RawRequest, postgresChan ch
 			request.Header.Add("Host", request.Host)
 		}
 		headers := flattenMaskedHeader(request.Header)
+		traceID := s.getOrCreateTraceID(key)
 		log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", request.ContentLength).Str("url", url).Str("method", request.Method).Str("protocol", request.Proto).Bytes("body", body).Bool("truncated", truncated).Msg("TLS request")
 		record.EndOfStream = false
 		record.LastResp = nil
@@ -384,6 +435,7 @@ func (s *SSLStore) parseRequest(reqChan chan *export.RawRequest, postgresChan ch
 				PidTid:        key.PidTgid,
 				UidGid:        key.UidGid,
 				CgroupID:      key.CgroupID,
+				TraceID:       traceID,
 				Comm:          comm,
 				Method:        request.Method,
 				URL:           url,
@@ -406,6 +458,14 @@ func (s *SSLStore) parseResponse(channel chan *export.RawResponse) {
 
 	var parser ProtocolParser
 	for key, record := range s.Response {
+		// Clean up stale response records older than 10 seconds to prevent cross-time mismatches
+		if time.Since(record.LastActiveTime) > 10*time.Second {
+			log.Debug().Any("key", &key).Msg("cleaning up expired response record")
+			delete(s.Response, key)
+			s.deleteTraceID(key)
+			continue
+		}
+
 		switch s.detectProtocol(key, record) {
 		case ProtocolHTTP2:
 			parser = s.http2Parser
@@ -424,6 +484,7 @@ func (s *SSLStore) parseResponse(channel chan *export.RawResponse) {
 			if err != nil {
 				log.Error().Any("key", &key).Bytes("buf", record.Stream[:min(len(record.Stream), consumed)]).Err(err).Msg("failed to parse TLS response")
 				delete(s.Response, key)
+				s.deleteTraceID(key)
 				break
 			}
 			// wait for more data
@@ -474,18 +535,22 @@ func (s *SSLStore) parseResponse(channel chan *export.RawResponse) {
 				body, err := readDecodeBytes(response.Body, response.Header.Get("Content-Encoding"))
 				if err != nil {
 					log.Error().Any("key", &key).Err(err).Msg("failed to read response body")
+					s.deleteTraceID(key)
 					continue
 				}
 				headers := flattenMaskedHeader(response.Header)
+				traceID := s.getTraceID(key)
 				log.Info().Uint64("timestamp", timestamp).Str("comm", comm).Int("len", consumed).Any("headers", headers).Int64("content_length", response.ContentLength).Int("status_code", response.StatusCode).Str("protocol", response.Proto).Bytes("body", body).Bool("truncated", false).Msg("TLS response")
 				record.EndOfStream = false
 				record.LastResp = nil
+				s.deleteTraceID(key)
 				select {
 				case channel <- &export.RawResponse{
 					ElapsedNs:     timestamp,
 					PidTid:        key.PidTgid,
 					UidGid:        key.UidGid,
 					CgroupID:      key.CgroupID,
+					TraceID:       traceID,
 					Comm:          comm,
 					StatusCode:    response.StatusCode,
 					ContentLength: response.ContentLength,

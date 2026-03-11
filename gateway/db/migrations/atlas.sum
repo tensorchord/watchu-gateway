@@ -1,8 +1,11 @@
-h1:XuACEg6CVXZ06eqY3gZoy8gLRBVI9KZP0resRqAI344=
+h1:ERkO4sPHuYaowyIyFC2ejOf3Izf4mEeER47s9pnBODo=
 000001_init.sql h1:GWjvfJgUAecqdeinaA7DL9K9qbIGJ5o/O/p3ie6E2us=
 000002_mcp_stdio.sql h1:QeVL2p2zHrbIGynpS4nRcMwjItWlF8zIEP69k3wYeQM=
 000003_pg_event.sql h1:vEg3nU2Skaw6xs+ZJCsOniapMgsor3pCow8ZtqPxjUE=
 000004_agent_hierarchy.sql h1:41VpbiJpoOH3g6G8+KZponxJe3LXRq60JmcUOMOMjg4=
-000005_skill_security.sql h1:ByhuDa7jJKnyknVUxAuAZIu84PHw0Di5A/GVeJB4NJY=
-000006_skill_security_saas_unified.sql h1:YIjcJqj97BeozmoGnlSO1Sv9oO89spVzfe3R0EzQYtA=
-000007_execution_traces.sql h1:oYD+FNXAu7kNW8vkkJ/SXA5iAe6NV1PYND4I5aS1Lc0=
+000005_skill_security.sql h1:tQhjywGPTpxJAFkzlSlNBL5PY9VAB79jpUrEuk5fJZw=
+000006_skill_security_saas_unified.sql h1:eU3/gN9gBNTmD/ZxmcBK3UDYrrsRdY7CsGhSFoTCfkE=
+000007_execution_traces.sql h1:uaE52kULK+Omzh19cqw3zHiKSz+8mw8rny7xhIDfs+w=
+000008_optimize_llm_http_events.sql h1:9a84eaAn7xt0iU/E4J4py0sfYAAz0wsL4IjnbIP7Xgg=
+000009_add_openai_codex_support.sql h1:WOQTttM+/u73XyrgUoAtZvgHc9J28e+Tvd/C4WYSF3s=
+000010_http_trace_id_correlation.sql h1:zxKfb313ECgmWPonQ6v3jo02HWgfB1P6ZHl7SnGmJZE=

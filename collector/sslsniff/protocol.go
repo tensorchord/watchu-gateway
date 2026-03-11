@@ -394,7 +394,7 @@ func (s *SSLStore) parseRequest(reqChan chan *export.RawRequest, postgresChan ch
 				Truncated:     truncated,
 			}:
 			default:
-				log.Warn().Msg("request channel is full, dropping event")
+				log.Warn().Msg("TLS request channel is full, dropping event")
 			}
 		}
 	}

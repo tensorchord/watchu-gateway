@@ -66,8 +66,10 @@ func (bp *BoringSSLProbe) Close() error {
 	if err := bp.obj.Close(); err != nil {
 		final = errors.Join(final, fmt.Errorf("failed to close BoringSSL eBPF objects: %w", err))
 	}
-	if err := bp.rb.Close(); err != nil {
-		final = errors.Join(final, fmt.Errorf("failed to close BoringSSL ringbuf reader: %w", err))
+	if bp.rb != nil {
+		if err := bp.rb.Close(); err != nil {
+			final = errors.Join(final, fmt.Errorf("failed to close BoringSSL ringbuf reader: %w", err))
+		}
 	}
 	for i, l := range bp.links {
 		if err := l.Close(); err != nil {

@@ -120,6 +120,7 @@ func (gc *GatewayClient) SendEvents(ctx context.Context, endpoint string, events
 		log.Error().Err(err).Msg("failed to join URL path")
 		return
 	}
+	log.Info().Str("url", link).Int("count", len(events)).Int("payload_bytes", len(payload)).Msg("sending events to gateway")
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, link, bytes.NewReader(payload))
 	if err != nil {
 		log.Error().Err(err).Msg("failed to create HTTP request")
@@ -129,7 +130,7 @@ func (gc *GatewayClient) SendEvents(ctx context.Context, endpoint string, events
 	//nolint:bodyclose // closed in ReadCloserToBytes
 	resp, err := gc.client.Do(req)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to send HTTP request")
+		log.Error().Err(err).Str("url", link).Msg("failed to send HTTP request to gateway")
 		return
 	}
 	respMessage, err := tool.ReadCloserToBytes(resp.Body)
@@ -140,7 +141,7 @@ func (gc *GatewayClient) SendEvents(ctx context.Context, endpoint string, events
 	if resp.StatusCode != http.StatusAccepted {
 		log.Error().Bytes("resp", respMessage).Int("status", resp.StatusCode).Str("endpoint", endpoint).Msg("failed to ingest the events")
 	} else {
-		log.Debug().Int("count", len(events)).Bytes("resp", respMessage).Str("endpoint", endpoint).Msg("successfully ingested events")
+		log.Info().Int("count", len(events)).Int("status", resp.StatusCode).Bytes("resp", respMessage).Str("endpoint", endpoint).Msg("successfully ingested events")
 	}
 }
 

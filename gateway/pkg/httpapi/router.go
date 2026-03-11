@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -38,6 +39,30 @@ type PromptReadiness interface {
 func NewRouter(deps Dependencies) *gin.Engine {
 	engine := gin.New()
 	engine.Use(gin.Recovery())
+
+	// Add request logging middleware
+	engine.Use(func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+		method := c.Request.Method
+
+		slog.Info("incoming request",
+			slog.String("method", method),
+			slog.String("path", path),
+			slog.String("client_ip", c.ClientIP()))
+
+		c.Next()
+
+		latency := time.Since(start)
+		statusCode := c.Writer.Status()
+
+		slog.Info("request completed",
+			slog.String("method", method),
+			slog.String("path", path),
+			slog.Int("status", statusCode),
+			slog.Duration("latency", latency),
+			slog.Int("body_size", c.Writer.Size()))
+	})
 
 	corsConfig := cors.Config{
 		AllowOrigins:     []string{"*"},

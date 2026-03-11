@@ -23,15 +23,16 @@ func NewRusTLSProbe(rustlsPath *string) (*RusTLSProbe, error) {
 	if obj == nil || err != nil {
 		return nil, err
 	}
-	rb, err := ringbuf.NewReader(obj.Events)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open rustls ringbuf reader: %w", err)
-	}
-	return &RusTLSProbe{
+	p := &RusTLSProbe{
 		links: links,
 		obj:   obj,
-		rb:    rb,
-	}, nil
+	}
+	p.rb, err = ringbuf.NewReader(obj.Events)
+	if err != nil {
+		p.Close()
+		return nil, fmt.Errorf("failed to open rustls ringbuf reader: %w", err)
+	}
+	return p, nil
 }
 
 func (rp *RusTLSProbe) ReadBuffer() (ringbuf.Record, error) {
@@ -43,8 +44,10 @@ func (rp *RusTLSProbe) Close() error {
 	if err := rp.obj.Close(); err != nil {
 		final = errors.Join(final, fmt.Errorf("failed to close rustls eBPF objects: %w", err))
 	}
-	if err := rp.rb.Close(); err != nil {
-		final = errors.Join(final, fmt.Errorf("failed to close rustls ringbuf reader: %w", err))
+	if rp.rb != nil {
+		if err := rp.rb.Close(); err != nil {
+			final = errors.Join(final, fmt.Errorf("failed to close rustls ringbuf reader: %w", err))
+		}
 	}
 	for i, l := range rp.links {
 		if err := l.Close(); err != nil {
@@ -61,7 +64,7 @@ func addRustlsProbe(rustlsPath *string) ([]link.Link, *rustlsObjects, error) {
 	logger := log.DefaultLogger
 	logger.Context = log.NewContext(nil).Str("path", *rustlsPath).Value()
 	if ok, err := tool.IsFilePath(*rustlsPath); err != nil || !ok {
-		return nil, nil, fmt.Errorf("invalid rustls file path: %w", err)
+		return nil, nil, fmt.Errorf("invalid rustls file path `%s` (exist: %t): %w", *rustlsPath, ok, err)
 	}
 	logger.Info().Msg("using rustls")
 	obj := rustlsObjects{}
@@ -78,7 +81,7 @@ func addRustlsProbe(rustlsPath *string) ([]link.Link, *rustlsObjects, error) {
 	}
 	links, err := attachRustlsProbes(exec, &obj, *rustlsPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to attach rustls probes")
+		return nil, nil, fmt.Errorf("failed to attach rustls probes: %w", err)
 	}
 	logger.Info().Msg("attaching rustls uprobes")
 	return links, &obj, nil

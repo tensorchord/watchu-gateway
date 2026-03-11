@@ -45,15 +45,16 @@ func NewBoringSSLProbe(path string) (*BoringSSLProbe, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BoringSSL probe: %w", err)
 	}
-	rb, err := ringbuf.NewReader(obj.Events)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open BoringSSL ringbuf reader: %w", err)
-	}
-	return &BoringSSLProbe{
+	p := &BoringSSLProbe{
 		links: links,
 		obj:   obj,
-		rb:    rb,
-	}, nil
+	}
+	p.rb, err = ringbuf.NewReader(obj.Events)
+	if err != nil {
+		p.Close()
+		return nil, fmt.Errorf("failed to open BoringSSL ringbuf reader: %w", err)
+	}
+	return p, nil
 }
 
 func (bp *BoringSSLProbe) ReadBuffer() (ringbuf.Record, error) {
@@ -109,7 +110,8 @@ func attachBoringProbes(ex *link.Executable, objs *boringObjects, target string)
 	}{
 		{uint64(read), objs.ProbeBoringSslReadEntry, ex.Uprobe},
 		{uint64(read), objs.ProbeBoringSslReadExit, ex.Uretprobe},
-		{uint64(write), objs.ProbeBoringSslWriteExit, ex.Uprobe},
+		{uint64(write), objs.ProbeBoringSslReadEntry, ex.Uprobe},
+		{uint64(write), objs.ProbeBoringSslWriteExit, ex.Uretprobe},
 	}
 
 	failed := 0

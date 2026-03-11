@@ -80,7 +80,7 @@ func attachStdioProbes(objs stdioObjects) ([]link.Link, error) {
 		for _, link := range links {
 			_ = link.Close()
 		}
-		return nil, fmt.Errorf("failed to inject %d/%d stdio probe", failed, len(probes))
+		return nil, fmt.Errorf("failed to attach %d/%d stdio tracepoints", failed, len(probes))
 	}
 	return links, nil
 }
@@ -189,9 +189,11 @@ func (sp *StdioProbe) Close() {
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close stdio objects")
 	}
-	err = sp.rb.Close()
-	if err != nil {
-		log.Error().Err(err).Msg("failed to close stdio ringbuf reader")
+	if sp.rb != nil {
+		err = sp.rb.Close()
+		if err != nil {
+			log.Error().Err(err).Msg("failed to close stdio ringbuf reader")
+		}
 	}
 	close(sp.channel)
 	for i, l := range sp.links {

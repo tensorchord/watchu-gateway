@@ -54,24 +54,26 @@ type PostgresProbe struct {
 
 func NewPostgresProbe(client *export.GatewayClient) *PostgresProbe {
 	objs := pgObjects{}
-	if err := loadPgObjects(&objs, nil); err != nil {
+	err := loadPgObjects(&objs, nil)
+	if err != nil {
 		log.Panic().Err(err).Msg("failed to load ebpf spec")
 	}
 
 	links := []link.Link{}
 	attachPostgresProbes(objs, &links)
 
-	rb, err := ringbuf.NewReader(objs.Events)
-	if err != nil {
-		log.Panic().Err(err).Msg("failed to open ringbuf reader for pg")
-	}
-	return &PostgresProbe{
-		rb:      rb,
+	p := &PostgresProbe{
 		objs:    &objs,
 		links:   links,
 		client:  client,
 		channel: make(chan *export.RawPostgres, export.GatewayChannelSize),
 	}
+	p.rb, err = ringbuf.NewReader(objs.Events)
+	if err != nil {
+		p.Close()
+		log.Panic().Err(err).Msg("failed to open ringbuf reader for pg")
+	}
+	return p
 }
 
 func (pp *PostgresProbe) Start(ctx context.Context) {
@@ -131,9 +133,11 @@ func (pp *PostgresProbe) Close() {
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close pg objects")
 	}
-	err = pp.rb.Close()
-	if err != nil {
-		log.Error().Err(err).Msg("failed to close pg ringbuf")
+	if pp.rb != nil {
+		err = pp.rb.Close()
+		if err != nil {
+			log.Error().Err(err).Msg("failed to close pg ringbuf")
+		}
 	}
 	for i, link := range pp.links {
 		err = link.Close()

@@ -37,7 +37,6 @@ type SSLProbe struct {
 	mu           sync.Mutex // lock the probes
 	probes       map[proc.LibKey]TLSProbe
 	procProbe    *execve.ProcExecProbe
-	procChan     chan int32
 	client       *export.GatewayClient
 	reqChan      chan *export.RawRequest
 	respChan     chan *export.RawResponse
@@ -103,7 +102,6 @@ func NewSSLProbe(sslPath, rustlsPath *string, client *export.GatewayClient) *SSL
 	return &SSLProbe{
 		probes:       probes,
 		procProbe:    procProbe,
-		procChan:     make(chan int32, maxDynamicChannelSize),
 		client:       client,
 		reqChan:      make(chan *export.RawRequest, export.GatewayChannelSize),
 		respChan:     make(chan *export.RawResponse, export.GatewayChannelSize),
@@ -168,8 +166,8 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 	}
 
 	// dynamic probe
-	go sp.procProbe.Start(sp.procChan)
-	for pid := range sp.procChan {
+	go sp.procProbe.Start()
+	for pid := range sp.procProbe.Channel {
 		libs, err := proc.DetectTLSLibType(pid)
 		if err != nil {
 			log.Warn().Err(err).Int32("pid", pid).Msg("failed to detect TLS library type for the process")
@@ -218,7 +216,6 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 }
 
 func (sp *SSLProbe) Close() {
-	close(sp.procChan)
 	sp.procProbe.Close()
 	sp.mu.Lock()
 	for key, probe := range sp.probes {
@@ -230,4 +227,5 @@ func (sp *SSLProbe) Close() {
 	sp.mu.Unlock()
 	close(sp.reqChan)
 	close(sp.respChan)
+	close(sp.postgresChan)
 }

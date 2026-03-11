@@ -17,10 +17,13 @@ import (
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 exec exec.bpf.c -- -I../headers
 
+const procChannelSize = 4096
+
 type ProcExecProbe struct {
-	rb    *ringbuf.Reader
-	objs  *execObjects
-	links []link.Link
+	rb      *ringbuf.Reader
+	objs    *execObjects
+	links   []link.Link
+	Channel chan int32
 }
 
 func attachExecProbes(objs execObjects) ([]link.Link, error) {
@@ -52,8 +55,9 @@ func NewProcExecProbe() (*ProcExecProbe, error) {
 	}
 
 	p := &ProcExecProbe{
-		objs:  objs,
-		links: links,
+		objs:    objs,
+		links:   links,
+		Channel: make(chan int32, procChannelSize),
 	}
 	p.rb, err = ringbuf.NewReader(objs.Events)
 	if err != nil {
@@ -64,7 +68,7 @@ func NewProcExecProbe() (*ProcExecProbe, error) {
 	return p, nil
 }
 
-func (pep *ProcExecProbe) Start(ch chan<- int32) {
+func (pep *ProcExecProbe) Start() {
 	log.Info().Msg("listen to proc exec events...")
 	var event execEvent
 	for {
@@ -90,7 +94,7 @@ func (pep *ProcExecProbe) Start(ch chan<- int32) {
 				Msg("proc exec event")
 		}
 		select {
-		case ch <- event.Pid:
+		case pep.Channel <- event.Pid:
 		default:
 			log.Warn().Int32("pid", event.Pid).Msg("failed to push to proc exec channel")
 		}
@@ -102,13 +106,16 @@ func (pep *ProcExecProbe) Close() {
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close exec eBPF objects")
 	}
-	err = pep.rb.Close()
-	if err != nil {
-		log.Error().Err(err).Msg("failed to close exec ringbuf reader")
+	if pep.rb != nil {
+		err = pep.rb.Close()
+		if err != nil {
+			log.Error().Err(err).Msg("failed to close exec ringbuf reader")
+		}
 	}
 	for i, l := range pep.links {
 		if err := l.Close(); err != nil {
 			log.Error().Int("index", i).Err(err).Msgf("failed to close exec link")
 		}
 	}
+	close(pep.Channel)
 }

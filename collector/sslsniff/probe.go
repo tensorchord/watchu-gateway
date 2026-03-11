@@ -12,16 +12,19 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
 
+	"github.com/tensorchord/watchu/collector/execve"
 	"github.com/tensorchord/watchu/collector/export"
-	"github.com/tensorchord/watchu/collector/internal/container"
+	"github.com/tensorchord/watchu/collector/internal/proc"
 	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 ssl ssl.bpf.c -- -I../headers
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 boring boring.bpf.c -- -I../headers
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 rustls rustls.bpf.c -- -I../headers
 
 const (
 	sslSpecPath    = "sslsniff/ssl_x86_bpfel.o"
+	boringSpecPath = "sslsniff/boring_x86_bpfel.o"
 	rustlsSpecPath = "sslsniff/rustls_x86_bpfel.o"
 )
 
@@ -32,7 +35,8 @@ type TLSProbe interface {
 
 type SSLProbe struct {
 	mu           sync.Mutex // lock the probes
-	probes       map[container.LibKey]TLSProbe
+	probes       map[proc.LibKey]TLSProbe
+	procProbe    *execve.ProcExecProbe
 	client       *export.GatewayClient
 	reqChan      chan *export.RawRequest
 	respChan     chan *export.RawResponse
@@ -40,7 +44,7 @@ type SSLProbe struct {
 }
 
 func NewSSLProbe(sslPath, rustlsPath *string, client *export.GatewayClient) *SSLProbe {
-	probes := make(map[container.LibKey]TLSProbe)
+	probes := make(map[proc.LibKey]TLSProbe)
 
 	// OpenSSL
 	libsslPaths := []string{}
@@ -57,7 +61,7 @@ func NewSSLProbe(sslPath, rustlsPath *string, client *export.GatewayClient) *SSL
 		libsslPaths = append(libsslPaths, *sslPath)
 	}
 	for i, path := range libsslPaths {
-		key, err := container.FindLibKey(path)
+		key, err := proc.FindLibKey(path)
 		if err != nil {
 			log.Error().Err(err).Str("path", path).Msg("failed to find lib key")
 			continue
@@ -82,15 +86,22 @@ func NewSSLProbe(sslPath, rustlsPath *string, client *export.GatewayClient) *SSL
 		log.Panic().Err(err).Msg("failed to create rustls probe")
 	}
 	if rustls != nil {
-		key, err := container.FindLibKey(*rustlsPath)
+		key, err := proc.FindLibKey(*rustlsPath)
 		if err != nil {
 			log.Panic().Err(err).Str("path", *rustlsPath).Msg("failed to find rustls lib key")
 		}
 		probes[*key] = rustls
 	}
 
+	// dynamic probe
+	procProbe, err := execve.NewProcExecProbe()
+	if err != nil {
+		log.Panic().Err(err).Msg("failed to create proc exec probe for dynamic SSL library detection")
+	}
+
 	return &SSLProbe{
 		probes:       probes,
+		procProbe:    procProbe,
 		client:       client,
 		reqChan:      make(chan *export.RawRequest, export.GatewayChannelSize),
 		respChan:     make(chan *export.RawResponse, export.GatewayChannelSize),
@@ -98,9 +109,9 @@ func NewSSLProbe(sslPath, rustlsPath *string, client *export.GatewayClient) *SSL
 	}
 }
 
-func handle(key container.LibKey, probe TLSProbe, store *SSLStore) {
+func handle(key *proc.LibKey, probe TLSProbe, store *SSLStore) {
 	logger := log.DefaultLogger
-	logger.Context = log.NewContext(nil).Any("key", key).Value()
+	logger.Context = log.NewContext(nil).Uint64("inode", key.INode).Uint64("device", key.DeviceID).Value()
 	var event sslEvent
 
 	for {
@@ -149,32 +160,54 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 
 	var wg sync.WaitGroup
 	for key, probe := range sp.probes {
-		wg.Go(func() { handle(key, probe, store) })
+		// avoid loopvar bug before go 1.22 https://go.dev/blog/loopvar-preview
+		k, p := key, probe
+		wg.Go(func() { handle(&k, p, store) })
 	}
 
 	// dynamic probe
-	channel := make(chan container.ContainerOpenSSL, maxDynamicChannelSize)
-	go container.NewContainerLibsDetector().Start(ctx, channel)
-	for containerLibs := range channel {
-		for key, path := range containerLibs.Libs {
+	go sp.procProbe.Start()
+	for pid := range sp.procProbe.Channel {
+		libs, err := proc.DetectTLSLibType(pid)
+		if err != nil {
+			log.Warn().Err(err).Int32("pid", pid).Msg("failed to detect TLS library type for the process")
+			continue
+		}
+		for _, lib := range libs {
+			key, err := proc.FindLibKey(lib.Path)
+			if err != nil {
+				log.Error().Err(err).Str("path", lib.Path).Msg("failed to find lib key for dynamic probe")
+				continue
+			}
 			// there is no Time-of-Check to Time-of-Use (TOCTOU) here
 			sp.mu.Lock()
-			_, exist := sp.probes[key]
+			_, exist := sp.probes[*key]
 			sp.mu.Unlock()
 			if exist {
 				continue
 			}
-			probe, err := NewOpenSSLProbe(path)
+
+			var typeStr string
+			var probe TLSProbe
+			switch lib.Type {
+			case proc.TLSLibOpenSSL:
+				probe, err = NewOpenSSLProbe(lib.Path)
+				typeStr = "OpenSSL"
+			case proc.TLSLibBoringSSL:
+				probe, err = NewBoringSSLProbe(lib.Path)
+				typeStr = "BoringSSL"
+			}
 			if err != nil {
-				log.Error().Err(err).Str("path", path).Any("key", key).Msg("failed to probe the SSL lib")
+				log.Error().Err(err).Str("path", lib.Path).Str("type", typeStr).Msg("failed to create TLS probe")
 				continue
 			}
+			log.Debug().Int32("pid", pid).Str("lib_path", lib.Path).Str("type", typeStr).Msg("detected TLS library")
 			sp.mu.Lock()
 			index := len(sp.probes)
 			wg.Go(func() { handle(key, probe, store) })
-			sp.probes[key] = probe
+			sp.probes[*key] = probe
 			sp.mu.Unlock()
-			log.Info().Int("index", index).Str("path", path).Any("key", key).Msg("attaching dynamic SSL uprobes")
+			log.Info().Int("index", index).Str("path", lib.Path).Str("type", typeStr).Uint64("device", key.DeviceID).Uint64("inode", key.INode).Msg("attached dynamic TLS library")
 		}
 	}
 
@@ -183,6 +216,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 }
 
 func (sp *SSLProbe) Close() {
+	sp.procProbe.Close()
 	sp.mu.Lock()
 	for key, probe := range sp.probes {
 		if err := probe.Close(); err != nil {
@@ -193,4 +227,5 @@ func (sp *SSLProbe) Close() {
 	sp.mu.Unlock()
 	close(sp.reqChan)
 	close(sp.respChan)
+	close(sp.postgresChan)
 }

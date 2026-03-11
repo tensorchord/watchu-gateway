@@ -37,6 +37,7 @@ type SSLProbe struct {
 	mu           sync.Mutex // lock the probes
 	probes       map[proc.LibKey]TLSProbe
 	procProbe    *execve.ProcExecProbe
+	procChan     chan int32
 	client       *export.GatewayClient
 	reqChan      chan *export.RawRequest
 	respChan     chan *export.RawResponse
@@ -102,6 +103,7 @@ func NewSSLProbe(sslPath, rustlsPath *string, client *export.GatewayClient) *SSL
 	return &SSLProbe{
 		probes:       probes,
 		procProbe:    procProbe,
+		procChan:     make(chan int32, maxDynamicChannelSize),
 		client:       client,
 		reqChan:      make(chan *export.RawRequest, export.GatewayChannelSize),
 		respChan:     make(chan *export.RawResponse, export.GatewayChannelSize),
@@ -160,13 +162,14 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 
 	var wg sync.WaitGroup
 	for key, probe := range sp.probes {
-		wg.Go(func() { handle(&key, probe, store) })
+		// avoid loopvar bug before go 1.22 https://go.dev/blog/loopvar-preview
+		k, p := key, probe
+		wg.Go(func() { handle(&k, p, store) })
 	}
 
 	// dynamic probe
-	channel := make(chan int32, maxDynamicChannelSize)
-	go sp.procProbe.Start(channel)
-	for pid := range channel {
+	go sp.procProbe.Start(sp.procChan)
+	for pid := range sp.procChan {
 		libs, err := proc.DetectTLSLibType(pid)
 		if err != nil {
 			log.Warn().Err(err).Int32("pid", pid).Msg("failed to detect TLS library type for the process")
@@ -215,6 +218,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 }
 
 func (sp *SSLProbe) Close() {
+	close(sp.procChan)
 	sp.procProbe.Close()
 	sp.mu.Lock()
 	for key, probe := range sp.probes {

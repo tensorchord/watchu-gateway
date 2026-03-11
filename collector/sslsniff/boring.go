@@ -159,7 +159,7 @@ func searchUprobeAddresses(path string) (read int, write int, err error) {
 	if read < 0 || write < 0 {
 		err = fmt.Errorf("failed to find read(%d) write(%d): %w", read, write, errUprobeNotFound)
 	}
-	if write > 0 && read > 0 && write-read != addressDiff {
+	if write >= 0 && read >= 0 && write-read != addressDiff {
 		err = fmt.Errorf("failed to validate %d != %d: %w", write-read, addressDiff, errWrongAddrDiff)
 	}
 	return

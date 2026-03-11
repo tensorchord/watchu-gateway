@@ -106,19 +106,21 @@ func NewStdioProbe(client *export.GatewayClient) (*StdioProbe, error) {
 		return nil, err
 	}
 
-	rb, err := ringbuf.NewReader(objs.Events)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to open ringbuf reader for stdio")
-		return nil, err
-	}
-
-	return &StdioProbe{
-		rb:      rb,
+	p := &StdioProbe{
 		objs:    &objs,
 		links:   links,
 		client:  client,
 		channel: make(chan *export.RawStdIO, export.GatewayChannelSize),
-	}, nil
+	}
+
+	p.rb, err = ringbuf.NewReader(objs.Events)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to open ringbuf reader for stdio")
+		p.Close()
+		return nil, err
+	}
+
+	return p, nil
 }
 
 func (sp *StdioProbe) Start(ctx context.Context) {

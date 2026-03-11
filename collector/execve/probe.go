@@ -33,7 +33,6 @@ func attachExecProbes(objs execObjects) ([]link.Link, error) {
 	tp, err := link.Tracepoint(probe.group, probe.name, probe.prog, nil)
 	if err != nil {
 		log.Error().Err(err).Str("group", probe.group).Str("name", probe.name).Msg("failed to attach exec tracepoint")
-		tp.Close()
 		return nil, err
 	}
 	return []link.Link{tp}, nil
@@ -52,17 +51,17 @@ func NewProcExecProbe() (*ProcExecProbe, error) {
 		return nil, err
 	}
 
-	rb, err := ringbuf.NewReader(objs.Events)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to open ringbuf reader for exec")
-		return nil, err
-	}
-
-	return &ProcExecProbe{
-		rb:    rb,
+	p := &ProcExecProbe{
 		objs:  objs,
 		links: links,
-	}, nil
+	}
+	p.rb, err = ringbuf.NewReader(objs.Events)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to open ringbuf reader for exec")
+		p.Close()
+		return nil, err
+	}
+	return p, nil
 }
 
 func (pep *ProcExecProbe) Start(ch chan<- int32) {
@@ -90,7 +89,11 @@ func (pep *ProcExecProbe) Start(ch chan<- int32) {
 				Str("filepath", tool.CharsToString(event.Filename[:])).
 				Msg("proc exec event")
 		}
-		ch <- event.Pid
+		select {
+		case ch <- event.Pid:
+		default:
+			log.Warn().Int32("pid", event.Pid).Msg("failed to push to proc exec channel")
+		}
 	}
 }
 

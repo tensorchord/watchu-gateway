@@ -44,6 +44,13 @@ type ProcTLSLib struct {
 	Type TLSLibType
 }
 
+func newOpenSSLLib(path string) ProcTLSLib {
+	return ProcTLSLib{
+		Path: path,
+		Type: TLSLibOpenSSL,
+	}
+}
+
 func findBoringSSLTools(fields [][]byte) bool {
 	for _, field := range fields {
 		for _, tool := range boringSSLTools {
@@ -105,7 +112,7 @@ func findOpenSSLStaticSymbols(filepath string) (bool, error) {
 func DetectTLSLibType(proc int32) ([]ProcTLSLib, error) {
 	path, err := os.Readlink(fmt.Sprintf(procExeFormat, proc))
 	if err != nil {
-		log.Warn().Err(err).Int32("proc", proc).Msg("failed to find the readlink")
+		log.Debug().Err(err).Int32("proc", proc).Msg("failed to find the readlink")
 		return nil, err
 	}
 	absPath := fmt.Sprintf(procRootFormat, proc, path)
@@ -114,7 +121,7 @@ func DetectTLSLibType(proc int32) ([]ProcTLSLib, error) {
 	mapsFile := fmt.Sprintf(procMapsFormat, proc)
 	file, err := os.Open(mapsFile)
 	if err != nil {
-		log.Warn().Err(err).Int32("proc", proc).Msg("failed to open the maps")
+		log.Debug().Err(err).Int32("proc", proc).Msg("failed to open the maps")
 		return nil, err
 	}
 	defer file.Close()
@@ -142,10 +149,7 @@ func DetectTLSLibType(proc int32) ([]ProcTLSLib, error) {
 					continue
 				}
 				seen[path] = struct{}{}
-				libs = append(libs, ProcTLSLib{
-					Path: path,
-					Type: TLSLibOpenSSL,
-				})
+				libs = append(libs, newOpenSSLLib(path))
 			}
 		}
 	}
@@ -155,10 +159,12 @@ func DetectTLSLibType(proc int32) ([]ProcTLSLib, error) {
 	}
 
 	if hasOpenSSL, err := findOpenSSLStaticSymbols(absPath); err == nil && hasOpenSSL {
-		libs = append(libs, ProcTLSLib{
-			Path: absPath,
-			Type: TLSLibOpenSSL,
-		})
+		libs = append(libs, newOpenSSLLib(absPath))
+	}
+
+	lr := NewDynLibResolver(proc, absPath)
+	if dynLibs, err := lr.FindOpenSSL(); err == nil {
+		libs = append(libs, dynLibs...)
 	}
 	return libs, nil
 }

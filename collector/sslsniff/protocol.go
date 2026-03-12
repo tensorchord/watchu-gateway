@@ -367,7 +367,7 @@ func (s *SSLStore) parseRequest(reqChan chan *export.RawRequest, postgresChan ch
 			select {
 			case postgresChan <- &export.RawPostgres{
 				ElapsedNs: timestamp,
-				PidTid:    key.PidTgid,
+				PidTGid:   key.PidTgid,
 				UidGid:    key.UidGid,
 				CgroupID:  key.CgroupID,
 				Comm:      comm,
@@ -381,7 +381,7 @@ func (s *SSLStore) parseRequest(reqChan chan *export.RawRequest, postgresChan ch
 			select {
 			case reqChan <- &export.RawRequest{
 				ElapsedNs:     timestamp,
-				PidTid:        key.PidTgid,
+				PidTGid:       key.PidTgid,
 				UidGid:        key.UidGid,
 				CgroupID:      key.CgroupID,
 				Comm:          comm,
@@ -483,7 +483,7 @@ func (s *SSLStore) parseResponse(channel chan *export.RawResponse) {
 				select {
 				case channel <- &export.RawResponse{
 					ElapsedNs:     timestamp,
-					PidTid:        key.PidTgid,
+					PidTGid:       key.PidTgid,
 					UidGid:        key.UidGid,
 					CgroupID:      key.CgroupID,
 					Comm:          comm,

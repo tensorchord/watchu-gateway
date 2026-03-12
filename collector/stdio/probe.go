@@ -158,7 +158,7 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 		select {
 		case sp.channel <- &export.RawStdIO{
 			ElapsedNs:   event.TimestampNs,
-			PidTid:      event.PidTgid,
+			PidTGid:     event.PidTgid,
 			UidGid:      event.UidGid,
 			CgroupID:    event.CgroupId,
 			MessageType: msgType,

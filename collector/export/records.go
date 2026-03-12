@@ -17,6 +17,31 @@ var (
 	containerResolver = container.NewContainerResolver()
 )
 
+// in the Linux kernel, `task_struct` contains `pid` & `tgid`, but the meaning
+// is different from what we usually call for PID and TID
+// - `pid` <=> TID (thread id)
+// - `tgid` (thread group id) <=> PID (process id)
+//
+// refs:
+// - https://docs.ebpf.io/linux/helper-function/bpf_get_current_pid_tgid/
+// - https://github.com/cilium/tetragon/blob/99bd58f27223743a7907db203577f4e7733f8021/bpf/process/bpf_execve_event.c#L286-L293
+func extractPid(raw uint64) int32 {
+	return int32(raw >> 32)
+}
+
+func extractTid(raw uint64) int32 {
+	return int32(raw)
+}
+
+// https://docs.ebpf.io/linux/helper-function/bpf_get_current_uid_gid/
+func extractUid(raw uint64) int32 {
+	return int32(raw)
+}
+
+func extractGid(raw uint64) int32 {
+	return int32(raw >> 32)
+}
+
 func getBootTime() *time.Time {
 	var info syscall.Sysinfo_t
 	if err := syscall.Sysinfo(&info); err != nil {
@@ -147,7 +172,7 @@ func (raw *RawExec) ToRecord(_ context.Context, host string) any {
 
 type RawRequest struct {
 	ElapsedNs     uint64
-	PidTid        uint64
+	PidTGid       uint64
 	UidGid        uint64
 	CgroupID      uint64
 	Comm          string
@@ -169,10 +194,10 @@ func (raw *RawRequest) ToRecord(ctx context.Context, host string) any {
 
 	return RecordRequest{
 		Timestamp:     parseElapsedToTimestamp(raw.ElapsedNs),
-		Pid:           int32(raw.PidTid & 0xFFFFFFFF),
-		Tid:           int32(raw.PidTid >> 32),
-		Uid:           int32(raw.UidGid & 0xFFFFFFFF),
-		Gid:           int32(raw.UidGid >> 32),
+		Pid:           extractPid(raw.PidTGid),
+		Tid:           extractTid(raw.PidTGid),
+		Uid:           extractUid(raw.UidGid),
+		Gid:           extractGid(raw.UidGid),
 		Comm:          raw.Comm,
 		Method:        raw.Method,
 		URL:           raw.URL,
@@ -188,7 +213,7 @@ func (raw *RawRequest) ToRecord(ctx context.Context, host string) any {
 
 type RawResponse struct {
 	ElapsedNs     uint64
-	PidTid        uint64
+	PidTGid       uint64
 	UidGid        uint64
 	CgroupID      uint64
 	Comm          string
@@ -208,10 +233,10 @@ func (raw *RawResponse) ToRecord(ctx context.Context, host string) any {
 	}
 	return RecordResponse{
 		Timestamp:     parseElapsedToTimestamp(raw.ElapsedNs),
-		Pid:           int32(raw.PidTid & 0xFFFFFFFF),
-		Tid:           int32(raw.PidTid >> 32),
-		Uid:           int32(raw.UidGid & 0xFFFFFFFF),
-		Gid:           int32(raw.UidGid >> 32),
+		Pid:           extractPid(raw.PidTGid),
+		Tid:           extractTid(raw.PidTGid),
+		Uid:           extractUid(raw.UidGid),
+		Gid:           extractGid(raw.UidGid),
 		Comm:          raw.Comm,
 		StatusCode:    int32(raw.StatusCode),
 		Protocol:      raw.Protocol,
@@ -226,7 +251,7 @@ func (raw *RawResponse) ToRecord(ctx context.Context, host string) any {
 
 type RawStdIO struct {
 	ElapsedNs   uint64
-	PidTid      uint64
+	PidTGid     uint64
 	UidGid      uint64
 	CgroupID    uint64
 	MessageType string
@@ -243,10 +268,10 @@ func (raw *RawStdIO) ToRecord(ctx context.Context, host string) any {
 
 	return RecordStdIO{
 		Timestamp:   parseElapsedToTimestamp(raw.ElapsedNs),
-		Pid:         int32(raw.PidTid & 0xFFFFFFFF),
-		Tid:         int32(raw.PidTid >> 32),
-		Uid:         int32(raw.UidGid & 0xFFFFFFFF),
-		Gid:         int32(raw.UidGid >> 32),
+		Pid:         extractPid(raw.PidTGid),
+		Tid:         extractTid(raw.PidTGid),
+		Uid:         extractUid(raw.UidGid),
+		Gid:         extractGid(raw.UidGid),
 		ContainerID: containerResolver.Resolve(ctx, raw.CgroupID),
 		Host:        host,
 		MessageType: raw.MessageType,
@@ -261,7 +286,7 @@ func (raw *RawStdIO) ToRecord(ctx context.Context, host string) any {
 
 type RawPostgres struct {
 	ElapsedNs uint64
-	PidTid    uint64
+	PidTGid   uint64
 	UidGid    uint64
 	CgroupID  uint64
 	Comm      string
@@ -272,10 +297,10 @@ type RawPostgres struct {
 func (raw *RawPostgres) ToRecord(ctx context.Context, host string) any {
 	return RecordPostgres{
 		Timestamp:   parseElapsedToTimestamp(raw.ElapsedNs),
-		Pid:         int32(raw.PidTid & 0xFFFFFFFF),
-		Tid:         int32(raw.PidTid >> 32),
-		Uid:         int32(raw.UidGid & 0xFFFFFFFF),
-		Gid:         int32(raw.UidGid >> 32),
+		Pid:         extractPid(raw.PidTGid),
+		Tid:         extractTid(raw.PidTGid),
+		Uid:         extractUid(raw.UidGid),
+		Gid:         extractGid(raw.UidGid),
 		Comm:        raw.Comm,
 		Data:        raw.Data,
 		MsgType:     raw.MsgType,

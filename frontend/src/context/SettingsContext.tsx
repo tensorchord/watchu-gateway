@@ -1,4 +1,5 @@
-import { createContext, ReactNode, useContext, useMemo, useState } from "react";
+import { createContext, ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import dayjs, { Dayjs } from "dayjs";
 
 export type TimeRangePreset = "15m" | "30m" | "1h" | "2h" | "6h" | "24h" | "custom";
@@ -34,14 +35,48 @@ const DEFAULT_ROOT_LIMIT = 50;
 const DEFAULT_NODE_LIMIT = 600;
 
 export function SettingsProvider({ children }: SettingsProviderProps) {
-    const [host, setHost] = useState(DEFAULT_HOST);
-    const [since, setSince] = useState(dayjs().subtract(1, "hour"));
-    const [until, setUntil] = useState(dayjs());
+    const [searchParams, setSearchParams] = useSearchParams();
+
+    const [host, setHostState] = useState(() => searchParams.get("host") ?? DEFAULT_HOST);
+    const [since, setSinceState] = useState<Dayjs>(() => {
+        const raw = searchParams.get("since");
+        return raw ? dayjs(raw) : dayjs().subtract(1, "hour");
+    });
+    const [until, setUntilState] = useState<Dayjs>(() => {
+        const raw = searchParams.get("until");
+        return raw ? dayjs(raw) : dayjs();
+    });
     const [limit, setLimit] = useState(DEFAULT_LIMIT);
     const [rootLimit, setRootLimit] = useState(DEFAULT_ROOT_LIMIT);
     const [nodeLimit, setNodeLimit] = useState(DEFAULT_NODE_LIMIT);
-    const [timePreset, setTimePreset] = useState<TimeRangePreset>("1h");
+    const [timePreset, setTimePreset] = useState<TimeRangePreset>(() =>
+        searchParams.has("since") ? "custom" : "1h"
+    );
     const [autoRefresh, setAutoRefresh] = useState(true);
+
+    const setHost = useCallback(
+        (h: string) => {
+            setHostState(h);
+            setSearchParams((prev) => { prev.set("host", h); return prev; }, { replace: true });
+        },
+        [setSearchParams]
+    );
+
+    const setSince = useCallback(
+        (s: Dayjs) => {
+            setSinceState(s);
+            setSearchParams((prev) => { prev.set("since", s.toISOString()); return prev; }, { replace: true });
+        },
+        [setSearchParams]
+    );
+
+    const setUntil = useCallback(
+        (u: Dayjs) => {
+            setUntilState(u);
+            setSearchParams((prev) => { prev.set("until", u.toISOString()); return prev; }, { replace: true });
+        },
+        [setSearchParams]
+    );
 
     const value = useMemo<SettingsContextValue>(
         () => ({
@@ -62,7 +97,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
             autoRefresh,
             setAutoRefresh
         }),
-        [host, since, until, limit, rootLimit, nodeLimit, timePreset, autoRefresh]
+        [host, setHost, since, setSince, until, setUntil, limit, rootLimit, nodeLimit, timePreset, autoRefresh]
     );
 
     return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

@@ -31,6 +31,61 @@ ORDER BY response_ts DESC
 LIMIT sqlc.arg('limit');
 
 -- name: ListProcessHTTPEventsByHostRange :many
+WITH base AS (
+SELECT
+    phe.host,
+    phe.http_id,
+    phe.http_type,
+    phe.timestamp,
+    phe.pid,
+    phe.tid,
+    phe.method,
+    phe.url,
+    phe.status_code,
+    phe.protocol,
+    phe.headers,
+    phe.body,
+    phe.truncated,
+    phe.exec_id,
+    phe.root_exec_id,
+    phe.root_pid,
+    phe.depth,
+    phe.is_mcp_http,
+    CASE
+      WHEN phe.http_type = 'request' THEN req.trace_id
+      WHEN phe.http_type = 'response' THEN resp.trace_id
+      ELSE NULL
+    END AS trace_id,
+    CASE
+      WHEN phe.http_type = 'request' THEN phe.url
+      WHEN phe.http_type = 'response' THEN (
+        SELECT rq.url
+        FROM http_request rq
+        WHERE rq.host = phe.host
+          AND resp.trace_id IS NOT NULL
+          AND resp.trace_id <> ''
+          AND rq.trace_id = resp.trace_id
+        ORDER BY rq.timestamp DESC
+        LIMIT 1
+      )
+      ELSE NULL
+    END AS request_url_for_filter
+FROM process_http_events phe
+LEFT JOIN http_request req
+  ON phe.http_type = 'request'
+ AND req.host = phe.host
+ AND req.id = phe.http_id
+LEFT JOIN http_response resp
+  ON phe.http_type = 'response'
+ AND resp.host = phe.host
+ AND resp.id = phe.http_id
+WHERE phe.host = sqlc.arg('host')
+  AND phe.timestamp >= sqlc.arg('since')
+  AND phe.timestamp <= sqlc.arg('until')
+  AND (sqlc.narg('before_ts')::timestamptz IS NULL OR phe.timestamp < sqlc.narg('before_ts')::timestamptz)
+  AND (sqlc.narg('http_type')::text IS NULL OR lower(phe.http_type) = lower(sqlc.narg('http_type')::text))
+  AND (sqlc.narg('root_exec_id')::text IS NULL OR phe.root_exec_id = sqlc.narg('root_exec_id')::text)
+)
 SELECT
     host,
     http_id,
@@ -49,11 +104,18 @@ SELECT
     root_exec_id,
     root_pid,
     depth,
-    is_mcp_http
-FROM process_http_events
-WHERE host = sqlc.arg('host')
-  AND timestamp >= sqlc.arg('since')
-  AND timestamp <= sqlc.arg('until')
+    is_mcp_http,
+    trace_id
+FROM base
+WHERE (
+    sqlc.narg('url_exclude_csv')::text IS NULL
+    OR NOT EXISTS (
+        SELECT 1
+        FROM unnest(string_to_array(lower(sqlc.narg('url_exclude_csv')::text), ',')) AS term(raw_term)
+        WHERE btrim(raw_term) <> ''
+          AND lower(COALESCE(request_url_for_filter, '')) LIKE '%' || btrim(raw_term) || '%'
+    )
+)
 ORDER BY timestamp DESC
 LIMIT sqlc.arg('limit');
 
@@ -97,6 +159,16 @@ FROM process_lifecycle
 WHERE host = sqlc.arg('host')
   AND start_ts >= sqlc.arg('since')
   AND start_ts <= sqlc.arg('until')
+  AND (sqlc.narg('root_exec_id')::text IS NULL OR root_exec_id = sqlc.narg('root_exec_id')::text)
+  AND (
+    sqlc.narg('args_exclude_csv')::text IS NULL
+    OR NOT EXISTS (
+      SELECT 1
+      FROM unnest(string_to_array(lower(sqlc.narg('args_exclude_csv')::text), ',')) AS term(raw_term)
+      WHERE btrim(raw_term) <> ''
+        AND lower(COALESCE(args, '')) LIKE '%' || btrim(raw_term) || '%'
+    )
+  )
 ORDER BY start_ts DESC
 LIMIT sqlc.arg('limit');
 

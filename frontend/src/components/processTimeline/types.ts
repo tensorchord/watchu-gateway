@@ -11,6 +11,7 @@ export interface TimelineEvent {
     timestampMs: number;
     kind: "http";
     httpId: string | null;
+    traceId: string | null;
     httpType: string;
     isMcpHttp: boolean;
     method: string | null;

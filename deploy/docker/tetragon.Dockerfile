@@ -2,7 +2,7 @@
 # Uses the latest main branch which includes --filter-environment-variables
 # This simplified version uses Tetragon's official build process
 
-FROM golang:1.25-bookworm AS builder
+FROM golang:1.26-bookworm AS builder
 
 WORKDIR /go/src/github.com/cilium/tetragon
 

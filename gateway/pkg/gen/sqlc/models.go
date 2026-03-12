@@ -129,6 +129,7 @@ type HttpRequest struct {
 	Tid           int32
 	Uid           int32
 	Gid           int32
+	TraceID       pgtype.Text
 	Comm          string
 	Method        string
 	ContentLength pgtype.Int8
@@ -148,6 +149,7 @@ type HttpResponse struct {
 	Tid           int32
 	Uid           int32
 	Gid           int32
+	TraceID       pgtype.Text
 	Comm          string
 	StatusCode    int16
 	ContentLength pgtype.Int8

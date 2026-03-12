@@ -40,10 +40,35 @@ export function useSecurityAnalysis(host: string, semanticLimit: number, promptL
     });
 }
 
-export function useProcessHttpEvents(host: string, since: Dayjs, until: Dayjs, limit: number) {
+export function useProcessHttpEvents(
+    host: string,
+    since: Dayjs,
+    until: Dayjs,
+    limit: number,
+    options?: {
+        rootExecId?: string;
+        urlExcludeContains?: string[];
+        httpType?: "request" | "response";
+        before?: Dayjs | string;
+    }
+) {
     return useQuery({
-        queryKey: ["http-events", host, since.toISOString(), until.toISOString(), limit],
-        queryFn: () => fetchProcessHttpEvents(host, since, until, limit),
+        queryKey: [
+            "http-events",
+            host,
+            since.toISOString(),
+            until.toISOString(),
+            limit,
+            options?.rootExecId ?? "",
+            (options?.urlExcludeContains ?? []).join(','),
+            options?.httpType ?? '',
+            options?.before == null
+                ? ''
+                : typeof options.before === 'string'
+                    ? options.before
+                    : options.before.toISOString()
+        ],
+        queryFn: () => fetchProcessHttpEvents(host, since, until, limit, options),
         enabled: Boolean(host)
     });
 }
@@ -56,10 +81,24 @@ export function useHeuristicAlerts(host: string, since: Dayjs, until: Dayjs, lim
     });
 }
 
-export function useProcessEvents(host: string, since: Dayjs, until: Dayjs, limit: number) {
+export function useProcessEvents(
+    host: string,
+    since: Dayjs,
+    until: Dayjs,
+    limit: number,
+    options?: { rootExecId?: string; argsExcludeContains?: string[] }
+) {
     return useQuery({
-        queryKey: ["process-events", host, since.toISOString(), until.toISOString(), limit],
-        queryFn: () => fetchProcessEvents(host, since, until, limit),
+        queryKey: [
+            "process-events",
+            host,
+            since.toISOString(),
+            until.toISOString(),
+            limit,
+            options?.rootExecId ?? "",
+            (options?.argsExcludeContains ?? []).join(',')
+        ],
+        queryFn: () => fetchProcessEvents(host, since, until, limit, options),
         enabled: Boolean(host)
     });
 }

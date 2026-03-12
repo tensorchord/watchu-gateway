@@ -679,6 +679,7 @@ export function mapHttpEvents(events: ProcessHTTPEventResponse[] | undefined): T
             const httpTypeRaw = toPrimitiveString(event.http_type);
             const httpType = httpTypeRaw ? httpTypeRaw.toUpperCase() : "UNKNOWN";
             const httpId = toPrimitiveString(event.http_id);
+            const traceId = toPrimitiveString((event as Record<string, unknown>).trace_id);
             const method = toPrimitiveString(event.method);
             const statusCode = event.status_code != null ? Number(event.status_code) : null;
             const url = toPrimitiveString(event.url);
@@ -695,6 +696,7 @@ export function mapHttpEvents(events: ProcessHTTPEventResponse[] | undefined): T
                 timestampMs,
                 kind: "http" as const,
                 httpId,
+                traceId,
                 httpType,
                 isMcpHttp: Boolean(event.is_mcp_http),
                 method,

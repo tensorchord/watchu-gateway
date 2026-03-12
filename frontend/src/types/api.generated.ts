@@ -165,6 +165,7 @@ export interface PkgHttpapiProcessHTTPEventResponse {
   root_pid?: number;
   status_code?: number;
   tid?: number;
+  trace_id?: string;
   timestamp?: string;
   truncated?: boolean;
   url?: string;

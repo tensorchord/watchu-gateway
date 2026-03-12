@@ -107,13 +107,38 @@ export async function fetchSecurityLLMAnalysis(host: string, semanticLimit: numb
     return data;
 }
 
-export async function fetchProcessHttpEvents(host: string, since: Dayjs, until: Dayjs, limit: number) {
+export async function fetchProcessHttpEvents(
+    host: string,
+    since: Dayjs,
+    until: Dayjs,
+    limit: number,
+    options?: {
+        rootExecId?: string;
+        urlExcludeContains?: string[];
+        httpType?: "request" | "response";
+        before?: Dayjs | string;
+    }
+) {
+    const beforeValue =
+        options?.before == null
+            ? undefined
+            : typeof options.before === "string"
+                ? options.before
+                : toQueryTimestamp(options.before);
+
     const { data } = await apiClient.get<ProcessHTTPEventResponse[]>("/analysis/process_http_events", {
         params: {
             host,
             since: toQueryTimestamp(since),
             until: toQueryTimestamp(until),
-            limit
+            limit,
+            root_exec_id: options?.rootExecId,
+            http_type: options?.httpType,
+            before: beforeValue,
+            url_exclude_contains:
+                options?.urlExcludeContains && options.urlExcludeContains.length > 0
+                    ? options.urlExcludeContains.join(',')
+                    : undefined
         }
     });
     return data;
@@ -256,13 +281,21 @@ export async function fetchHeuristicAlerts(host: string, since: Dayjs, until: Da
     return ensureHeuristicAlertsArray(data);
 }
 
-export async function fetchProcessEvents(host: string, since: Dayjs, until: Dayjs, limit: number) {
+export async function fetchProcessEvents(
+    host: string,
+    since: Dayjs,
+    until: Dayjs,
+    limit: number,
+    options?: { rootExecId?: string; argsExcludeContains?: string[] }
+) {
     const { data } = await apiClient.get<ProcessEventResponse[]>("/analysis/process_events", {
         params: {
             host,
             since: toQueryTimestamp(since),
             until: toQueryTimestamp(until),
-            limit
+            limit,
+            root_exec_id: options?.rootExecId,
+            args_exclude_contains: options?.argsExcludeContains?.join(",")
         }
     });
     return data;

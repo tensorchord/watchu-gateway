@@ -74,6 +74,8 @@ interface ProcessTimelineProps {
     httpEvents?: ProcessHTTPEventResponse[];
     events?: ProcessHTTPEventResponse[];
     processEvents?: ProcessEventResponse[];
+    processArgsExcludeContains?: string;
+    onProcessArgsExcludeContainsChange?: (value: string) => void;
     loading?: boolean;
     focusRootExecId?: string | null;
     onRefresh?: () => void;
@@ -85,6 +87,8 @@ export default function ProcessTimeline({
     httpEvents,
     events,
     processEvents,
+    processArgsExcludeContains,
+    onProcessArgsExcludeContainsChange,
     loading = false,
     focusRootExecId,
     onRefresh,
@@ -103,6 +107,8 @@ export default function ProcessTimeline({
         SEVERITY_FILTERS.map((filter) => filter.value)
     );
     const [search, setSearch] = useState("");
+    const [excludeUrlContains, setExcludeUrlContains] = useState("");
+    const [internalProcessArgsExcludeContains, setInternalProcessArgsExcludeContains] = useState("");
     const [enableRelationalSearch, setEnableRelationalSearch] = useState(false);
     const [selectedEvent, setSelectedEvent] = useState<CombinedEvent | null>(null);
     const [internalRootExecFilter, setInternalRootExecFilter] = useState<string | null>(null);
@@ -126,6 +132,18 @@ export default function ProcessTimeline({
 
     const rootExecFilter = isControlled ? controlledRootExecFilter : internalRootExecFilter;
     const rootExecDraft = isControlled ? controlledRootExecFilter ?? "" : rootExecDraftState;
+    const processArgsExcludeInput = processArgsExcludeContains ?? internalProcessArgsExcludeContains;
+
+    const handleProcessArgsExcludeChange = useCallback(
+        (event: ChangeEvent<HTMLInputElement>) => {
+            const nextValue = event.target.value;
+            onProcessArgsExcludeContainsChange?.(nextValue);
+            if (processArgsExcludeContains === undefined) {
+                setInternalProcessArgsExcludeContains(nextValue);
+            }
+        },
+        [onProcessArgsExcludeContainsChange, processArgsExcludeContains]
+    );
 
     const handleRootExecClear = useCallback(() => {
         if (isControlled) {
@@ -226,6 +244,78 @@ export default function ProcessTimeline({
 
     const filteredEvents = useMemo(() => {
         const searchLower = search.trim().toLowerCase();
+        const excludeTerms = excludeUrlContains
+            .split(",")
+            .map((item) => item.trim().toLowerCase())
+            .filter((item) => item.length > 0);
+
+        const shouldExcludeRequestByUrl = (event: TimelineEvent): boolean => {
+            if (event.httpType !== "REQUEST" || excludeTerms.length === 0 || typeof event.url !== "string") {
+                return false;
+            }
+            const urlLower = event.url.toLowerCase();
+            return excludeTerms.some((term) => urlLower.includes(term));
+        };
+
+        const excludedResponseHttpIds = new Set<string>();
+        if (excludeTerms.length > 0) {
+            type PendingRequest = { excluded: boolean; traceId: string | null };
+            const pendingByPid = new Map<number, PendingRequest[]>();
+            const sorted = [...timelineEvents].sort((a, b) => a.timestampMs - b.timestampMs);
+
+            sorted.forEach((event) => {
+                if (event.pid == null) {
+                    return;
+                }
+
+                if (event.httpType === "REQUEST") {
+                    const queue = pendingByPid.get(event.pid) ?? [];
+                    queue.push({ excluded: shouldExcludeRequestByUrl(event), traceId: event.traceId });
+                    pendingByPid.set(event.pid, queue);
+                    return;
+                }
+
+                if (event.httpType === "RESPONSE") {
+                    const queue = pendingByPid.get(event.pid);
+                    if (!queue || queue.length === 0) {
+                        return;
+                    }
+
+                    let matchedIndex = 0;
+                    if (event.traceId) {
+                        const traceMatchIndex = queue.findIndex((candidate) => candidate.traceId === event.traceId);
+                        if (traceMatchIndex >= 0) {
+                            matchedIndex = traceMatchIndex;
+                        }
+                    }
+
+                    const [matchedRequest] = queue.splice(matchedIndex, 1);
+                    if (!matchedRequest) {
+                        return;
+                    }
+                    if (matchedRequest.excluded && event.httpId) {
+                        excludedResponseHttpIds.add(event.httpId);
+                    }
+                }
+            });
+        }
+
+        const shouldExcludeByUrlRule = (event: TimelineEvent): boolean => {
+            if (excludeTerms.length === 0) {
+                return false;
+            }
+
+            if (event.httpType === "REQUEST") {
+                return shouldExcludeRequestByUrl(event);
+            }
+
+            if (event.httpType === "RESPONSE") {
+                return Boolean(event.httpId && excludedResponseHttpIds.has(event.httpId));
+            }
+
+            return false;
+        };
+
         const severitySet = new Set(selectedSeverities);
 
         // If relational search is disabled, use original simple filtering logic
@@ -254,6 +344,9 @@ export default function ProcessTimeline({
                     if (!severitySet.has(key)) {
                         return false;
                     }
+                }
+                if (shouldExcludeByUrlRule(event)) {
+                    return false;
                 }
                 if (searchLower) {
                     const haystack = [event.method, event.url, event.execId, event.rootExecId]
@@ -303,6 +396,9 @@ export default function ProcessTimeline({
                 if (!severitySet.has(key)) {
                     return;
                 }
+            }
+            if (shouldExcludeByUrlRule(event)) {
+                return;
             }
 
             // Apply search filter
@@ -373,6 +469,9 @@ export default function ProcessTimeline({
                                 return false;
                             }
                         }
+                        if (shouldExcludeByUrlRule(event)) {
+                            return false;
+                        }
                         return true;
                     }
                 }
@@ -380,10 +479,14 @@ export default function ProcessTimeline({
 
             return false;
         });
-    }, [timelineEvents, rootExecFilter, search, selectedRootPids, selectedSeverities, selectedTypes, enableRelationalSearch]);
+    }, [timelineEvents, excludeUrlContains, rootExecFilter, search, selectedRootPids, selectedSeverities, selectedTypes, enableRelationalSearch]);
 
     const filteredProcessEvents = useMemo(() => {
         const searchLower = search.trim().toLowerCase();
+        const excludeArgsTerms = processArgsExcludeInput
+            .split(",")
+            .map((item) => item.trim().toLowerCase())
+            .filter((item) => item.length > 0);
         return timelineProcessEvents.filter((event) => {
             if (event.rootPid == null || event.pid == null) {
                 return false;
@@ -397,6 +500,12 @@ export default function ProcessTimeline({
                     return false;
                 }
             }
+            if (excludeArgsTerms.length > 0) {
+                const argsLower = typeof event.args === "string" ? event.args.toLowerCase() : "";
+                if (excludeArgsTerms.some((term) => argsLower.includes(term))) {
+                    return false;
+                }
+            }
             if (searchLower) {
                 const haystack = [event.execId, event.rootExecId, event.comm, event.args]
                     .map((value) => (typeof value === "string" ? value.toLowerCase() : ""))
@@ -407,7 +516,7 @@ export default function ProcessTimeline({
             }
             return true;
         });
-    }, [timelineProcessEvents, rootExecFilter, search, selectedRootPids]);
+    }, [timelineProcessEvents, processArgsExcludeInput, rootExecFilter, search, selectedRootPids]);
 
     const hasRequestEvents = useMemo(() => timelineEvents.some((event) => event.httpType === "REQUEST"), [timelineEvents]);
 
@@ -625,6 +734,33 @@ export default function ProcessTimeline({
         exportRowsToCSV(result.columns, result.rows, "process-timeline");
     }, [filteredEvents, filteredProcessEvents]);
 
+    const chartEvents = useMemo(
+        () => ({
+            click: (params: any) => {
+                if (params?.componentType !== "series") {
+                    return;
+                }
+                const point = params?.data as TimelinePoint | undefined;
+                const directEvent = point?.processEvent;
+                if (directEvent) {
+                    setSelectedEvent(directEvent);
+                    return;
+                }
+                const seriesName = typeof params?.seriesName === "string" ? params.seriesName : null;
+                const dataIndex = Number.isFinite(params?.dataIndex) ? (params.dataIndex as number) : null;
+                if (!seriesName || dataIndex == null) {
+                    return;
+                }
+                const bucket = grouped.get(seriesName);
+                const indexedEvent = bucket?.[dataIndex];
+                if (indexedEvent) {
+                    setSelectedEvent(indexedEvent);
+                }
+            }
+        }),
+        [grouped]
+    );
+
     const navigateToProcessView = useCallback(
         (params: { rootExecId?: string | null; rootPid?: number | null }) => {
             const normalizedRootExecId = (params.rootExecId ?? "").trim();
@@ -777,6 +913,22 @@ export default function ProcessTimeline({
                         onChange={(event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
                         disabled={isDisabled}
                     />
+                    <Input
+                        allowClear
+                        style={{ minWidth: 260, maxWidth: 360 }}
+                        placeholder="Exclude URL contains: a,b,c"
+                        value={excludeUrlContains}
+                        onChange={(event: ChangeEvent<HTMLInputElement>) => setExcludeUrlContains(event.target.value)}
+                        disabled={isDisabled}
+                    />
+                    <Input
+                        allowClear
+                        style={{ minWidth: 260, maxWidth: 360 }}
+                        placeholder="Exclude exec args contains: a,b,c"
+                        value={processArgsExcludeInput}
+                        onChange={handleProcessArgsExcludeChange}
+                        disabled={isDisabled}
+                    />
                     <Flex align="center" gap={8}>
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                             Relational Search
@@ -855,31 +1007,9 @@ export default function ProcessTimeline({
                             ref={chartRef}
                             option={option}
                             style={{ height: 380 }}
-                            notMerge={true}
+                            notMerge={false}
                             lazyUpdate={true}
-                            onEvents={{
-                                click: (params: any) => {
-                                    if (params?.componentType !== "series") {
-                                        return;
-                                    }
-                                    const point = params?.data as TimelinePoint | undefined;
-                                    const directEvent = point?.processEvent;
-                                    if (directEvent) {
-                                        setSelectedEvent(directEvent);
-                                        return;
-                                    }
-                                    const seriesName = typeof params?.seriesName === "string" ? params.seriesName : null;
-                                    const dataIndex = Number.isFinite(params?.dataIndex) ? (params.dataIndex as number) : null;
-                                    if (!seriesName || dataIndex == null) {
-                                        return;
-                                    }
-                                    const bucket = grouped.get(seriesName);
-                                    const indexedEvent = bucket?.[dataIndex];
-                                    if (indexedEvent) {
-                                        setSelectedEvent(indexedEvent);
-                                    }
-                                }
-                            }}
+                            onEvents={chartEvents}
                         />
                         {selectedEvent && (
                             <Card

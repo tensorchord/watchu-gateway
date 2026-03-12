@@ -1,5 +1,5 @@
 import { Card, Col, Result, Row, Skeleton, Tabs, Typography, message } from "antd";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import DataSourcesPanel from "../components/DataSourcesPanel";
@@ -34,13 +34,25 @@ export default function Dashboard({ view = "timeline" }: DashboardProps) {
     const { host, since, until, limit } = useSettings();
     const location = useLocation();
     const httpEventsQuery = useProcessHttpEvents(host, since, until, limit);
-    const processEventsQuery = useProcessEvents(host, since, until, limit);
     const securityQuery = useSecurityAnalysis(host, 20, 20);
 
     const [focusRootExecId, setFocusRootExecId] = useState<string | null>(null);
+    const [excludeProcessArgsContains, setExcludeProcessArgsContains] = useState("");
     const lastWarningRef = useRef<string | null>(null);
     const navigate = useNavigate();
     const activeView: DashboardView = view;
+    const deferredExcludeProcessArgsContains = useDeferredValue(excludeProcessArgsContains);
+    const processArgsExcludeTerms = useMemo(
+        () =>
+            deferredExcludeProcessArgsContains
+                .split(",")
+                .map((value) => value.trim())
+                .filter((value) => value.length > 0),
+        [deferredExcludeProcessArgsContains]
+    );
+    const processEventsQuery = useProcessEvents(host, since, until, limit, {
+        argsExcludeContains: processArgsExcludeTerms
+    });
 
     const hasError =
         httpEventsQuery.error || securityQuery.error || processEventsQuery.error;
@@ -86,6 +98,8 @@ export default function Dashboard({ view = "timeline" }: DashboardProps) {
             <ProcessTimeline
                 httpEvents={httpEventsQuery.data ?? []}
                 processEvents={processEventsQuery.data ?? []}
+                processArgsExcludeContains={excludeProcessArgsContains}
+                onProcessArgsExcludeContainsChange={setExcludeProcessArgsContains}
                 loading={timelineLoading}
                 focusRootExecId={focusRootExecId}
                 onRefresh={handleRefreshTimeline}
@@ -100,6 +114,7 @@ export default function Dashboard({ view = "timeline" }: DashboardProps) {
         handleRefreshTimeline,
         httpEventsQuery.data,
         httpEventsQuery.isLoading,
+        excludeProcessArgsContains,
         processEventsQuery.data,
         processEventsQuery.isLoading,
         timelineLoading

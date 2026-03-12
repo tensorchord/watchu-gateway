@@ -954,15 +954,27 @@ FROM process_lifecycle
 WHERE host = $1
   AND start_ts >= $2
   AND start_ts <= $3
+  AND ($4::text IS NULL OR root_exec_id = $4::text)
+  AND (
+    $5::text IS NULL
+    OR NOT EXISTS (
+      SELECT 1
+      FROM unnest(string_to_array(lower($5::text), ',')) AS term(raw_term)
+      WHERE btrim(raw_term) <> ''
+        AND lower(COALESCE(args, '')) LIKE '%' || btrim(raw_term) || '%'
+    )
+  )
 ORDER BY start_ts DESC
-LIMIT $4
+LIMIT $6
 `
 
 type ListProcessEventsByHostRangeParams struct {
-	Host  string
-	Since pgtype.Timestamptz
-	Until pgtype.Timestamptz
-	Limit int32
+	Host           string
+	Since          pgtype.Timestamptz
+	Until          pgtype.Timestamptz
+	RootExecID     pgtype.Text
+	ArgsExcludeCsv pgtype.Text
+	Limit          int32
 }
 
 type ListProcessEventsByHostRangeRow struct {
@@ -986,6 +998,8 @@ func (q *Queries) ListProcessEventsByHostRange(ctx context.Context, arg ListProc
 		arg.Host,
 		arg.Since,
 		arg.Until,
+		arg.RootExecID,
+		arg.ArgsExcludeCsv,
 		arg.Limit,
 	)
 	if err != nil {
@@ -1021,6 +1035,61 @@ func (q *Queries) ListProcessEventsByHostRange(ctx context.Context, arg ListProc
 }
 
 const listProcessHTTPEventsByHostRange = `-- name: ListProcessHTTPEventsByHostRange :many
+WITH base AS (
+SELECT
+    phe.host,
+    phe.http_id,
+    phe.http_type,
+    phe.timestamp,
+    phe.pid,
+    phe.tid,
+    phe.method,
+    phe.url,
+    phe.status_code,
+    phe.protocol,
+    phe.headers,
+    phe.body,
+    phe.truncated,
+    phe.exec_id,
+    phe.root_exec_id,
+    phe.root_pid,
+    phe.depth,
+    phe.is_mcp_http,
+    CASE
+      WHEN phe.http_type = 'request' THEN req.trace_id
+      WHEN phe.http_type = 'response' THEN resp.trace_id
+      ELSE NULL
+    END AS trace_id,
+    CASE
+      WHEN phe.http_type = 'request' THEN phe.url
+      WHEN phe.http_type = 'response' THEN (
+        SELECT rq.url
+        FROM http_request rq
+        WHERE rq.host = phe.host
+          AND resp.trace_id IS NOT NULL
+          AND resp.trace_id <> ''
+          AND rq.trace_id = resp.trace_id
+        ORDER BY rq.timestamp DESC
+        LIMIT 1
+      )
+      ELSE NULL
+    END AS request_url_for_filter
+FROM process_http_events phe
+LEFT JOIN http_request req
+  ON phe.http_type = 'request'
+ AND req.host = phe.host
+ AND req.id = phe.http_id
+LEFT JOIN http_response resp
+  ON phe.http_type = 'response'
+ AND resp.host = phe.host
+ AND resp.id = phe.http_id
+WHERE phe.host = $3
+  AND phe.timestamp >= $4
+  AND phe.timestamp <= $5
+  AND ($6::timestamptz IS NULL OR phe.timestamp < $6::timestamptz)
+  AND ($7::text IS NULL OR lower(phe.http_type) = lower($7::text))
+  AND ($8::text IS NULL OR phe.root_exec_id = $8::text)
+)
 SELECT
     host,
     http_id,
@@ -1039,36 +1108,73 @@ SELECT
     root_exec_id,
     root_pid,
     depth,
-    is_mcp_http
-FROM process_http_events
-WHERE host = $1
-  AND timestamp >= $2
-  AND timestamp <= $3
+    is_mcp_http,
+    trace_id
+FROM base
+WHERE (
+    $1::text IS NULL
+    OR NOT EXISTS (
+        SELECT 1
+        FROM unnest(string_to_array(lower($1::text), ',')) AS term(raw_term)
+        WHERE btrim(raw_term) <> ''
+          AND lower(COALESCE(request_url_for_filter, '')) LIKE '%' || btrim(raw_term) || '%'
+    )
+)
 ORDER BY timestamp DESC
-LIMIT $4
+LIMIT $2
 `
 
 type ListProcessHTTPEventsByHostRangeParams struct {
-	Host  string
-	Since pgtype.Timestamptz
-	Until pgtype.Timestamptz
-	Limit int32
+	UrlExcludeCsv pgtype.Text
+	Limit         int32
+	Host          string
+	Since         pgtype.Timestamptz
+	Until         pgtype.Timestamptz
+	BeforeTs      pgtype.Timestamptz
+	HttpType      pgtype.Text
+	RootExecID    pgtype.Text
 }
 
-func (q *Queries) ListProcessHTTPEventsByHostRange(ctx context.Context, arg ListProcessHTTPEventsByHostRangeParams) ([]ProcessHttpEvent, error) {
+type ListProcessHTTPEventsByHostRangeRow struct {
+	Host       string
+	HttpID     pgtype.UUID
+	HttpType   string
+	Timestamp  pgtype.Timestamptz
+	Pid        pgtype.Int4
+	Tid        pgtype.Int4
+	Method     pgtype.Text
+	Url        pgtype.Text
+	StatusCode pgtype.Int4
+	Protocol   pgtype.Text
+	Headers    []byte
+	Body       []byte
+	Truncated  pgtype.Bool
+	ExecID     pgtype.Text
+	RootExecID pgtype.Text
+	RootPid    pgtype.Int8
+	Depth      pgtype.Int4
+	IsMcpHttp  pgtype.Bool
+	TraceID    interface{}
+}
+
+func (q *Queries) ListProcessHTTPEventsByHostRange(ctx context.Context, arg ListProcessHTTPEventsByHostRangeParams) ([]ListProcessHTTPEventsByHostRangeRow, error) {
 	rows, err := q.db.Query(ctx, listProcessHTTPEventsByHostRange,
+		arg.UrlExcludeCsv,
+		arg.Limit,
 		arg.Host,
 		arg.Since,
 		arg.Until,
-		arg.Limit,
+		arg.BeforeTs,
+		arg.HttpType,
+		arg.RootExecID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ProcessHttpEvent
+	var items []ListProcessHTTPEventsByHostRangeRow
 	for rows.Next() {
-		var i ProcessHttpEvent
+		var i ListProcessHTTPEventsByHostRangeRow
 		if err := rows.Scan(
 			&i.Host,
 			&i.HttpID,
@@ -1088,6 +1194,7 @@ func (q *Queries) ListProcessHTTPEventsByHostRange(ctx context.Context, arg List
 			&i.RootPid,
 			&i.Depth,
 			&i.IsMcpHttp,
+			&i.TraceID,
 		); err != nil {
 			return nil, err
 		}

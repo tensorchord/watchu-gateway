@@ -65,6 +65,7 @@ type HeuristicAlertResponse struct {
 type ProcessHTTPEventResponse struct {
 	Host       string          `json:"host"`
 	HTTPID     *string         `json:"http_id,omitempty"`
+	TraceID    *string         `json:"trace_id,omitempty"`
 	HTTPType   string          `json:"http_type"`
 	Timestamp  *time.Time      `json:"timestamp,omitempty"`
 	PID        *int32          `json:"pid,omitempty"`
@@ -436,6 +437,10 @@ func (h analyticsHandlers) listHosts(c *gin.Context) {
 // @Param        since query     string true  "RFC3339 timestamp lower bound"
 // @Param        until query     string false "RFC3339 timestamp upper bound (defaults to now)"
 // @Param        limit query     int    false "Maximum number of records" minimum(1) maximum(1000)
+// @Param        root_exec_id query string false "Filter by root exec id"
+// @Param        http_type query string false "Filter by HTTP event type (request|response)"
+// @Param        before query string false "Cursor timestamp (RFC3339); returns rows strictly older than this value"
+// @Param        url_exclude_contains query string false "Comma-separated URL substrings to exclude"
 // @Success      200   {array}   ProcessHTTPEventResponse
 // @Failure      400   {object}  ErrorResponse
 // @Failure      500   {object}  ErrorResponse
@@ -446,11 +451,29 @@ func (h analyticsHandlers) getHTTPEvents(c *gin.Context) {
 		return
 	}
 
+	rootExecFilter := strings.TrimSpace(c.Query("root_exec_id"))
+	httpTypeFilter := strings.TrimSpace(c.Query("http_type"))
+	urlExcludeCSV := strings.TrimSpace(c.Query("url_exclude_contains"))
+
+	var beforeTs pgtype.Timestamptz
+	if rawBefore := strings.TrimSpace(c.Query("before")); rawBefore != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, rawBefore)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "invalid_before", "before must be RFC3339", nil)
+			return
+		}
+		beforeTs = pgtype.Timestamptz{Time: parsed, Valid: true}
+	}
+
 	rows, err := h.queries.ListProcessHTTPEventsByHostRange(c.Request.Context(), sqlc.ListProcessHTTPEventsByHostRangeParams{
-		Host:  host,
-		Since: pgtype.Timestamptz{Time: since, Valid: true},
-		Until: pgtype.Timestamptz{Time: until, Valid: true},
-		Limit: limit,
+		Host:          host,
+		Since:         pgtype.Timestamptz{Time: since, Valid: true},
+		Until:         pgtype.Timestamptz{Time: until, Valid: true},
+		BeforeTs:      beforeTs,
+		HttpType:      pgtype.Text{String: httpTypeFilter, Valid: httpTypeFilter != ""},
+		RootExecID:    pgtype.Text{String: rootExecFilter, Valid: rootExecFilter != ""},
+		UrlExcludeCsv: pgtype.Text{String: urlExcludeCSV, Valid: urlExcludeCSV != ""},
+		Limit:         limit,
 	})
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
@@ -462,6 +485,7 @@ func (h analyticsHandlers) getHTTPEvents(c *gin.Context) {
 		resp = append(resp, ProcessHTTPEventResponse{
 			Host:       row.Host,
 			HTTPID:     uuidPtrFromUUID(row.HttpID),
+			TraceID:    stringPtr(stringFromAny(row.TraceID)),
 			HTTPType:   row.HttpType,
 			Timestamp:  timePtrFromTimestamptz(row.Timestamp),
 			PID:        int32PtrFromInt4(row.Pid),
@@ -666,6 +690,8 @@ func (h analyticsHandlers) getPromptInjectionDetails(c *gin.Context) {
 // @Param        since query     string true  "RFC3339 timestamp lower bound"
 // @Param        until query     string false "RFC3339 timestamp upper bound (defaults to now)"
 // @Param        limit query     int    false "Maximum number of records" minimum(1) maximum(1000)
+// @Param        root_exec_id query string false "Filter by root exec id"
+// @Param        args_exclude_contains query string false "Comma-separated exec args substrings to exclude"
 // @Success      200   {array}   ProcessEventResponse
 // @Failure      400   {object}  ErrorResponse
 // @Failure      500   {object}  ErrorResponse
@@ -676,11 +702,16 @@ func (h analyticsHandlers) getProcessEvents(c *gin.Context) {
 		return
 	}
 
+	rootExecFilter := strings.TrimSpace(c.Query("root_exec_id"))
+	argsExcludeCSV := strings.TrimSpace(c.Query("args_exclude_contains"))
+
 	rows, err := h.queries.ListProcessEventsByHostRange(c.Request.Context(), sqlc.ListProcessEventsByHostRangeParams{
-		Host:  host,
-		Since: pgtype.Timestamptz{Time: since, Valid: true},
-		Until: pgtype.Timestamptz{Time: until, Valid: true},
-		Limit: limit,
+		Host:           host,
+		Since:          pgtype.Timestamptz{Time: since, Valid: true},
+		Until:          pgtype.Timestamptz{Time: until, Valid: true},
+		RootExecID:     pgtype.Text{String: rootExecFilter, Valid: rootExecFilter != ""},
+		ArgsExcludeCsv: pgtype.Text{String: argsExcludeCSV, Valid: argsExcludeCSV != ""},
+		Limit:          limit,
 	})
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "internal_error", err.Error(), nil)
@@ -1445,6 +1476,35 @@ func parseLimitQuery(c *gin.Context, key string, defaultVal, minVal, maxVal int3
 		return 0, false
 	}
 	return int32(value64), true
+}
+
+func parseCSVQueryValues(raw string) []string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	parts := strings.Split(trimmed, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		term := strings.ToLower(strings.TrimSpace(part))
+		if term == "" {
+			continue
+		}
+		out = append(out, term)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func containsAnySubstring(target string, needles []string) bool {
+	for _, needle := range needles {
+		if needle != "" && strings.Contains(target, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func boolPtrValue(v bool) *bool {

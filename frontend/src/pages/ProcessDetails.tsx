@@ -2,7 +2,7 @@ import { ArrowLeftOutlined } from "@ant-design/icons";
 import { Card, Descriptions, Empty, Flex, Result, Skeleton, Space, Tabs, Tag, Typography } from "antd";
 import dayjs from "dayjs";
 import { useMemo, type CSSProperties } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import ProcessEventsTable from "../components/ProcessEventsTable";
 import ProcessTimeline from "../components/ProcessTimeline";
@@ -91,16 +91,26 @@ function renderHeuristicAlerts(alerts?: HeuristicAlertResponse[], loading?: bool
 export default function ProcessDetails() {
     const navigate = useNavigate();
     const params = useParams<{ rootPid: string }>();
+    const [searchParams] = useSearchParams();
     const { host, since, until, limit, nodeLimit, rootLimit } = useSettings();
+
+    const rootExecFromQuery = useMemo(() => {
+        const raw = searchParams.get("root_exec_id");
+        if (!raw) {
+            return undefined;
+        }
+        const trimmed = raw.trim();
+        return trimmed.length ? trimmed : undefined;
+    }, [searchParams]);
 
     const parsedPid = params.rootPid ? Number(params.rootPid) : undefined;
     const isValidRootPid = parsedPid !== undefined && Number.isFinite(parsedPid);
     const rootPid = isValidRootPid ? parsedPid : undefined;
 
     const summaryQuery = useProcessSummary(host, rootPid);
-    const treeQuery = useProcessTree({ host, rootPid, rootLimit, nodeLimit, since, until });
-    const eventsQuery = useProcessEvents(host, since, until, limit);
-    const httpEventsQuery = useProcessHttpEvents(host, since, until, limit);
+    const treeQuery = useProcessTree({ host, rootPid, rootExecId: rootExecFromQuery, rootLimit, nodeLimit, since, until });
+    const eventsQuery = useProcessEvents(host, since, until, limit, { rootExecId: rootExecFromQuery });
+    const httpEventsQuery = useProcessHttpEvents(host, since, until, limit, { rootExecId: rootExecFromQuery });
 
     const httpEventsForRoot = useMemo(() => {
         if (!isValidRootPid || rootPid === undefined) {

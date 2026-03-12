@@ -39,6 +39,7 @@ RETURNS TEXT LANGUAGE plpgsql IMMUTABLE AS $$
 DECLARE
     v_line TEXT;
     v_last_data TEXT;
+    v_last_json_data TEXT;
     v_response_json TEXT;
     v_anthropic_message JSONB;
     v_anthropic_usage JSONB;
@@ -62,6 +63,16 @@ BEGIN
             v_line := btrim(substring(v_line FROM '^\s*data:\s*(.*)$'));
             IF v_line IS NOT NULL AND v_line <> '' THEN
                 v_last_data := v_line;
+
+                -- Ignore SSE end-of-stream sentinel (not valid JSON)
+                IF v_line = '[DONE]' THEN
+                    CONTINUE;
+                END IF;
+
+                -- Keep a best-effort last JSON candidate for safe fallback
+                IF left(v_line, 1) = '{' OR left(v_line, 1) = '[' THEN
+                    v_last_json_data := v_line;
+                END IF;
 
                 -- Priority 1: Gemini responseId
                 IF POSITION('"responseId"' IN v_line) > 0 THEN
@@ -212,11 +223,23 @@ BEGIN
     END IF;
 
     -- Fallback to last data line
-    IF v_last_data IS NOT NULL THEN
-        RETURN v_last_data;
+    IF v_last_json_data IS NOT NULL THEN
+        BEGIN
+            PERFORM v_last_json_data::jsonb;
+            RETURN v_last_json_data;
+        EXCEPTION WHEN OTHERS THEN
+            RETURN NULL;
+        END;
     END IF;
 
-    RETURN p_text;
+    -- Non-SSE payloads (e.g. request bodies) should pass through unchanged
+    -- when they are valid JSON.
+    BEGIN
+        PERFORM p_text::jsonb;
+        RETURN p_text;
+    EXCEPTION WHEN OTHERS THEN
+        RETURN NULL;
+    END;
 END;
 $$;
 

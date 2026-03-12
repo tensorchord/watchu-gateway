@@ -100,7 +100,7 @@ func (pp *PostgresProbe) Start(ctx context.Context) {
 		select {
 		case pp.channel <- &export.RawPostgres{
 			ElapsedNs: event.TimestampNs,
-			PidTid:    event.PidTgid,
+			PidTGid:   event.PidTgid,
 			UidGid:    event.UidGid,
 			CgroupID:  event.CgroupId,
 			Comm:      tool.CharsToString(event.Comm[:]),

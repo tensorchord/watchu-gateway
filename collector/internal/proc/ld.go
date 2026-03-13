@@ -87,7 +87,7 @@ func (dr *DynamicLibResolver) search(currentPath string) error {
 
 	libs, err := f.ImportedLibraries()
 	if err != nil {
-		log.Warn().Msg("failed to read the imported libs")
+		logger.Warn().Err(err).Msg("failed to read the imported libs")
 		return err
 	}
 

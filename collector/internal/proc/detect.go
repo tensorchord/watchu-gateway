@@ -23,14 +23,7 @@ const (
 	regexLibSSL = `libssl[0-9a-zA-Z_-]*\.so(\.\d+)*`
 )
 
-var (
-	patternLibSSL  = regexp.MustCompile(regexLibSSL)
-	boringSSLTools = [][]byte{
-		[]byte("claude"),
-		[]byte("amp"),
-		[]byte("opencode"),
-	}
-)
+var patternLibSSL = regexp.MustCompile(regexLibSSL)
 
 type TLSLibType int
 
@@ -49,17 +42,6 @@ func newOpenSSLLib(path string) ProcTLSLib {
 		Path: path,
 		Type: TLSLibOpenSSL,
 	}
-}
-
-func findBoringSSLTools(fields [][]byte) bool {
-	for _, field := range fields {
-		for _, tool := range boringSSLTools {
-			if bytes.Equal(field, tool) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func isDefinedTextFunc(sym *elf.Symbol, sections []*elf.Section) bool {
@@ -127,20 +109,9 @@ func DetectTLSLibType(proc int32) ([]ProcTLSLib, error) {
 	defer file.Close()
 	var libs []ProcTLSLib
 	scanner := bufio.NewScanner(file)
-	firstLine := true
 	seen := make(map[string]struct{})
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		if firstLine {
-			firstLine = false
-			fields := bytes.Split(line, []byte("/"))
-			if findBoringSSLTools(fields) {
-				libs = append(libs, ProcTLSLib{
-					Path: absPath,
-					Type: TLSLibBoringSSL,
-				})
-			}
-		}
 		if patternLibSSL.Match(line) {
 			fields := bytes.Fields(line)
 			if len(fields) >= 6 {
@@ -158,7 +129,16 @@ func DetectTLSLibType(proc int32) ([]ProcTLSLib, error) {
 		return nil, err
 	}
 
-	if hasOpenSSL, err := findOpenSSLStaticSymbols(absPath); err == nil && hasOpenSSL {
+	isBunBundle, err := isBunBundlePackage(absPath)
+	if err != nil {
+		log.Debug().Err(err).Msg("failed to detect if the file is bun bundle")
+	}
+	if isBunBundle {
+		libs = append(libs, ProcTLSLib{
+			Path: absPath,
+			Type: TLSLibBoringSSL,
+		})
+	} else if hasOpenSSL, err := findOpenSSLStaticSymbols(absPath); err == nil && hasOpenSSL {
 		libs = append(libs, newOpenSSLLib(absPath))
 	}
 

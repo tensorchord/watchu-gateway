@@ -5,16 +5,13 @@ import (
 	"os"
 )
 
-const (
-	bunFooterSize   = 24
-	bunSentinelSize = 16
-)
+const bunFooterNumSize = 8
 
-// \n---- Bun! ----\n
-var bunSentinel = []byte{
-	0x0a, 0x2d, 0x2d, 0x2d, 0x2d, 0x20, 0x42, 0x75,
-	0x6e, 0x21, 0x20, 0x2d, 0x2d, 0x2d, 0x2d, 0x0a,
-}
+var (
+	bunSentinel     = []byte("\n---- Bun! ----\n")
+	bunSentinelSize = int64(len(bunSentinel))
+	bunFooterSize   = bunFooterNumSize + bunSentinelSize
+)
 
 func isBunBundlePackage(path string) (bool, error) {
 	file, err := os.Open(path)

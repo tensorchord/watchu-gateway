@@ -129,10 +129,6 @@ func DetectTLSLibType(proc int32) ([]ProcTLSLib, error) {
 		return nil, err
 	}
 
-	if hasOpenSSL, err := findOpenSSLStaticSymbols(absPath); err == nil && hasOpenSSL {
-		libs = append(libs, newOpenSSLLib(absPath))
-	}
-
 	isBunBundle, err := isBunBundlePackage(absPath)
 	if err != nil {
 		log.Debug().Err(err).Msg("failed to detect if the file is bun bundle")
@@ -142,6 +138,8 @@ func DetectTLSLibType(proc int32) ([]ProcTLSLib, error) {
 			Path: absPath,
 			Type: TLSLibBoringSSL,
 		})
+	} else if hasOpenSSL, err := findOpenSSLStaticSymbols(absPath); err == nil && hasOpenSSL {
+		libs = append(libs, newOpenSSLLib(absPath))
 	}
 
 	lr := NewDynLibResolver(proc, absPath)

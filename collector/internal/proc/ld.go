@@ -80,7 +80,7 @@ func (dr *DynamicLibResolver) search(currentPath string) error {
 
 	f, err := elf.Open(currentPath)
 	if err != nil {
-		logger.Warn().Msg("failed to open the ELF file")
+		logger.Warn().Err(err).Msg("failed to open the ELF file")
 		return err
 	}
 	defer f.Close()
@@ -88,6 +88,7 @@ func (dr *DynamicLibResolver) search(currentPath string) error {
 	libs, err := f.ImportedLibraries()
 	if err != nil {
 		log.Warn().Msg("failed to read the imported libs")
+		return err
 	}
 
 	var finalErr error
@@ -96,6 +97,7 @@ func (dr *DynamicLibResolver) search(currentPath string) error {
 		if err != nil {
 			logger.Warn().Err(err).Str("lib", lib).Msg("failed to resolve lib")
 			finalErr = errors.Join(finalErr, err)
+			continue
 		}
 		if patternLibSSL.MatchString(lib) {
 			dr.libs = append(dr.libs, newOpenSSLLib(realPath))

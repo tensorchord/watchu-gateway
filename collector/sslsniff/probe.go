@@ -170,7 +170,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 	for pid := range sp.procProbe.Channel {
 		libs, err := proc.DetectTLSLibType(pid)
 		if err != nil {
-			log.Warn().Err(err).Int32("pid", pid).Msg("failed to detect TLS library type for the process")
+			log.Debug().Err(err).Int32("pid", pid).Msg("failed to detect TLS library type for the process")
 			continue
 		}
 		for _, lib := range libs {

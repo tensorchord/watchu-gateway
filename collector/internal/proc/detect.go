@@ -12,12 +12,16 @@ import (
 	"syscall"
 
 	"github.com/phuslu/log"
+
+	"github.com/tensorchord/watchu/collector/execve"
+	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
 const (
 	procExeFormat  = "/proc/%d/exe"
 	procMapsFormat = "/proc/%d/maps"
 	procRootFormat = "/proc/%d/root/%s"
+	procFdFormat   = "/proc/%d/fd/%d"
 
 	// regex
 	regexLibSSL = `libssl[0-9a-zA-Z_-]*\.so(\.\d+)*`
@@ -91,31 +95,37 @@ func findOpenSSLStaticSymbols(filepath string) (bool, error) {
 	return false, nil
 }
 
-func DetectTLSLibType(proc int32) ([]ProcTLSLib, error) {
-	path, err := os.Readlink(fmt.Sprintf(procExeFormat, proc))
-	if err != nil {
-		log.Debug().Err(err).Int32("proc", proc).Msg("failed to find the readlink")
-		return nil, err
+// DetectDynTLLLib detects the TLS lib from the dynamic library load event.
+// 1. filepath
+// 2. fd -> readlink
+// 3. scan maps
+func DetectDynTLLLib(dl *execve.DynLib) ([]ProcTLSLib, error) {
+	path := fmt.Sprintf(procRootFormat, dl.Proc, dl.Filepath)
+	if ok, err := tool.IsFilePath(path); err == nil && ok {
+		return []ProcTLSLib{newOpenSSLLib(path)}, nil
 	}
-	absPath := fmt.Sprintf(procRootFormat, proc, path)
+	realPath, err := os.Readlink(fmt.Sprintf(procFdFormat, dl.Proc, dl.Fd))
+	if err == nil {
+		return []ProcTLSLib{newOpenSSLLib(realPath)}, nil
+	}
 
 	// scan maps file
-	mapsFile := fmt.Sprintf(procMapsFormat, proc)
+	mapsFile := fmt.Sprintf(procMapsFormat, dl.Proc)
 	file, err := os.Open(mapsFile)
 	if err != nil {
-		log.Debug().Err(err).Int32("proc", proc).Msg("failed to open the maps")
+		log.Debug().Err(err).Int32("proc", dl.Proc).Msg("failed to open the maps")
 		return nil, err
 	}
 	defer file.Close()
-	var libs []ProcTLSLib
 	scanner := bufio.NewScanner(file)
 	seen := make(map[string]struct{})
+	var libs []ProcTLSLib
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if patternLibSSL.Match(line) {
 			fields := bytes.Fields(line)
 			if len(fields) >= 6 {
-				path := fmt.Sprintf(procRootFormat, proc, fields[5])
+				path := fmt.Sprintf(procRootFormat, dl.Proc, fields[5])
 				if _, ok := seen[path]; ok {
 					continue
 				}
@@ -125,9 +135,20 @@ func DetectTLSLibType(proc int32) ([]ProcTLSLib, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		log.Warn().Err(err).Int32("proc", proc).Msg("failed to scan the maps")
+		log.Warn().Err(err).Int32("proc", dl.Proc).Msg("failed to scan the maps")
 		return nil, err
 	}
+	return libs, nil
+}
+
+func DetectTLSLibType(proc int32) ([]ProcTLSLib, error) {
+	path, err := os.Readlink(fmt.Sprintf(procExeFormat, proc))
+	if err != nil {
+		log.Debug().Err(err).Int32("proc", proc).Msg("failed to find the readlink")
+		return nil, err
+	}
+	absPath := fmt.Sprintf(procRootFormat, proc, path)
+	var libs []ProcTLSLib
 
 	isBunBundle, err := isBunBundlePackage(absPath)
 	if err != nil {

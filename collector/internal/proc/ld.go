@@ -80,14 +80,14 @@ func (dr *DynamicLibResolver) search(currentPath string) error {
 
 	f, err := elf.Open(currentPath)
 	if err != nil {
-		logger.Warn().Err(err).Msg("failed to open the ELF file")
+		logger.Debug().Err(err).Msg("failed to open the ELF file")
 		return err
 	}
 	defer f.Close()
 
 	libs, err := f.ImportedLibraries()
 	if err != nil {
-		logger.Warn().Err(err).Msg("failed to read the imported libs")
+		logger.Debug().Err(err).Msg("failed to read the imported libs")
 		return err
 	}
 
@@ -95,7 +95,7 @@ func (dr *DynamicLibResolver) search(currentPath string) error {
 	for _, lib := range libs {
 		realPath, err := dr.resolvePath(currentPath, lib, f)
 		if err != nil {
-			logger.Warn().Err(err).Str("lib", lib).Msg("failed to resolve lib")
+			logger.Debug().Err(err).Str("lib", lib).Msg("failed to resolve lib")
 			finalErr = errors.Join(finalErr, err)
 			continue
 		}

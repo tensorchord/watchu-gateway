@@ -166,12 +166,26 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 	}
 
 	// dynamic probe
-	go sp.procProbe.Start()
-	for pid := range sp.procProbe.Channel {
-		libs, err := proc.DetectTLSLibType(pid)
-		if err != nil {
-			log.Debug().Err(err).Int32("pid", pid).Msg("failed to detect TLS library type for the process")
-			continue
+	go sp.procProbe.Start(ctx)
+Loop:
+	for {
+		var libs []proc.ProcTLSLib
+		var err error
+		select {
+		case pid := <-sp.procProbe.ProcChan:
+			libs, err = proc.DetectTLSLibType(pid)
+			if err != nil {
+				log.Debug().Err(err).Int32("pid", pid).Msg("failed to detect TLS library type for the process")
+				continue Loop
+			}
+		case dynLib := <-sp.procProbe.DynLibChan:
+			libs, err = proc.DetectDynTLLLib(dynLib)
+			if err != nil {
+				log.Debug().Err(err).Int32("pid", dynLib.Proc).Msg("failed to detect TLS library type from dynamic library load event")
+				continue Loop
+			}
+		case <-ctx.Done():
+			break Loop
 		}
 		for _, lib := range libs {
 			key, err := proc.FindLibKey(lib.Path)
@@ -201,7 +215,7 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 				log.Error().Err(err).Str("path", lib.Path).Str("type", typeStr).Msg("failed to create TLS probe")
 				continue
 			}
-			log.Debug().Int32("pid", pid).Str("lib_path", lib.Path).Str("type", typeStr).Msg("detected TLS library")
+			log.Debug().Str("lib_path", lib.Path).Str("type", typeStr).Msg("detected TLS library")
 			sp.mu.Lock()
 			index := len(sp.probes)
 			wg.Go(func() { handle(key, probe, store) })

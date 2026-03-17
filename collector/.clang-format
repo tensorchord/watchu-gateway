@@ -16,7 +16,7 @@ IndentWidth:     4
 KeepEmptyLinesAtTheStartOfBlocks: false
 TabWidth:        4
 UseTab:          Never
-ColumnLimit:     1000
+ColumnLimit:     120
 # Go compiler comments need to stay unindented.
 CommentPragmas: '^go:.*'
 # linux/bpf.h needs to be included before bpf/bpf_helpers.h for types like __u64

@@ -13,7 +13,26 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-type execEvent struct {
+type execDynlib struct {
+	_        structs.HostLayout
+	Fd       uint64
+	PidTgid  uint64
+	Comm     [16]int8
+	Filename [256]int8
+}
+
+type execOpenKey struct {
+	_       structs.HostLayout
+	Fd      int64
+	PidTgid uint64
+}
+
+type execOpenValue struct {
+	_        structs.HostLayout
+	Filename [256]int8
+}
+
+type execProc struct {
 	_        structs.HostLayout
 	Pid      int32
 	OldPid   int32
@@ -64,14 +83,22 @@ type execSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type execProgramSpecs struct {
 	TracepointSchedProcessExec *ebpf.ProgramSpec `ebpf:"tracepoint_sched_process_exec"`
+	TracepointSysEnterClose    *ebpf.ProgramSpec `ebpf:"tracepoint_sys_enter_close"`
+	TracepointSysEnterMmap     *ebpf.ProgramSpec `ebpf:"tracepoint_sys_enter_mmap"`
+	TracepointSysEnterOpenat   *ebpf.ProgramSpec `ebpf:"tracepoint_sys_enter_openat"`
+	TracepointSysExitOpenat    *ebpf.ProgramSpec `ebpf:"tracepoint_sys_exit_openat"`
 }
 
 // execMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type execMapSpecs struct {
-	FakeEventMap *ebpf.MapSpec `ebpf:"_fake_event_map"`
-	Events       *ebpf.MapSpec `ebpf:"events"`
+	FakeDynlibMap *ebpf.MapSpec `ebpf:"_fake_dynlib_map"`
+	FakeProcMap   *ebpf.MapSpec `ebpf:"_fake_proc_map"`
+	DynlibEvents  *ebpf.MapSpec `ebpf:"dynlib_events"`
+	InflightMmap  *ebpf.MapSpec `ebpf:"inflight_mmap"`
+	InflightOpen  *ebpf.MapSpec `ebpf:"inflight_open"`
+	ProcEvents    *ebpf.MapSpec `ebpf:"proc_events"`
 }
 
 // execVariableSpecs contains global variables before they are loaded into the kernel.
@@ -100,14 +127,22 @@ func (o *execObjects) Close() error {
 //
 // It can be passed to loadExecObjects or ebpf.CollectionSpec.LoadAndAssign.
 type execMaps struct {
-	FakeEventMap *ebpf.Map `ebpf:"_fake_event_map"`
-	Events       *ebpf.Map `ebpf:"events"`
+	FakeDynlibMap *ebpf.Map `ebpf:"_fake_dynlib_map"`
+	FakeProcMap   *ebpf.Map `ebpf:"_fake_proc_map"`
+	DynlibEvents  *ebpf.Map `ebpf:"dynlib_events"`
+	InflightMmap  *ebpf.Map `ebpf:"inflight_mmap"`
+	InflightOpen  *ebpf.Map `ebpf:"inflight_open"`
+	ProcEvents    *ebpf.Map `ebpf:"proc_events"`
 }
 
 func (m *execMaps) Close() error {
 	return _ExecClose(
-		m.FakeEventMap,
-		m.Events,
+		m.FakeDynlibMap,
+		m.FakeProcMap,
+		m.DynlibEvents,
+		m.InflightMmap,
+		m.InflightOpen,
+		m.ProcEvents,
 	)
 }
 
@@ -122,11 +157,19 @@ type execVariables struct {
 // It can be passed to loadExecObjects or ebpf.CollectionSpec.LoadAndAssign.
 type execPrograms struct {
 	TracepointSchedProcessExec *ebpf.Program `ebpf:"tracepoint_sched_process_exec"`
+	TracepointSysEnterClose    *ebpf.Program `ebpf:"tracepoint_sys_enter_close"`
+	TracepointSysEnterMmap     *ebpf.Program `ebpf:"tracepoint_sys_enter_mmap"`
+	TracepointSysEnterOpenat   *ebpf.Program `ebpf:"tracepoint_sys_enter_openat"`
+	TracepointSysExitOpenat    *ebpf.Program `ebpf:"tracepoint_sys_exit_openat"`
 }
 
 func (p *execPrograms) Close() error {
 	return _ExecClose(
 		p.TracepointSchedProcessExec,
+		p.TracepointSysEnterClose,
+		p.TracepointSysEnterMmap,
+		p.TracepointSysEnterOpenat,
+		p.TracepointSysExitOpenat,
 	)
 }
 

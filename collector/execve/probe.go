@@ -46,6 +46,8 @@ func attachExecProbes(objs execObjects) ([]link.Link, error) {
 		{"sched", "sched_process_exec", objs.TracepointSchedProcessExec},
 		{"syscalls", "sys_enter_openat", objs.TracepointSysEnterOpenat},
 		{"syscalls", "sys_enter_openat2", objs.TracepointSysEnterOpenat},
+		{"syscalls", "sys_exit_openat", objs.TracepointSysExitOpenat},
+		{"syscalls", "sys_exit_openat2", objs.TracepointSysExitOpenat},
 		{"syscalls", "sys_enter_mmap", objs.TracepointSysEnterMmap},
 	}
 
@@ -204,4 +206,5 @@ func (pep *ProcExecProbe) Close() {
 		}
 	}
 	close(pep.ProcChan)
+	close(pep.DynLibChan)
 }

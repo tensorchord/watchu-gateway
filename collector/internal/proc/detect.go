@@ -95,11 +95,11 @@ func findOpenSSLStaticSymbols(filepath string) (bool, error) {
 	return false, nil
 }
 
-// DetectDynTLLLib detects the TLS lib from the dynamic library load event.
+// DetectDynTLSLib detects the TLS lib from the dynamic library load event.
 // 1. filepath
 // 2. fd -> readlink
 // 3. scan maps
-func DetectDynTLLLib(dl *execve.DynLib) ([]ProcTLSLib, error) {
+func DetectDynTLSLib(dl *execve.DynLib) ([]ProcTLSLib, error) {
 	path := fmt.Sprintf(procRootFormat, dl.Proc, dl.Filepath)
 	if ok, err := tool.IsFilePath(path); err == nil && ok {
 		return []ProcTLSLib{newOpenSSLLib(path)}, nil

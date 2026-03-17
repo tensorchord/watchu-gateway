@@ -30,10 +30,19 @@ struct openat_ctx {
     // pad the first 8 bytes
     long common;
     long __syscall_nr;
-    u64 _dfd;
+    u64 _dfd; // dir fd, used when the filename is a relative path
     u64 filename;
     u64 _flags; // or `how` in openat2
     u64 _mode; // or `usize` in openat2
+};
+
+// ref: /sys/kernel/debug/tracing/events/syscalls/sys_exit_openat/format
+// ref: /sys/kernel/debug/tracing/events/syscalls/sys_exit_openat2/format
+struct openat_exit_ctx {
+    // pad the first 8 bytes
+    long common;
+    long __syscall_nr;
+    long ret; // >= 0 means a valid fd, < 0 means error code
 };
 
 // ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_mmap/format
@@ -51,6 +60,7 @@ struct mmap_ctx {
 
 struct inflight_load {
     char filename[MAX_FILENAME_LEN];
+    long fd;
 };
 
 struct {
@@ -150,6 +160,20 @@ int tracepoint_sys_enter_openat(struct openat_ctx *ctx) {
     return 0;
 }
 
+SEC("tracepoint/syscalls/sys_exit_openat")
+int tracepoint_sys_exit_openat(struct openat_exit_ctx *ctx) {
+    u64 pid_tgid               = bpf_get_current_pid_tgid();
+    struct inflight_load *load = bpf_map_lookup_elem(&inflight, &pid_tgid);
+    if (load == NULL)
+        return 0;
+    if (ctx->ret < 0) {
+        bpf_map_delete_elem(&inflight, &pid_tgid);
+        return 0;
+    }
+    load->fd = ctx->ret;
+    return 0;
+}
+
 SEC("tracepoint/syscalls/sys_enter_mmap")
 int tracepoint_sys_enter_mmap(struct mmap_ctx *ctx) {
     u64 pid_tgid               = bpf_get_current_pid_tgid();
@@ -157,6 +181,10 @@ int tracepoint_sys_enter_mmap(struct mmap_ctx *ctx) {
     if (load == NULL) {
         return 0;
     }
+    if (ctx->fd != load->fd) {
+        return 0;
+    }
+    bpf_map_delete_elem(&inflight, &pid_tgid);
 
     struct dynlib *evt = bpf_ringbuf_reserve(&dynlib_events, sizeof(*evt), 0);
     if (!evt) {

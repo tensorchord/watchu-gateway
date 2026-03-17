@@ -167,19 +167,29 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 
 	// dynamic probe
 	go sp.procProbe.Start(ctx)
+	procChan := sp.procProbe.ProcChan
+	dynLibChan := sp.procProbe.DynLibChan
 Loop:
 	for {
 		var libs []proc.ProcTLSLib
 		var err error
 		select {
-		case pid := <-sp.procProbe.ProcChan:
+		case pid, ok := <-procChan:
+			if !ok {
+				procChan = nil
+				continue Loop
+			}
 			libs, err = proc.DetectTLSLibType(pid)
 			if err != nil {
 				log.Debug().Err(err).Int32("pid", pid).Msg("failed to detect TLS library type for the process")
 				continue Loop
 			}
-		case dynLib := <-sp.procProbe.DynLibChan:
-			libs, err = proc.DetectDynTLLLib(dynLib)
+		case dynLib, ok := <-dynLibChan:
+			if !ok {
+				dynLibChan = nil
+				continue Loop
+			}
+			libs, err = proc.DetectDynTLSLib(dynLib)
 			if err != nil {
 				log.Debug().Err(err).Int32("pid", dynLib.Proc).Msg("failed to detect TLS library type from dynamic library load event")
 				continue Loop

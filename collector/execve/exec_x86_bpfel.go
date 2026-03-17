@@ -24,6 +24,7 @@ type execDynlib struct {
 type execInflightLoad struct {
 	_        structs.HostLayout
 	Filename [256]int8
+	Fd       int64
 }
 
 type execProc struct {
@@ -79,6 +80,7 @@ type execProgramSpecs struct {
 	TracepointSchedProcessExec *ebpf.ProgramSpec `ebpf:"tracepoint_sched_process_exec"`
 	TracepointSysEnterMmap     *ebpf.ProgramSpec `ebpf:"tracepoint_sys_enter_mmap"`
 	TracepointSysEnterOpenat   *ebpf.ProgramSpec `ebpf:"tracepoint_sys_enter_openat"`
+	TracepointSysExitOpenat    *ebpf.ProgramSpec `ebpf:"tracepoint_sys_exit_openat"`
 }
 
 // execMapSpecs contains maps before they are loaded into the kernel.
@@ -148,6 +150,7 @@ type execPrograms struct {
 	TracepointSchedProcessExec *ebpf.Program `ebpf:"tracepoint_sched_process_exec"`
 	TracepointSysEnterMmap     *ebpf.Program `ebpf:"tracepoint_sys_enter_mmap"`
 	TracepointSysEnterOpenat   *ebpf.Program `ebpf:"tracepoint_sys_enter_openat"`
+	TracepointSysExitOpenat    *ebpf.Program `ebpf:"tracepoint_sys_exit_openat"`
 }
 
 func (p *execPrograms) Close() error {
@@ -155,6 +158,7 @@ func (p *execPrograms) Close() error {
 		p.TracepointSchedProcessExec,
 		p.TracepointSysEnterMmap,
 		p.TracepointSysEnterOpenat,
+		p.TracepointSysExitOpenat,
 	)
 }
 

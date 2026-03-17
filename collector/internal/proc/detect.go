@@ -106,7 +106,7 @@ func DetectDynTLSLib(dl *execve.DynLib) ([]ProcTLSLib, error) {
 	}
 	realPath, err := os.Readlink(fmt.Sprintf(procFdFormat, dl.Proc, dl.Fd))
 	if err == nil {
-		return []ProcTLSLib{newOpenSSLLib(realPath)}, nil
+		return []ProcTLSLib{newOpenSSLLib(fmt.Sprintf(procRootFormat, dl.Proc, realPath))}, nil
 	}
 
 	// scan maps file

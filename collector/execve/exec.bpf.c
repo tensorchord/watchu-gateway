@@ -162,16 +162,13 @@ static __always_inline int is_libssl(const char *name) {
 #pragma unroll
     for (int i = 0; i < MAX_FILENAME_LEN; i++) {
         char c = name[i];
-        if (c == '\0') {
+        if (c == '\0')
             break;
-        }
-        if (c == '/') {
+        if (c == '/')
             base = i + 1;
-        }
     }
-    if (base + LIBSSL_LEN > MAX_FILENAME_LEN) {
+    if (base + LIBSSL_LEN > MAX_FILENAME_LEN)
         return 0;
-    }
     return name[base] == 'l' && name[base + 1] == 'i' && name[base + 2] == 'b' && name[base + 3] == 's' &&
            name[base + 4] == 's' && name[base + 5] == 'l';
 }
@@ -196,15 +193,17 @@ int tracepoint_sys_exit_openat(struct openat_exit_ctx *ctx) {
     struct open_value *ov = bpf_map_lookup_elem(&inflight_open, &pid_tgid);
     if (ov == NULL)
         return 0;
-    bpf_map_delete_elem(&inflight_open, &pid_tgid);
-    if (ctx->ret < 0) {
-        return 0;
-    }
+    if (ctx->ret < 0)
+        goto cleanup;
+
     struct open_key key = {
         .fd       = ctx->ret,
         .pid_tgid = pid_tgid,
     };
     bpf_map_update_elem(&inflight_mmap, &key, ov, BPF_ANY);
+
+cleanup:
+    bpf_map_delete_elem(&inflight_open, &pid_tgid);
     return 0;
 }
 
@@ -215,22 +214,21 @@ int tracepoint_sys_enter_mmap(struct mmap_ctx *ctx) {
         .pid_tgid = bpf_get_current_pid_tgid(),
     };
     struct open_value *ov = bpf_map_lookup_elem(&inflight_mmap, &key);
-    if (ov == NULL) {
+    if (ov == NULL)
         return 0;
-    }
-    // delete immediately, we don't need duplicate events for the same filename + fd
-    bpf_map_delete_elem(&inflight_mmap, &key);
 
     struct dynlib *evt = bpf_ringbuf_reserve(&dynlib_events, sizeof(*evt), 0);
-    if (!evt) {
+    if (!evt)
         return 0;
-    }
 
     evt->fd       = ctx->fd;
     evt->pid_tgid = key.pid_tgid;
     bpf_get_current_comm(&evt->comm, TASK_COMM_LEN);
     __builtin_memcpy(evt->filename, ov->filename, sizeof(evt->filename));
     bpf_ringbuf_submit(evt, 0);
+
+    // delete immediately, we don't need duplicate events for the same filename + fd
+    bpf_map_delete_elem(&inflight_mmap, &key);
     return 0;
 }
 

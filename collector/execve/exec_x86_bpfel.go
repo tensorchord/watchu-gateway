@@ -21,10 +21,15 @@ type execDynlib struct {
 	Filename [256]int8
 }
 
-type execInflightLoad struct {
+type execOpenKey struct {
+	_       structs.HostLayout
+	Fd      int64
+	PidTgid uint64
+}
+
+type execOpenValue struct {
 	_        structs.HostLayout
 	Filename [256]int8
-	Fd       int64
 }
 
 type execProc struct {
@@ -78,6 +83,7 @@ type execSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type execProgramSpecs struct {
 	TracepointSchedProcessExec *ebpf.ProgramSpec `ebpf:"tracepoint_sched_process_exec"`
+	TracepointSysEnterClose    *ebpf.ProgramSpec `ebpf:"tracepoint_sys_enter_close"`
 	TracepointSysEnterMmap     *ebpf.ProgramSpec `ebpf:"tracepoint_sys_enter_mmap"`
 	TracepointSysEnterOpenat   *ebpf.ProgramSpec `ebpf:"tracepoint_sys_enter_openat"`
 	TracepointSysExitOpenat    *ebpf.ProgramSpec `ebpf:"tracepoint_sys_exit_openat"`
@@ -90,7 +96,8 @@ type execMapSpecs struct {
 	FakeDynlibMap *ebpf.MapSpec `ebpf:"_fake_dynlib_map"`
 	FakeProcMap   *ebpf.MapSpec `ebpf:"_fake_proc_map"`
 	DynlibEvents  *ebpf.MapSpec `ebpf:"dynlib_events"`
-	Inflight      *ebpf.MapSpec `ebpf:"inflight"`
+	InflightMmap  *ebpf.MapSpec `ebpf:"inflight_mmap"`
+	InflightOpen  *ebpf.MapSpec `ebpf:"inflight_open"`
 	ProcEvents    *ebpf.MapSpec `ebpf:"proc_events"`
 }
 
@@ -123,7 +130,8 @@ type execMaps struct {
 	FakeDynlibMap *ebpf.Map `ebpf:"_fake_dynlib_map"`
 	FakeProcMap   *ebpf.Map `ebpf:"_fake_proc_map"`
 	DynlibEvents  *ebpf.Map `ebpf:"dynlib_events"`
-	Inflight      *ebpf.Map `ebpf:"inflight"`
+	InflightMmap  *ebpf.Map `ebpf:"inflight_mmap"`
+	InflightOpen  *ebpf.Map `ebpf:"inflight_open"`
 	ProcEvents    *ebpf.Map `ebpf:"proc_events"`
 }
 
@@ -132,7 +140,8 @@ func (m *execMaps) Close() error {
 		m.FakeDynlibMap,
 		m.FakeProcMap,
 		m.DynlibEvents,
-		m.Inflight,
+		m.InflightMmap,
+		m.InflightOpen,
 		m.ProcEvents,
 	)
 }
@@ -148,6 +157,7 @@ type execVariables struct {
 // It can be passed to loadExecObjects or ebpf.CollectionSpec.LoadAndAssign.
 type execPrograms struct {
 	TracepointSchedProcessExec *ebpf.Program `ebpf:"tracepoint_sched_process_exec"`
+	TracepointSysEnterClose    *ebpf.Program `ebpf:"tracepoint_sys_enter_close"`
 	TracepointSysEnterMmap     *ebpf.Program `ebpf:"tracepoint_sys_enter_mmap"`
 	TracepointSysEnterOpenat   *ebpf.Program `ebpf:"tracepoint_sys_enter_openat"`
 	TracepointSysExitOpenat    *ebpf.Program `ebpf:"tracepoint_sys_exit_openat"`
@@ -156,6 +166,7 @@ type execPrograms struct {
 func (p *execPrograms) Close() error {
 	return _ExecClose(
 		p.TracepointSchedProcessExec,
+		p.TracepointSysEnterClose,
 		p.TracepointSysEnterMmap,
 		p.TracepointSysEnterOpenat,
 		p.TracepointSysExitOpenat,

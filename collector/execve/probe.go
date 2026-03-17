@@ -48,6 +48,7 @@ func attachExecProbes(objs execObjects) ([]link.Link, error) {
 		{"syscalls", "sys_enter_openat2", objs.TracepointSysEnterOpenat},
 		{"syscalls", "sys_exit_openat", objs.TracepointSysExitOpenat},
 		{"syscalls", "sys_exit_openat2", objs.TracepointSysExitOpenat},
+		{"syscalls", "sys_enter_close", objs.TracepointSysEnterClose},
 		{"syscalls", "sys_enter_mmap", objs.TracepointSysEnterMmap},
 	}
 

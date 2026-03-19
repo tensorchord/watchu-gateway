@@ -163,10 +163,6 @@ func DetectTLSLibType(proc int32) ([]ProcTLSLib, error) {
 		libs = append(libs, newOpenSSLLib(absPath))
 	}
 
-	lr := NewDynLibResolver(proc, absPath)
-	if dynLibs, err := lr.FindOpenSSL(); err == nil {
-		libs = append(libs, dynLibs...)
-	}
 	return libs, nil
 }
 

@@ -80,13 +80,12 @@ func connectWithRetry(path string, ctx context.Context) (*grpc.ClientConn, error
 }
 
 type TetragonClient struct {
-	conn          *grpc.ClientConn
-	client        tetragon.FineGuidanceSensorsClient
-	gatewayClient *export.GatewayClient
-	channel       chan *export.RawExec
+	conn     *grpc.ClientConn
+	client   tetragon.FineGuidanceSensorsClient
+	exporter *export.Exporter
 }
 
-func NewTetragonClient(path string, gatewayClient *export.GatewayClient, ctx context.Context) (*TetragonClient, error) {
+func NewTetragonClient(path string, exporter *export.Exporter, ctx context.Context) (*TetragonClient, error) {
 	conn, err := connectWithRetry(path, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial: %w", err)
@@ -100,15 +99,13 @@ func NewTetragonClient(path string, gatewayClient *export.GatewayClient, ctx con
 	log.Info().Str("state", state.String()).Msg("connected to Tetragon gRPC server")
 
 	return &TetragonClient{
-		conn:          conn,
-		client:        client,
-		gatewayClient: gatewayClient,
-		channel:       make(chan *export.RawExec, export.GatewayChannelSize),
+		conn:     conn,
+		client:   client,
+		exporter: exporter,
 	}, nil
 }
 
 func (tc *TetragonClient) Close() {
-	close(tc.channel)
 	err := tc.conn.Close()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close the socket connection")
@@ -116,7 +113,9 @@ func (tc *TetragonClient) Close() {
 }
 
 func (tc *TetragonClient) Start(ctx context.Context) {
-	go tc.gatewayClient.IngestExecEvent(ctx, tc.channel)
+	channel := make(chan *export.RawExec, export.ExportChannelSize)
+	go tc.exporter.IngestExecEvent(ctx, channel)
+	defer close(channel)
 	for {
 		eventStream, err := tc.client.GetEvents(ctx, &tetragon.GetEventsRequest{})
 		if err != nil {
@@ -158,7 +157,7 @@ func (tc *TetragonClient) Start(ctx context.Context) {
 				if pp != nil && pp.Pid != nil {
 					ppid = pp.Pid.Value
 				}
-				tc.channel <- &export.RawExec{
+				channel <- &export.RawExec{
 					Timestamp: exec.Process.StartTime.AsTime(),
 					Pid:       exec.Process.Pid.Value,
 					PPid:      ppid,

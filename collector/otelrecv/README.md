@@ -25,7 +25,7 @@ This package provides an OTLP (OpenTelemetry Protocol) gRPC receiver for capturi
 ### 1. Start the Collector with OTEL Receiver
 
 ```bash
-./watchu --otel-addr=:4317 --gateway=http://localhost:8080
+./watchu --otel-addr=:4317 --export=http://localhost:8080
 ```
 
 ### 2. Configure Your AI Coding Tool

@@ -86,14 +86,13 @@ func attachStdioProbes(objs stdioObjects) ([]link.Link, error) {
 }
 
 type StdioProbe struct {
-	rb      *ringbuf.Reader
-	objs    *stdioObjects
-	links   []link.Link
-	client  *export.GatewayClient
-	channel chan *export.RawStdIO
+	rb       *ringbuf.Reader
+	objs     *stdioObjects
+	links    []link.Link
+	exporter *export.Exporter
 }
 
-func NewStdioProbe(client *export.GatewayClient) (*StdioProbe, error) {
+func NewStdioProbe(exporter *export.Exporter) (*StdioProbe, error) {
 	objs := stdioObjects{}
 	if err := loadStdioObjects(&objs, nil); err != nil {
 		log.Error().Err(err).Msg("failed to load eBPF stdio spec")
@@ -107,10 +106,9 @@ func NewStdioProbe(client *export.GatewayClient) (*StdioProbe, error) {
 	}
 
 	p := &StdioProbe{
-		objs:    &objs,
-		links:   links,
-		client:  client,
-		channel: make(chan *export.RawStdIO, export.GatewayChannelSize),
+		objs:     &objs,
+		links:    links,
+		exporter: exporter,
 	}
 
 	p.rb, err = ringbuf.NewReader(objs.Events)
@@ -125,7 +123,9 @@ func NewStdioProbe(client *export.GatewayClient) (*StdioProbe, error) {
 
 func (sp *StdioProbe) Start(ctx context.Context) {
 	log.Info().Msg("listening for stdio events...")
-	go sp.client.IngestStdIOEvent(ctx, sp.channel)
+	channel := make(chan *export.RawStdIO, export.ExportChannelSize)
+	go sp.exporter.IngestStdIOEvent(ctx, channel)
+	defer close(channel)
 
 	var event stdioEvent
 	for {
@@ -156,7 +156,7 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 			msgType = "response"
 		}
 		select {
-		case sp.channel <- &export.RawStdIO{
+		case channel <- &export.RawStdIO{
 			ElapsedNs:   event.TimestampNs,
 			PidTGid:     event.PidTgid,
 			UidGid:      event.UidGid,
@@ -195,7 +195,6 @@ func (sp *StdioProbe) Close() {
 			log.Error().Err(err).Msg("failed to close stdio ringbuf reader")
 		}
 	}
-	close(sp.channel)
 	for i, l := range sp.links {
 		err = l.Close()
 		if err != nil {

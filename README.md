@@ -19,8 +19,8 @@ docker run -d --name tetragon --rm \
     quay.io/cilium/tetragon:v1.6.0 \
     --server-address unix:///var/run/tetragon/tetragon.sock
 
-# run with MCP StdIO & SSL & Tetragon
-sudo ./collector/bin/app -tetragon-socket unix:///var/run/tetragon/tetragon.sock
+# run with MCP StdIO & SSL & Tetragon, exporting to the gateway
+sudo ./collector/bin/app -tetragon-path unix:///var/run/tetragon/tetragon.sock --export=http://localhost:8080
 # or run without Tetragon
 sudo ./collector/bin/app
 ```

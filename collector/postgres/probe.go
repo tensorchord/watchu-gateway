@@ -45,14 +45,13 @@ func attachPostgresProbes(objs pgObjects, links *[]link.Link) {
 }
 
 type PostgresProbe struct {
-	rb      *ringbuf.Reader
-	objs    *pgObjects
-	links   []link.Link
-	client  *export.GatewayClient
-	channel chan *export.RawPostgres
+	rb       *ringbuf.Reader
+	objs     *pgObjects
+	links    []link.Link
+	exporter *export.Exporter
 }
 
-func NewPostgresProbe(client *export.GatewayClient) *PostgresProbe {
+func NewPostgresProbe(exporter *export.Exporter) *PostgresProbe {
 	objs := pgObjects{}
 	err := loadPgObjects(&objs, nil)
 	if err != nil {
@@ -63,10 +62,9 @@ func NewPostgresProbe(client *export.GatewayClient) *PostgresProbe {
 	attachPostgresProbes(objs, &links)
 
 	p := &PostgresProbe{
-		objs:    &objs,
-		links:   links,
-		client:  client,
-		channel: make(chan *export.RawPostgres, export.GatewayChannelSize),
+		objs:     &objs,
+		links:    links,
+		exporter: exporter,
 	}
 	p.rb, err = ringbuf.NewReader(objs.Events)
 	if err != nil {
@@ -78,7 +76,9 @@ func NewPostgresProbe(client *export.GatewayClient) *PostgresProbe {
 
 func (pp *PostgresProbe) Start(ctx context.Context) {
 	log.Info().Msg("listening for postgres read socket events...")
-	go pp.client.IngestPostgresEvent(ctx, pp.channel)
+	channel := make(chan *export.RawPostgres, export.ExportChannelSize)
+	go pp.exporter.IngestPostgresEvent(ctx, channel)
+	defer close(channel)
 
 	var event pgEvent
 	for {
@@ -98,7 +98,7 @@ func (pp *PostgresProbe) Start(ctx context.Context) {
 		}
 
 		select {
-		case pp.channel <- &export.RawPostgres{
+		case channel <- &export.RawPostgres{
 			ElapsedNs: event.TimestampNs,
 			PidTGid:   event.PidTgid,
 			UidGid:    event.UidGid,

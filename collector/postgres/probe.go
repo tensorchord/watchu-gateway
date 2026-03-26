@@ -145,4 +145,5 @@ func (pp *PostgresProbe) Close() {
 			log.Error().Err(err).Int("index", i).Msg("failed to close pg link")
 		}
 	}
+	close(pp.channel)
 }

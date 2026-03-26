@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -20,6 +21,13 @@ const (
 
 	maxGatewayRetryCount = 3
 	gatewayRetryDelay    = time.Second
+	healthCheckTimeout   = 5 * time.Second
+	requestTimeout       = 30 * time.Second
+)
+
+var (
+	errGatewayRequestTimeout = errors.New("gateway request timed out")
+	errGatewayHealthTimeout  = errors.New("gateway health check timed out")
 )
 
 type BatchRecord struct {
@@ -58,7 +66,9 @@ func (s *GatewaySink) Close() error {
 func (s *GatewaySink) WriteBatch(ctx context.Context, endpoint string, events []any) error {
 	var lastErr error
 	for attempt := 1; attempt <= maxGatewayRetryCount; attempt++ {
-		lastErr = s.writeBatchOnce(ctx, endpoint, events)
+		attemptCtx, cancel := context.WithTimeoutCause(ctx, requestTimeout, errGatewayRequestTimeout)
+		lastErr = s.writeBatchOnce(attemptCtx, endpoint, events)
+		cancel()
 		if lastErr == nil {
 			return nil
 		}
@@ -111,11 +121,14 @@ func (s *GatewaySink) writeBatchOnce(ctx context.Context, endpoint string, event
 }
 
 func gatewayHealthCheck(ctx context.Context, client *http.Client, baseURL string) error {
+	checkCtx, cancel := context.WithTimeoutCause(ctx, healthCheckTimeout, errGatewayHealthTimeout)
+	defer cancel()
+
 	link, err := url.JoinPath(baseURL, endpointHealth)
 	if err != nil {
 		return fmt.Errorf("failed to join URL path: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
+	req, err := http.NewRequestWithContext(checkCtx, http.MethodGet, link, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP request to the gateway health endpoint: %w", err)
 	}

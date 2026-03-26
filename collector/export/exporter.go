@@ -62,8 +62,11 @@ func (e *Exporter) IngestEvents(ctx context.Context, endpoint string, producer f
 			events, open := producer()
 			if len(events) > 0 {
 				if err := e.sink.WriteBatch(ctx, endpoint, events); err != nil {
-					ticker.Stop()
-					log.Fatal().Err(err).Str("endpoint", endpoint).Msg("failed to export batch")
+					log.Error().
+						Err(err).
+						Str("endpoint", endpoint).
+						Int("count", len(events)).
+						Msg("failed to export batch, dropping batch")
 				}
 			}
 			if !open {

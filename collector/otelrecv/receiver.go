@@ -26,7 +26,7 @@ type OTELReceiver struct {
 	grpcServer *grpc.Server
 	listener   net.Listener
 	eventChan  chan *export.RecordAgentEvent
-	client     *export.GatewayClient
+	exporter   *export.Exporter
 }
 
 const (
@@ -44,7 +44,7 @@ const (
 	eventTypeToolCall    = "tool_call"
 )
 
-func NewOTELReceiver(ctx context.Context, grpcAddr string, client *export.GatewayClient) (*OTELReceiver, error) {
+func NewOTELReceiver(ctx context.Context, grpcAddr string, exporter *export.Exporter) (*OTELReceiver, error) {
 	lc := net.ListenConfig{}
 	listener, err := lc.Listen(ctx, "tcp", grpcAddr)
 	if err != nil {
@@ -54,8 +54,8 @@ func NewOTELReceiver(ctx context.Context, grpcAddr string, client *export.Gatewa
 	receiver := &OTELReceiver{
 		grpcServer: grpc.NewServer(),
 		listener:   listener,
-		eventChan:  make(chan *export.RecordAgentEvent, export.GatewayChannelSize),
-		client:     client,
+		eventChan:  make(chan *export.RecordAgentEvent, export.ExportChannelSize),
+		exporter:   exporter,
 	}
 
 	collogspb.RegisterLogsServiceServer(receiver.grpcServer, receiver)
@@ -65,7 +65,7 @@ func NewOTELReceiver(ctx context.Context, grpcAddr string, client *export.Gatewa
 
 func (r *OTELReceiver) Start(ctx context.Context) {
 	log.Info().Str("addr", r.listener.Addr().String()).Msg("starting OTEL receiver")
-	go r.client.IngestAgentEvent(ctx, r.eventChan)
+	go r.exporter.IngestAgentEvent(ctx, r.eventChan)
 	go func() {
 		if err := r.grpcServer.Serve(r.listener); err != nil {
 			log.Error().Err(err).Msg("OTEL gRPC server error")

@@ -80,13 +80,13 @@ func connectWithRetry(path string, ctx context.Context) (*grpc.ClientConn, error
 }
 
 type TetragonClient struct {
-	conn          *grpc.ClientConn
-	client        tetragon.FineGuidanceSensorsClient
-	gatewayClient *export.GatewayClient
-	channel       chan *export.RawExec
+	conn     *grpc.ClientConn
+	client   tetragon.FineGuidanceSensorsClient
+	exporter *export.Exporter
+	channel  chan *export.RawExec
 }
 
-func NewTetragonClient(path string, gatewayClient *export.GatewayClient, ctx context.Context) (*TetragonClient, error) {
+func NewTetragonClient(path string, exporter *export.Exporter, ctx context.Context) (*TetragonClient, error) {
 	conn, err := connectWithRetry(path, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial: %w", err)
@@ -100,10 +100,10 @@ func NewTetragonClient(path string, gatewayClient *export.GatewayClient, ctx con
 	log.Info().Str("state", state.String()).Msg("connected to Tetragon gRPC server")
 
 	return &TetragonClient{
-		conn:          conn,
-		client:        client,
-		gatewayClient: gatewayClient,
-		channel:       make(chan *export.RawExec, export.GatewayChannelSize),
+		conn:     conn,
+		client:   client,
+		exporter: exporter,
+		channel:  make(chan *export.RawExec, export.ExportChannelSize),
 	}, nil
 }
 
@@ -116,7 +116,7 @@ func (tc *TetragonClient) Close() {
 }
 
 func (tc *TetragonClient) Start(ctx context.Context) {
-	go tc.gatewayClient.IngestExecEvent(ctx, tc.channel)
+	go tc.exporter.IngestExecEvent(ctx, tc.channel)
 	for {
 		eventStream, err := tc.client.GetEvents(ctx, &tetragon.GetEventsRequest{})
 		if err != nil {

@@ -37,13 +37,13 @@ type SSLProbe struct {
 	mu           sync.Mutex // lock the probes
 	probes       map[proc.LibKey]TLSProbe
 	procProbe    *execve.ProcExecProbe
-	client       *export.GatewayClient
+	exporter     *export.Exporter
 	reqChan      chan *export.RawRequest
 	respChan     chan *export.RawResponse
 	postgresChan chan *export.RawPostgres
 }
 
-func NewSSLProbe(sslPath, rustlsPath *string, client *export.GatewayClient) *SSLProbe {
+func NewSSLProbe(sslPath, rustlsPath *string, exporter *export.Exporter) *SSLProbe {
 	probes := make(map[proc.LibKey]TLSProbe)
 
 	// OpenSSL
@@ -102,10 +102,10 @@ func NewSSLProbe(sslPath, rustlsPath *string, client *export.GatewayClient) *SSL
 	return &SSLProbe{
 		probes:       probes,
 		procProbe:    procProbe,
-		client:       client,
-		reqChan:      make(chan *export.RawRequest, export.GatewayChannelSize),
-		respChan:     make(chan *export.RawResponse, export.GatewayChannelSize),
-		postgresChan: make(chan *export.RawPostgres, export.GatewayChannelSize),
+		exporter:     exporter,
+		reqChan:      make(chan *export.RawRequest, export.ExportChannelSize),
+		respChan:     make(chan *export.RawResponse, export.ExportChannelSize),
+		postgresChan: make(chan *export.RawPostgres, export.ExportChannelSize),
 	}
 }
 
@@ -152,9 +152,9 @@ func handle(key *proc.LibKey, probe TLSProbe, store *SSLStore) {
 func (sp *SSLProbe) Start(ctx context.Context) {
 	log.Info().Msg("listening for SSL read/write events...")
 
-	go sp.client.IngestRequestEvent(ctx, sp.reqChan)
-	go sp.client.IngestResponseEvent(ctx, sp.respChan)
-	go sp.client.IngestPostgresEvent(ctx, sp.postgresChan)
+	go sp.exporter.IngestRequestEvent(ctx, sp.reqChan)
+	go sp.exporter.IngestResponseEvent(ctx, sp.respChan)
+	go sp.exporter.IngestPostgresEvent(ctx, sp.postgresChan)
 	store := NewSSLStore()
 	go store.Parse(ctx, sp.reqChan, sp.respChan, sp.postgresChan)
 

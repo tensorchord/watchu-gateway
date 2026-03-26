@@ -83,7 +83,6 @@ type TetragonClient struct {
 	conn     *grpc.ClientConn
 	client   tetragon.FineGuidanceSensorsClient
 	exporter *export.Exporter
-	channel  chan *export.RawExec
 }
 
 func NewTetragonClient(path string, exporter *export.Exporter, ctx context.Context) (*TetragonClient, error) {
@@ -103,12 +102,10 @@ func NewTetragonClient(path string, exporter *export.Exporter, ctx context.Conte
 		conn:     conn,
 		client:   client,
 		exporter: exporter,
-		channel:  make(chan *export.RawExec, export.ExportChannelSize),
 	}, nil
 }
 
 func (tc *TetragonClient) Close() {
-	close(tc.channel)
 	err := tc.conn.Close()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to close the socket connection")
@@ -116,7 +113,9 @@ func (tc *TetragonClient) Close() {
 }
 
 func (tc *TetragonClient) Start(ctx context.Context) {
-	go tc.exporter.IngestExecEvent(ctx, tc.channel)
+	channel := make(chan *export.RawExec, export.ExportChannelSize)
+	go tc.exporter.IngestExecEvent(ctx, channel)
+	defer close(channel)
 	for {
 		eventStream, err := tc.client.GetEvents(ctx, &tetragon.GetEventsRequest{})
 		if err != nil {
@@ -158,7 +157,7 @@ func (tc *TetragonClient) Start(ctx context.Context) {
 				if pp != nil && pp.Pid != nil {
 					ppid = pp.Pid.Value
 				}
-				tc.channel <- &export.RawExec{
+				channel <- &export.RawExec{
 					Timestamp: exec.Process.StartTime.AsTime(),
 					Pid:       exec.Process.Pid.Value,
 					PPid:      ppid,

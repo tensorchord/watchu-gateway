@@ -81,9 +81,13 @@ func (s *GatewaySink) WriteBatch(ctx context.Context, endpoint string, events []
 		if attempt == maxGatewayRetryCount {
 			break
 		}
+		timer := time.NewTimer(gatewayRetryDelay * time.Duration(attempt))
 		select {
-		case <-time.After(gatewayRetryDelay * time.Duration(attempt)):
+		case <-timer.C:
 		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
 			return fmt.Errorf("gateway export canceled after %d attempts: %w", attempt, context.Cause(ctx))
 		}
 	}

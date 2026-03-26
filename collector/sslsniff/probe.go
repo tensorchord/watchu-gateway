@@ -34,13 +34,10 @@ type TLSProbe interface {
 }
 
 type SSLProbe struct {
-	mu           sync.Mutex // lock the probes
-	probes       map[proc.LibKey]TLSProbe
-	procProbe    *execve.ProcExecProbe
-	exporter     *export.Exporter
-	reqChan      chan *export.RawRequest
-	respChan     chan *export.RawResponse
-	postgresChan chan *export.RawPostgres
+	mu        sync.Mutex // lock the probes
+	probes    map[proc.LibKey]TLSProbe
+	procProbe *execve.ProcExecProbe
+	exporter  *export.Exporter
 }
 
 func NewSSLProbe(sslPath, rustlsPath *string, exporter *export.Exporter) *SSLProbe {
@@ -100,12 +97,9 @@ func NewSSLProbe(sslPath, rustlsPath *string, exporter *export.Exporter) *SSLPro
 	}
 
 	return &SSLProbe{
-		probes:       probes,
-		procProbe:    procProbe,
-		exporter:     exporter,
-		reqChan:      make(chan *export.RawRequest, export.ExportChannelSize),
-		respChan:     make(chan *export.RawResponse, export.ExportChannelSize),
-		postgresChan: make(chan *export.RawPostgres, export.ExportChannelSize),
+		probes:    probes,
+		procProbe: procProbe,
+		exporter:  exporter,
 	}
 }
 
@@ -151,12 +145,20 @@ func handle(key *proc.LibKey, probe TLSProbe, store *SSLStore) {
 
 func (sp *SSLProbe) Start(ctx context.Context) {
 	log.Info().Msg("listening for SSL read/write events...")
+	reqChan := make(chan *export.RawRequest, export.ExportChannelSize)
+	respChan := make(chan *export.RawResponse, export.ExportChannelSize)
+	postgresChan := make(chan *export.RawPostgres, export.ExportChannelSize)
+	defer func() {
+		close(reqChan)
+		close(respChan)
+		close(postgresChan)
+	}()
 
-	go sp.exporter.IngestRequestEvent(ctx, sp.reqChan)
-	go sp.exporter.IngestResponseEvent(ctx, sp.respChan)
-	go sp.exporter.IngestPostgresEvent(ctx, sp.postgresChan)
+	go sp.exporter.IngestRequestEvent(ctx, reqChan)
+	go sp.exporter.IngestResponseEvent(ctx, respChan)
+	go sp.exporter.IngestPostgresEvent(ctx, postgresChan)
 	store := NewSSLStore()
-	go store.Parse(ctx, sp.reqChan, sp.respChan, sp.postgresChan)
+	go store.Parse(ctx, reqChan, respChan, postgresChan)
 
 	var wg sync.WaitGroup
 	for key, probe := range sp.probes {
@@ -249,7 +251,4 @@ func (sp *SSLProbe) Close() {
 		log.Info().Any("key", key).Msg("SSL probe closed successfully")
 	}
 	sp.mu.Unlock()
-	close(sp.reqChan)
-	close(sp.respChan)
-	close(sp.postgresChan)
 }

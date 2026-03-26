@@ -73,7 +73,6 @@ func (r *OTELReceiver) Start(ctx context.Context) {
 	}()
 
 	<-ctx.Done()
-	r.grpcServer.GracefulStop()
 }
 
 // Export implements the OTLP LogsService Export RPC
@@ -327,7 +326,6 @@ func parseFloatAttr(attrs map[string]*commonpb.AnyValue, key string) float64 {
 	return 0
 }
 
-// Close stops the receiver
 func (r *OTELReceiver) Close() {
 	r.grpcServer.GracefulStop()
 	close(r.eventChan)

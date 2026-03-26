@@ -10,10 +10,21 @@
 #define LIBSSL_LEN 6
 #define TASK_COMM_LEN 16
 #define MAX_FILENAME_LEN 256
+#define MAX_ARGC 8
+#define MAX_ARGS_LEN 192
 #define MAX_ENTRIES 4096
 #define RING_BUFFER_SIZE (4 * 1024 * 1024) // 4 MiB
 
 char __license[] SEC("license") = "Dual MIT/GPL";
+
+typedef s32 pid_t;
+
+struct task_struct {
+    struct task_struct *real_parent;
+    pid_t tgid;
+    u64 start_boottime;
+    u64 start_time;
+} __attribute__((preserve_access_index));
 
 // ref: /sys/kernel/debug/tracing/events/sched/sched_process_exec/format
 struct sched_process_ctx {
@@ -22,6 +33,37 @@ struct sched_process_ctx {
     u32 filename; // __data_loc char * (lower 16 bits: offset, upper 16 bits: size)
     s32 pid;
     s32 old_pid;
+};
+
+// ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_execve/format
+struct execve_ctx {
+    // pad the first 8 bytes
+    long common;
+    long __syscall_nr;
+    u64 filename;
+    u64 argv;
+    u64 envp;
+};
+
+// ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_execveat/format
+struct execveat_ctx {
+    // pad the first 8 bytes
+    long common;
+    long __syscall_nr;
+    long _dfd;
+    u64 filename;
+    u64 argv;
+    u64 envp;
+    long _flags;
+};
+
+// ref: /sys/kernel/debug/tracing/events/syscalls/sys_exit_execve/format
+// ref: /sys/kernel/debug/tracing/events/syscalls/sys_exit_execveat/format
+struct execve_exit_ctx {
+    // pad the first 8 bytes
+    long common;
+    long __syscall_nr;
+    long ret;
 };
 
 // ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_openat/format
@@ -77,12 +119,24 @@ struct open_value {
     char filename[MAX_FILENAME_LEN];
 };
 
+struct exec_value {
+    char args[MAX_ARGS_LEN];
+    u8 args_truncated;
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_ENTRIES);
     __type(key, u64);
     __type(value, struct open_value);
 } inflight_open SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, u64);
+    __type(value, struct exec_value);
+} inflight_exec SEC(".maps");
 
 // Technically, we should `delete` on both `sys_enter_close` & `sched_process_exit`.
 // However, we don't have the `fd` info in `sched_process_exit`. Thus we use the LRU
@@ -95,10 +149,16 @@ struct {
 } inflight_mmap SEC(".maps");
 
 struct proc {
+    u64 timestamp_ns;
+    u64 start_time_ns;
+    u64 parent_start_time_ns;
     s32 pid;
+    s32 ppid;
     s32 old_pid;
     char comm[TASK_COMM_LEN];
     char filename[MAX_FILENAME_LEN];
+    char args[MAX_ARGS_LEN];
+    u8 args_truncated;
 };
 
 // used to make the bpf2go generate proc struct
@@ -134,6 +194,14 @@ struct {
     __uint(max_entries, RING_BUFFER_SIZE);
 } dynlib_events SEC(".maps");
 
+static __always_inline u64 read_task_start_time(struct task_struct *task) {
+    if (task == NULL)
+        return 0;
+    if (bpf_core_field_exists(task->start_boottime))
+        return BPF_CORE_READ(task, start_boottime);
+    return BPF_CORE_READ(task, start_time);
+}
+
 SEC("tracepoint/sched/sched_process_exec")
 int tracepoint_sched_process_exec(struct sched_process_ctx *ctx) {
     if (ctx->pid == 0)
@@ -143,8 +211,15 @@ int tracepoint_sched_process_exec(struct sched_process_ctx *ctx) {
     if (!evt)
         return 0;
 
-    evt->pid     = ctx->pid;
-    evt->old_pid = ctx->old_pid;
+    struct task_struct *task        = bpf_get_current_task_btf();
+    struct task_struct *parent_task = BPF_CORE_READ(task, real_parent);
+
+    evt->timestamp_ns         = bpf_ktime_get_ns();
+    evt->start_time_ns        = read_task_start_time(task);
+    evt->parent_start_time_ns = read_task_start_time(parent_task);
+    evt->pid                  = ctx->pid;
+    evt->ppid                 = parent_task ? BPF_CORE_READ(parent_task, tgid) : 0;
+    evt->old_pid              = ctx->old_pid;
     bpf_get_current_comm(&evt->comm, TASK_COMM_LEN);
 
     u32 length = ctx->filename >> 16;
@@ -153,8 +228,92 @@ int tracepoint_sched_process_exec(struct sched_process_ctx *ctx) {
     char *filename_ptr = (char *)((void *)ctx + (ctx->filename & 0xFFFF));
     bpf_probe_read_str(&evt->filename, length, filename_ptr);
 
+    u64 pid_tgid             = bpf_get_current_pid_tgid();
+    struct exec_value *value = bpf_map_lookup_elem(&inflight_exec, &pid_tgid);
+    if (value != NULL) {
+        __builtin_memcpy(evt->args, value->args, sizeof(evt->args));
+        evt->args_truncated = value->args_truncated;
+        bpf_map_delete_elem(&inflight_exec, &pid_tgid);
+    }
+
     bpf_ringbuf_submit(evt, 0);
     return 0;
+}
+
+static __always_inline void read_exec_args(struct exec_value *value, const char *const *argv) {
+    u32 offset = 0;
+
+#pragma unroll
+    for (int i = 0; i < MAX_ARGC; i++) {
+        const char *arg = NULL;
+        if (bpf_probe_read_user(&arg, sizeof(arg), &argv[i]) < 0 || arg == NULL)
+            break;
+
+        if (offset >= MAX_ARGS_LEN - 1) {
+            value->args_truncated = 1;
+            break;
+        }
+
+        int length = bpf_probe_read_user_str(value->args + offset, MAX_ARGS_LEN - offset, arg);
+        if (length <= 0)
+            break;
+
+        offset += length - 1;
+        if (offset >= MAX_ARGS_LEN - 1) {
+            value->args_truncated = 1;
+            break;
+        }
+
+        value->args[offset++] = ' ';
+        value->args[offset]   = '\0';
+
+        if (i == MAX_ARGC - 1)
+            value->args_truncated = 1;
+    }
+
+    if (offset > 0 && value->args[offset - 1] == ' ')
+        value->args[offset - 1] = '\0';
+}
+
+static __always_inline int capture_exec_enter(u64 argv_ptr) {
+    if (argv_ptr == 0)
+        return 0;
+
+    struct exec_value value = {.args = {}, .args_truncated = 0};
+    read_exec_args(&value, (const char *const *)argv_ptr);
+
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    bpf_map_update_elem(&inflight_exec, &pid_tgid, &value, BPF_ANY);
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_execve")
+int tracepoint_sys_enter_execve(struct execve_ctx *ctx) {
+    return capture_exec_enter(ctx->argv);
+}
+
+SEC("tracepoint/syscalls/sys_enter_execveat")
+int tracepoint_sys_enter_execveat(struct execveat_ctx *ctx) {
+    return capture_exec_enter(ctx->argv);
+}
+
+static __always_inline int cleanup_failed_exec(struct execve_exit_ctx *ctx) {
+    if (ctx->ret >= 0)
+        return 0;
+
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    bpf_map_delete_elem(&inflight_exec, &pid_tgid);
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_exit_execve")
+int tracepoint_sys_exit_execve(struct execve_exit_ctx *ctx) {
+    return cleanup_failed_exec(ctx);
+}
+
+SEC("tracepoint/syscalls/sys_exit_execveat")
+int tracepoint_sys_exit_execveat(struct execve_exit_ctx *ctx) {
+    return cleanup_failed_exec(ctx);
 }
 
 static __always_inline int is_libssl(const char *name) {

@@ -5,16 +5,21 @@ package execve
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
 
+	"github.com/tensorchord/watchu/collector/export"
 	"github.com/tensorchord/watchu/collector/internal/tool"
 )
 
@@ -22,10 +27,49 @@ import (
 
 const procChannelSize = 4096
 
+const (
+	procCmdlinePath = "/proc/%d/cmdline"
+	procCWDPath     = "/proc/%d/cwd"
+)
+
+var (
+	nodeName = export.GetHostName()
+	bootTime = export.GetBootTime()
+)
+
 type DynLib struct {
 	Proc     int32
 	Fd       uint64
 	Filepath string
+}
+
+type ExecEvent struct {
+	Timestamp time.Time
+	Pid       int32
+	PPid      int32
+	ExecID    string
+	PExecID   string
+	Cwd       string
+	Comm      string
+	Filename  string
+	Args      string
+	ArgsTrunc bool
+}
+
+func (e *ExecEvent) ToRawExec() *export.RawExec {
+	if e == nil {
+		return nil
+	}
+	return &export.RawExec{
+		Timestamp: e.Timestamp,
+		Pid:       uint32(e.Pid),
+		PPid:      uint32(e.PPid),
+		ExecId:    e.ExecID,
+		PExecId:   e.PExecID,
+		Cwd:       e.Cwd,
+		Comm:      e.Comm,
+		Args:      e.Args,
+	}
 }
 
 type ProcExecProbe struct {
@@ -34,6 +78,7 @@ type ProcExecProbe struct {
 	objs       *execObjects
 	links      []link.Link
 	ProcChan   chan int32
+	ExecChan   chan *ExecEvent
 	DynLibChan chan *DynLib
 }
 
@@ -44,6 +89,10 @@ func attachExecProbes(objs execObjects) ([]link.Link, error) {
 		prog  *ebpf.Program
 	}{
 		{"sched", "sched_process_exec", objs.TracepointSchedProcessExec},
+		{"syscalls", "sys_enter_execve", objs.TracepointSysEnterExecve},
+		{"syscalls", "sys_enter_execveat", objs.TracepointSysEnterExecveat},
+		{"syscalls", "sys_exit_execve", objs.TracepointSysExitExecve},
+		{"syscalls", "sys_exit_execveat", objs.TracepointSysExitExecveat},
 		{"syscalls", "sys_enter_openat", objs.TracepointSysEnterOpenat},
 		{"syscalls", "sys_enter_openat2", objs.TracepointSysEnterOpenat},
 		{"syscalls", "sys_exit_openat", objs.TracepointSysExitOpenat},
@@ -89,6 +138,7 @@ func NewProcExecProbe() (*ProcExecProbe, error) {
 		objs:       objs,
 		links:      links,
 		ProcChan:   make(chan int32, procChannelSize),
+		ExecChan:   make(chan *ExecEvent, procChannelSize),
 		DynLibChan: make(chan *DynLib, procChannelSize),
 	}
 	p.rbProc, err = ringbuf.NewReader(objs.ProcEvents)
@@ -104,6 +154,116 @@ func NewProcExecProbe() (*ProcExecProbe, error) {
 		return nil, err
 	}
 	return p, nil
+}
+
+func parseElapsedToTimestamp(elapsed uint64) time.Time {
+	return bootTime.Add(time.Duration(elapsed))
+}
+
+func readProcessCWD(pid int32) string {
+	cwd, err := os.Readlink(fmt.Sprintf(procCWDPath, pid))
+	if err != nil {
+		log.Debug().Err(err).Int32("pid", pid).Msg("failed to read proc cwd")
+		return "/"
+	}
+	return cwd
+}
+
+func readProcessArgs(pid int32) (string, bool) {
+	data, err := os.ReadFile(fmt.Sprintf(procCmdlinePath, pid))
+	if err != nil {
+		log.Debug().Err(err).Int32("pid", pid).Msg("failed to read proc cmdline")
+		return "", false
+	}
+
+	parts := strings.FieldsFunc(string(data), func(r rune) bool {
+		return r == '\x00'
+	})
+	if len(parts) == 0 {
+		return "", false
+	}
+	return strings.Join(parts, " "), true
+}
+
+func encodeExecID(pid int32, startTimeNs uint64) string {
+	// Tetragon emits exec IDs in the shape base64("node-name:start-time-ns:pid").
+	// Watchu intentionally reuses export.GetHostName() for the first component,
+	// so this matches Watchu host identity, not necessarily Tetragon's exact node naming.
+	// Reference implementation:
+	// https://github.com/cilium/tetragon/blob/main/pkg/process/process_id_linux.go
+	payload := fmt.Sprintf("%s:%d:%d", nodeName, startTimeNs, pid)
+	return base64.StdEncoding.EncodeToString([]byte(payload))
+}
+
+func buildExecIDs(pid int32, ppid int32, startTimeNs uint64, parentStartTimeNs uint64) (string, string) {
+	execID := encodeExecID(pid, startTimeNs)
+	parentExecID := encodeExecID(ppid, parentStartTimeNs)
+	if ppid <= 0 {
+		parentExecID = encodeExecID(0, 0)
+	}
+	return execID, parentExecID
+}
+
+func buildExecEvent(event *execProc) *ExecEvent {
+	pid := event.Pid
+	filename := tool.CharsToString(event.Filename[:])
+	taskComm := tool.CharsToString(event.Comm[:])
+	args := tool.CharsToString(event.Args[:])
+	argsTrunc := event.ArgsTruncated != 0
+	if procArgs, ok := readProcessArgs(pid); ok {
+		args = procArgs
+		argsTrunc = false
+	}
+	if args == "" {
+		args = filename
+	}
+
+	comm := filename
+	if comm == "" {
+		comm = taskComm
+	}
+	execID, parentExecID := buildExecIDs(pid, event.Ppid, event.StartTimeNs, event.ParentStartTimeNs)
+
+	return &ExecEvent{
+		Timestamp: parseElapsedToTimestamp(event.TimestampNs),
+		Pid:       pid,
+		PPid:      event.Ppid,
+		ExecID:    execID,
+		PExecID:   parentExecID,
+		Cwd:       readProcessCWD(pid),
+		Comm:      comm,
+		Filename:  filename,
+		Args:      args,
+		ArgsTrunc: argsTrunc,
+	}
+}
+
+func (pep *ProcExecProbe) IngestExecEvents(ctx context.Context, exporter *export.Exporter) {
+	channel := make(chan *export.RawExec, export.ExportChannelSize)
+	go exporter.IngestExecEvent(ctx, channel)
+	defer close(channel)
+
+	for {
+		select {
+		case event, ok := <-pep.ExecChan:
+			if !ok {
+				return
+			}
+			raw := event.ToRawExec()
+			if raw == nil {
+				continue
+			}
+			select {
+			case channel <- raw:
+			case <-ctx.Done():
+				return
+			default:
+				log.Warn().Int32("pid", event.Pid).Msg("exec export channel is full, dropping event")
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (pep *ProcExecProbe) Start(ctx context.Context) {
@@ -130,8 +290,10 @@ func (pep *ProcExecProbe) Start(ctx context.Context) {
 				log.Debug().
 					Int32("pid", event.Pid).
 					Int32("old_pid", event.OldPid).
+					Bool("args_truncated", event.ArgsTruncated != 0).
 					Str("comm", tool.CharsToString(event.Comm[:])).
 					Str("filepath", tool.CharsToString(event.Filename[:])).
+					Str("args", tool.CharsToString(event.Args[:])).
 					Msg("proc exec event")
 			}
 			select {
@@ -140,6 +302,14 @@ func (pep *ProcExecProbe) Start(ctx context.Context) {
 				return
 			default:
 				log.Warn().Int32("pid", event.Pid).Msg("failed to push to proc exec channel")
+			}
+			execEvent := buildExecEvent(&event)
+			select {
+			case pep.ExecChan <- execEvent:
+			case <-ctx.Done():
+				return
+			default:
+				log.Warn().Int32("pid", event.Pid).Msg("failed to push to exec event channel")
 			}
 		}
 	})
@@ -207,5 +377,6 @@ func (pep *ProcExecProbe) Close() {
 		}
 	}
 	close(pep.ProcChan)
+	close(pep.ExecChan)
 	close(pep.DynLibChan)
 }

@@ -132,8 +132,8 @@ func NewOpenSSLProbe(sslPath string) (*OpenSSLProbe, error) {
 	}, nil
 }
 
-func (op *OpenSSLProbe) ReadBuffer() (ringbuf.Record, error) {
-	return op.rb.Read()
+func (op *OpenSSLProbe) ReadBuffer(record *ringbuf.Record) error {
+	return op.rb.ReadInto(record)
 }
 
 func (op *OpenSSLProbe) Close() error {

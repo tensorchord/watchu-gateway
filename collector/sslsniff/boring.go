@@ -57,8 +57,8 @@ func NewBoringSSLProbe(path string) (*BoringSSLProbe, error) {
 	return p, nil
 }
 
-func (bp *BoringSSLProbe) ReadBuffer() (ringbuf.Record, error) {
-	return bp.rb.Read()
+func (bp *BoringSSLProbe) ReadBuffer(record *ringbuf.Record) error {
+	return bp.rb.ReadInto(record)
 }
 
 func (bp *BoringSSLProbe) Close() error {

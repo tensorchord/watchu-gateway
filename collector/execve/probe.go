@@ -112,9 +112,9 @@ func (pep *ProcExecProbe) Start(ctx context.Context) {
 
 	wg.Go(func() {
 		var event execProc
+		var record ringbuf.Record
 		for {
-			record, err := pep.rbProc.Read()
-			if err != nil {
+			if err := pep.rbProc.ReadInto(&record); err != nil {
 				if errors.Is(err, ringbuf.ErrClosed) {
 					log.Info().Msg("exec proc ringbuf reader closed")
 					return
@@ -122,7 +122,7 @@ func (pep *ProcExecProbe) Start(ctx context.Context) {
 				log.Warn().Err(err).Msg("failed to read from exec proc ringbuf")
 				continue
 			}
-			if err = binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
+			if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
 				log.Error().Err(err).Msg("parsing exec proc ringbuf record")
 				continue
 			}
@@ -146,9 +146,9 @@ func (pep *ProcExecProbe) Start(ctx context.Context) {
 
 	wg.Go(func() {
 		var event execDynlib
+		var record ringbuf.Record
 		for {
-			record, err := pep.rbDynLib.Read()
-			if err != nil {
+			if err := pep.rbDynLib.ReadInto(&record); err != nil {
 				if errors.Is(err, ringbuf.ErrClosed) {
 					log.Info().Msg("exec dynlib ringbuf reader closed")
 					return
@@ -156,7 +156,7 @@ func (pep *ProcExecProbe) Start(ctx context.Context) {
 				log.Warn().Err(err).Msg("failed to read from exec dynlib ringbuf")
 				continue
 			}
-			if err = binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
+			if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
 				log.Error().Err(err).Msg("parsing exec dynlib ringbuf record")
 				continue
 			}

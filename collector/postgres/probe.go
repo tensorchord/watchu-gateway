@@ -81,9 +81,9 @@ func (pp *PostgresProbe) Start(ctx context.Context) {
 	defer close(channel)
 
 	var event pgEvent
+	var record ringbuf.Record
 	for {
-		record, err := pp.rb.Read()
-		if err != nil {
+		if err := pp.rb.ReadInto(&record); err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
 				log.Info().Msg("pg ringbuf closed")
 				return
@@ -92,7 +92,7 @@ func (pp *PostgresProbe) Start(ctx context.Context) {
 			continue
 		}
 
-		if err = binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
+		if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
 			log.Error().Err(err).Msg("failed to decode pg event")
 			continue
 		}

@@ -44,6 +44,9 @@ func NewJSONLSink(target string) (*JSONLSink, error) {
 func (s *JSONLSink) WriteBatch(_ context.Context, endpoint string, events []any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.file == nil || s.enc == nil {
+		return fmt.Errorf("jsonl sink is closed")
+	}
 
 	now := time.Now().UTC()
 	for _, event := range events {
@@ -60,10 +63,18 @@ func (s *JSONLSink) WriteBatch(_ context.Context, endpoint string, events []any)
 }
 
 func (s *JSONLSink) Close() error {
-	if s == nil || s.file == nil {
+	if s == nil {
 		return nil
 	}
-	return s.file.Close()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.file == nil {
+		return nil
+	}
+	err := s.file.Close()
+	s.file = nil
+	s.enc = nil
+	return err
 }
 
 func parseFileTarget(target string) (string, error) {

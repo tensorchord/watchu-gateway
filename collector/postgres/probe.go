@@ -49,7 +49,6 @@ type PostgresProbe struct {
 	objs     *pgObjects
 	links    []link.Link
 	exporter *export.Exporter
-	channel  chan *export.RawPostgres
 }
 
 func NewPostgresProbe(exporter *export.Exporter) *PostgresProbe {
@@ -66,7 +65,6 @@ func NewPostgresProbe(exporter *export.Exporter) *PostgresProbe {
 		objs:     &objs,
 		links:    links,
 		exporter: exporter,
-		channel:  make(chan *export.RawPostgres, export.ExportChannelSize),
 	}
 	p.rb, err = ringbuf.NewReader(objs.Events)
 	if err != nil {
@@ -78,7 +76,9 @@ func NewPostgresProbe(exporter *export.Exporter) *PostgresProbe {
 
 func (pp *PostgresProbe) Start(ctx context.Context) {
 	log.Info().Msg("listening for postgres read socket events...")
-	go pp.exporter.IngestPostgresEvent(ctx, pp.channel)
+	channel := make(chan *export.RawPostgres, export.ExportChannelSize)
+	go pp.exporter.IngestPostgresEvent(ctx, channel)
+	defer close(channel)
 
 	var event pgEvent
 	for {
@@ -98,7 +98,7 @@ func (pp *PostgresProbe) Start(ctx context.Context) {
 		}
 
 		select {
-		case pp.channel <- &export.RawPostgres{
+		case channel <- &export.RawPostgres{
 			ElapsedNs: event.TimestampNs,
 			PidTGid:   event.PidTgid,
 			UidGid:    event.UidGid,
@@ -145,5 +145,4 @@ func (pp *PostgresProbe) Close() {
 			log.Error().Err(err).Int("index", i).Msg("failed to close pg link")
 		}
 	}
-	close(pp.channel)
 }

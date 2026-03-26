@@ -35,8 +35,8 @@ func NewRusTLSProbe(rustlsPath *string) (*RusTLSProbe, error) {
 	return p, nil
 }
 
-func (rp *RusTLSProbe) ReadBuffer() (ringbuf.Record, error) {
-	return rp.rb.Read()
+func (rp *RusTLSProbe) ReadBuffer(record *ringbuf.Record) error {
+	return rp.rb.ReadInto(record)
 }
 
 func (rp *RusTLSProbe) Close() error {

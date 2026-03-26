@@ -29,7 +29,7 @@ const (
 )
 
 type TLSProbe interface {
-	ReadBuffer() (ringbuf.Record, error)
+	ReadBuffer(*ringbuf.Record) error
 	Close() error
 }
 
@@ -107,10 +107,10 @@ func handle(key *proc.LibKey, probe TLSProbe, store *SSLStore) {
 	logger := log.DefaultLogger
 	logger.Context = log.NewContext(nil).Uint64("inode", key.INode).Uint64("device", key.DeviceID).Value()
 	var event sslEvent
+	var record ringbuf.Record
 
 	for {
-		record, err := probe.ReadBuffer()
-		if err != nil {
+		if err := probe.ReadBuffer(&record); err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
 				logger.Info().Msg("SSL ringbuf closed")
 				return
@@ -119,7 +119,7 @@ func handle(key *proc.LibKey, probe TLSProbe, store *SSLStore) {
 			continue
 		}
 
-		if err = binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
+		if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
 			logger.Error().Err(err).Msg("parsing ssl ringbuf record")
 			continue
 		}

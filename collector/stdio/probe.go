@@ -128,9 +128,9 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 	defer close(channel)
 
 	var event stdioEvent
+	var record ringbuf.Record
 	for {
-		record, err := sp.rb.Read()
-		if err != nil {
+		if err := sp.rb.ReadInto(&record); err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
 				log.Info().Msg("stdio ringbuf closed")
 				return
@@ -139,7 +139,7 @@ func (sp *StdioProbe) Start(ctx context.Context) {
 			continue
 		}
 
-		if err = binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
+		if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
 			log.Error().Err(err).Msg("parsing stdio ringbuf record")
 			continue
 		}

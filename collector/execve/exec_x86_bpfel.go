@@ -22,9 +22,9 @@ type execDynlib struct {
 }
 
 type execExecValue struct {
-	_             structs.HostLayout
-	Args          [192]int8
-	ArgsTruncated uint8
+	_    structs.HostLayout
+	Proc execProc
+	Args [2048]int8
 }
 
 type execOpenKey struct {
@@ -48,9 +48,9 @@ type execProc struct {
 	OldPid            int32
 	Comm              [16]int8
 	Filename          [256]int8
-	Args              [192]int8
+	ArgsLen           uint32
 	ArgsTruncated     uint8
-	_                 [3]byte
+	_                 [7]byte
 }
 
 // loadExec returns the embedded CollectionSpec for exec.

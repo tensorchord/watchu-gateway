@@ -10,8 +10,7 @@
 #define LIBSSL_LEN 6
 #define TASK_COMM_LEN 16
 #define MAX_FILENAME_LEN 256
-#define MAX_ARGC 8
-#define MAX_ARGS_LEN 192
+#define MAX_ARGS_LEN 2048
 #define MAX_ENTRIES 4096
 #define RING_BUFFER_SIZE (4 * 1024 * 1024) // 4 MiB
 
@@ -19,8 +18,14 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 
 typedef s32 pid_t;
 
+struct mm_struct {
+    unsigned long arg_start;
+    unsigned long arg_end;
+} __attribute__((preserve_access_index));
+
 struct task_struct {
     struct task_struct *real_parent;
+    struct mm_struct *mm;
     pid_t tgid;
     u64 start_boottime;
     u64 start_time;
@@ -119,17 +124,30 @@ struct open_value {
     char filename[MAX_FILENAME_LEN];
 };
 
-struct exec_value {
-    char args[MAX_ARGS_LEN];
-    u8 args_truncated;
-};
-
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_ENTRIES);
     __type(key, u64);
     __type(value, struct open_value);
 } inflight_open SEC(".maps");
+
+struct proc {
+    u64 timestamp_ns;
+    u64 start_time_ns;
+    u64 parent_start_time_ns;
+    s32 pid;
+    s32 ppid;
+    s32 old_pid;
+    char comm[TASK_COMM_LEN];
+    char filename[MAX_FILENAME_LEN];
+    u32 args_len;
+    u8 args_truncated;
+};
+
+struct exec_value {
+    struct proc proc;
+    char args[MAX_ARGS_LEN];
+};
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -147,19 +165,6 @@ struct {
     __type(key, struct open_key);
     __type(value, struct open_value);
 } inflight_mmap SEC(".maps");
-
-struct proc {
-    u64 timestamp_ns;
-    u64 start_time_ns;
-    u64 parent_start_time_ns;
-    s32 pid;
-    s32 ppid;
-    s32 old_pid;
-    char comm[TASK_COMM_LEN];
-    char filename[MAX_FILENAME_LEN];
-    char args[MAX_ARGS_LEN];
-    u8 args_truncated;
-};
 
 // used to make the bpf2go generate proc struct
 struct {
@@ -194,6 +199,8 @@ struct {
     __uint(max_entries, RING_BUFFER_SIZE);
 } dynlib_events SEC(".maps");
 
+static const struct exec_value empty_exec_value = {};
+
 static __always_inline u64 read_task_start_time(struct task_struct *task) {
     if (task == NULL)
         return 0;
@@ -207,83 +214,82 @@ int tracepoint_sched_process_exec(struct sched_process_ctx *ctx) {
     if (ctx->pid == 0)
         return 0;
 
-    struct proc *evt = bpf_ringbuf_reserve(&proc_events, sizeof(*evt), 0);
-    if (!evt)
+    u64 pid_tgid             = bpf_get_current_pid_tgid();
+    struct exec_value *value = bpf_map_lookup_elem(&inflight_exec, &pid_tgid);
+    if (value == NULL)
         return 0;
+
+    u32 args_len = value->proc.args_len;
+    if (args_len > MAX_ARGS_LEN) {
+        bpf_map_delete_elem(&inflight_exec, &pid_tgid);
+        return 0;
+    }
+    u32 evt_len = sizeof(value->proc) + args_len;
 
     struct task_struct *task        = bpf_get_current_task_btf();
     struct task_struct *parent_task = BPF_CORE_READ(task, real_parent);
 
-    evt->timestamp_ns         = bpf_ktime_get_ns();
-    evt->start_time_ns        = read_task_start_time(task);
-    evt->parent_start_time_ns = read_task_start_time(parent_task);
-    evt->pid                  = ctx->pid;
-    evt->ppid                 = parent_task ? BPF_CORE_READ(parent_task, tgid) : 0;
-    evt->old_pid              = ctx->old_pid;
-    bpf_get_current_comm(&evt->comm, TASK_COMM_LEN);
+    value->proc.timestamp_ns         = bpf_ktime_get_ns();
+    value->proc.start_time_ns        = read_task_start_time(task);
+    value->proc.parent_start_time_ns = read_task_start_time(parent_task);
+    value->proc.pid                  = ctx->pid;
+    value->proc.ppid                 = parent_task ? BPF_CORE_READ(parent_task, tgid) : 0;
+    value->proc.old_pid              = ctx->old_pid;
+    bpf_get_current_comm(&value->proc.comm, TASK_COMM_LEN);
 
     u32 length = ctx->filename >> 16;
     if (length > MAX_FILENAME_LEN)
         length = MAX_FILENAME_LEN;
     char *filename_ptr = (char *)((void *)ctx + (ctx->filename & 0xFFFF));
-    bpf_probe_read_str(&evt->filename, length, filename_ptr);
+    bpf_probe_read_str(&value->proc.filename, length, filename_ptr);
 
-    u64 pid_tgid             = bpf_get_current_pid_tgid();
-    struct exec_value *value = bpf_map_lookup_elem(&inflight_exec, &pid_tgid);
-    if (value != NULL) {
-        __builtin_memcpy(evt->args, value->args, sizeof(evt->args));
-        evt->args_truncated = value->args_truncated;
-        bpf_map_delete_elem(&inflight_exec, &pid_tgid);
-    }
-
-    bpf_ringbuf_submit(evt, 0);
+    bpf_ringbuf_output(&proc_events, value, evt_len, 0);
+    bpf_map_delete_elem(&inflight_exec, &pid_tgid);
     return 0;
 }
 
-static __always_inline void read_exec_args(struct exec_value *value, const char *const *argv) {
-    u32 offset = 0;
+static __always_inline void read_exec_args(struct exec_value *value) {
+    struct task_struct *task = bpf_get_current_task_btf();
+    if (task == NULL)
+        return;
 
-#pragma unroll
-    for (int i = 0; i < MAX_ARGC; i++) {
-        const char *arg = NULL;
-        if (bpf_probe_read_user(&arg, sizeof(arg), &argv[i]) < 0 || arg == NULL)
-            break;
+    struct mm_struct *mm = BPF_CORE_READ(task, mm);
+    if (mm == NULL)
+        return;
 
-        if (offset >= MAX_ARGS_LEN - 1) {
-            value->args_truncated = 1;
-            break;
-        }
+    unsigned long arg_start = BPF_CORE_READ(mm, arg_start);
+    unsigned long arg_end   = BPF_CORE_READ(mm, arg_end);
+    if (arg_end <= arg_start)
+        return;
 
-        int length = bpf_probe_read_user_str(value->args + offset, MAX_ARGS_LEN - offset, arg);
-        if (length <= 0)
-            break;
-
-        offset += length - 1;
-        if (offset >= MAX_ARGS_LEN - 1) {
-            value->args_truncated = 1;
-            break;
-        }
-
-        value->args[offset++] = ' ';
-        value->args[offset]   = '\0';
-
-        if (i == MAX_ARGC - 1)
-            value->args_truncated = 1;
+    u64 raw_args_len = arg_end - arg_start;
+    if (raw_args_len > MAX_ARGS_LEN) {
+        raw_args_len               = MAX_ARGS_LEN;
+        value->proc.args_truncated = 1;
     }
 
-    if (offset > 0 && value->args[offset - 1] == ' ')
-        value->args[offset - 1] = '\0';
+    u32 args_len = raw_args_len;
+    if (args_len == 0)
+        return;
+    if (bpf_probe_read_user(value->args, args_len, (const void *)arg_start) < 0) {
+        value->proc.args_truncated = 1;
+        return;
+    }
+    value->proc.args_len = args_len;
 }
 
 static __always_inline int capture_exec_enter(u64 argv_ptr) {
     if (argv_ptr == 0)
         return 0;
 
-    struct exec_value value = {.args = {}, .args_truncated = 0};
-    read_exec_args(&value, (const char *const *)argv_ptr);
-
     u64 pid_tgid = bpf_get_current_pid_tgid();
-    bpf_map_update_elem(&inflight_exec, &pid_tgid, &value, BPF_ANY);
+    bpf_map_update_elem(&inflight_exec, &pid_tgid, &empty_exec_value, BPF_ANY);
+
+    struct exec_value *value = bpf_map_lookup_elem(&inflight_exec, &pid_tgid);
+    if (value == NULL)
+        return 0;
+
+    read_exec_args(value);
     return 0;
 }
 

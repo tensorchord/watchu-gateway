@@ -30,6 +30,7 @@ const procChannelSize = 4096
 const (
 	procCmdlinePath = "/proc/%d/cmdline"
 	procCWDPath     = "/proc/%d/cwd"
+	maxArgsLen      = 2048
 )
 
 var (
@@ -54,6 +55,11 @@ type ExecEvent struct {
 	Filename  string
 	Args      string
 	ArgsTrunc bool
+}
+
+type parsedExecEvent struct {
+	proc execProc
+	args string
 }
 
 func (e *ExecEvent) ToRawExec() *export.RawExec {
@@ -204,15 +210,45 @@ func buildExecIDs(pid int32, ppid int32, startTimeNs uint64, parentStartTimeNs u
 	return execID, parentExecID
 }
 
-func buildExecEvent(event *execProc) *ExecEvent {
-	pid := event.Pid
-	filename := tool.CharsToString(event.Filename[:])
-	taskComm := tool.CharsToString(event.Comm[:])
-	args := tool.CharsToString(event.Args[:])
-	argsTrunc := event.ArgsTruncated != 0
-	if procArgs, ok := readProcessArgs(pid); ok {
-		args = procArgs
-		argsTrunc = false
+func decodeExecArgsBuffer(raw []byte) string {
+	parts := strings.FieldsFunc(string(bytes.TrimRight(raw, "\x00")), func(r rune) bool {
+		return r == '\x00'
+	})
+	return strings.Join(parts, " ")
+}
+
+func parseExecRecord(raw []byte) (*parsedExecEvent, error) {
+	var header execProc
+	headerSize := binary.Size(header)
+	if len(raw) < headerSize {
+		return nil, fmt.Errorf("short exec proc ringbuf record: got %d want at least %d", len(raw), headerSize)
+	}
+	if err := binary.Read(bytes.NewReader(raw[:headerSize]), binary.LittleEndian, &header); err != nil {
+		return nil, err
+	}
+	if header.ArgsLen > maxArgsLen {
+		return nil, fmt.Errorf("invalid exec args length: %d", header.ArgsLen)
+	}
+	if len(raw) != headerSize+int(header.ArgsLen) {
+		return nil, fmt.Errorf("invalid exec proc ringbuf record size: got %d want %d", len(raw), headerSize+int(header.ArgsLen))
+	}
+	return &parsedExecEvent{
+		proc: header,
+		args: decodeExecArgsBuffer(raw[headerSize:]),
+	}, nil
+}
+
+func buildExecEvent(event *parsedExecEvent) *ExecEvent {
+	pid := event.proc.Pid
+	filename := tool.CharsToString(event.proc.Filename[:])
+	taskComm := tool.CharsToString(event.proc.Comm[:])
+	args := event.args
+	argsTrunc := event.proc.ArgsTruncated != 0
+	if argsTrunc || args == "" {
+		if procArgs, ok := readProcessArgs(pid); ok {
+			args = procArgs
+			argsTrunc = false
+		}
 	}
 	if args == "" {
 		args = filename
@@ -222,12 +258,12 @@ func buildExecEvent(event *execProc) *ExecEvent {
 	if comm == "" {
 		comm = taskComm
 	}
-	execID, parentExecID := buildExecIDs(pid, event.Ppid, event.StartTimeNs, event.ParentStartTimeNs)
+	execID, parentExecID := buildExecIDs(pid, event.proc.Ppid, event.proc.StartTimeNs, event.proc.ParentStartTimeNs)
 
 	return &ExecEvent{
-		Timestamp: parseElapsedToTimestamp(event.TimestampNs),
+		Timestamp: parseElapsedToTimestamp(event.proc.TimestampNs),
 		Pid:       pid,
-		PPid:      event.Ppid,
+		PPid:      event.proc.Ppid,
 		ExecID:    execID,
 		PExecID:   parentExecID,
 		Cwd:       readProcessCWD(pid),
@@ -271,7 +307,6 @@ func (pep *ProcExecProbe) Start(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	wg.Go(func() {
-		var event execProc
 		var record ringbuf.Record
 		for {
 			if err := pep.rbProc.ReadInto(&record); err != nil {
@@ -282,34 +317,35 @@ func (pep *ProcExecProbe) Start(ctx context.Context) {
 				log.Warn().Err(err).Msg("failed to read from exec proc ringbuf")
 				continue
 			}
-			if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
+			event, err := parseExecRecord(record.RawSample)
+			if err != nil {
 				log.Error().Err(err).Msg("parsing exec proc ringbuf record")
 				continue
 			}
 			if log.Debug().Enabled() {
 				log.Debug().
-					Int32("pid", event.Pid).
-					Int32("old_pid", event.OldPid).
-					Bool("args_truncated", event.ArgsTruncated != 0).
-					Str("comm", tool.CharsToString(event.Comm[:])).
-					Str("filepath", tool.CharsToString(event.Filename[:])).
-					Str("args", tool.CharsToString(event.Args[:])).
+					Int32("pid", event.proc.Pid).
+					Int32("ppid", event.proc.Ppid).
+					Bool("args_truncated", event.proc.ArgsTruncated != 0).
+					Str("comm", tool.CharsToString(event.proc.Comm[:])).
+					Str("filepath", tool.CharsToString(event.proc.Filename[:])).
+					Str("args", event.args).
 					Msg("proc exec event")
 			}
 			select {
-			case pep.ProcChan <- event.Pid:
+			case pep.ProcChan <- event.proc.Pid:
 			case <-ctx.Done():
 				return
 			default:
-				log.Warn().Int32("pid", event.Pid).Msg("failed to push to proc exec channel")
+				log.Warn().Int32("pid", event.proc.Pid).Msg("failed to push to proc exec channel")
 			}
-			execEvent := buildExecEvent(&event)
+			execEvent := buildExecEvent(event)
 			select {
 			case pep.ExecChan <- execEvent:
 			case <-ctx.Done():
 				return
 			default:
-				log.Warn().Int32("pid", event.Pid).Msg("failed to push to exec event channel")
+				log.Warn().Int32("pid", event.proc.Pid).Msg("failed to push to exec event channel")
 			}
 		}
 	})

@@ -40,7 +40,7 @@ type SSLProbe struct {
 	exporter  *export.Exporter
 }
 
-func NewSSLProbe(sslPath, rustlsPath *string, exporter *export.Exporter) *SSLProbe {
+func NewSSLProbe(procProbe *execve.ProcExecProbe, sslPath, rustlsPath *string, exporter *export.Exporter) *SSLProbe {
 	probes := make(map[proc.LibKey]TLSProbe)
 
 	// OpenSSL
@@ -88,12 +88,6 @@ func NewSSLProbe(sslPath, rustlsPath *string, exporter *export.Exporter) *SSLPro
 			log.Panic().Err(err).Str("path", *rustlsPath).Msg("failed to find rustls lib key")
 		}
 		probes[*key] = rustls
-	}
-
-	// dynamic probe
-	procProbe, err := execve.NewProcExecProbe()
-	if err != nil {
-		log.Panic().Err(err).Msg("failed to create proc exec probe for dynamic SSL library detection")
 	}
 
 	return &SSLProbe{
@@ -168,7 +162,6 @@ func (sp *SSLProbe) Start(ctx context.Context) {
 	}
 
 	// dynamic probe
-	go sp.procProbe.Start(ctx)
 	procChan := sp.procProbe.ProcChan
 	dynLibChan := sp.procProbe.DynLibChan
 Loop:
@@ -242,7 +235,6 @@ Loop:
 }
 
 func (sp *SSLProbe) Close() {
-	sp.procProbe.Close()
 	sp.mu.Lock()
 	for key, probe := range sp.probes {
 		if err := probe.Close(); err != nil {

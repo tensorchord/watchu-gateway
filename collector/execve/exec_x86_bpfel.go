@@ -21,6 +21,12 @@ type execDynlib struct {
 	Filename [256]int8
 }
 
+type execExecValue struct {
+	_    structs.HostLayout
+	Proc execProc
+	Args [2048]int8
+}
+
 type execOpenKey struct {
 	_       structs.HostLayout
 	Fd      int64
@@ -33,11 +39,18 @@ type execOpenValue struct {
 }
 
 type execProc struct {
-	_        structs.HostLayout
-	Pid      int32
-	OldPid   int32
-	Comm     [16]int8
-	Filename [256]int8
+	_                 structs.HostLayout
+	TimestampNs       uint64
+	StartTimeNs       uint64
+	ParentStartTimeNs uint64
+	Pid               int32
+	Ppid              int32
+	OldPid            int32
+	Comm              [16]int8
+	Filename          [256]int8
+	ArgsLen           uint32
+	ArgsTruncated     uint8
+	_                 [7]byte
 }
 
 // loadExec returns the embedded CollectionSpec for exec.
@@ -96,6 +109,7 @@ type execMapSpecs struct {
 	FakeDynlibMap *ebpf.MapSpec `ebpf:"_fake_dynlib_map"`
 	FakeProcMap   *ebpf.MapSpec `ebpf:"_fake_proc_map"`
 	DynlibEvents  *ebpf.MapSpec `ebpf:"dynlib_events"`
+	ExecHeap      *ebpf.MapSpec `ebpf:"exec_heap"`
 	InflightMmap  *ebpf.MapSpec `ebpf:"inflight_mmap"`
 	InflightOpen  *ebpf.MapSpec `ebpf:"inflight_open"`
 	ProcEvents    *ebpf.MapSpec `ebpf:"proc_events"`
@@ -130,6 +144,7 @@ type execMaps struct {
 	FakeDynlibMap *ebpf.Map `ebpf:"_fake_dynlib_map"`
 	FakeProcMap   *ebpf.Map `ebpf:"_fake_proc_map"`
 	DynlibEvents  *ebpf.Map `ebpf:"dynlib_events"`
+	ExecHeap      *ebpf.Map `ebpf:"exec_heap"`
 	InflightMmap  *ebpf.Map `ebpf:"inflight_mmap"`
 	InflightOpen  *ebpf.Map `ebpf:"inflight_open"`
 	ProcEvents    *ebpf.Map `ebpf:"proc_events"`
@@ -140,6 +155,7 @@ func (m *execMaps) Close() error {
 		m.FakeDynlibMap,
 		m.FakeProcMap,
 		m.DynlibEvents,
+		m.ExecHeap,
 		m.InflightMmap,
 		m.InflightOpen,
 		m.ProcEvents,

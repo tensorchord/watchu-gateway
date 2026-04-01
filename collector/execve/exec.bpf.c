@@ -40,37 +40,6 @@ struct sched_process_ctx {
     s32 old_pid;
 };
 
-// ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_execve/format
-struct execve_ctx {
-    // pad the first 8 bytes
-    long common;
-    long __syscall_nr;
-    u64 filename;
-    u64 argv;
-    u64 envp;
-};
-
-// ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_execveat/format
-struct execveat_ctx {
-    // pad the first 8 bytes
-    long common;
-    long __syscall_nr;
-    long _dfd;
-    u64 filename;
-    u64 argv;
-    u64 envp;
-    long _flags;
-};
-
-// ref: /sys/kernel/debug/tracing/events/syscalls/sys_exit_execve/format
-// ref: /sys/kernel/debug/tracing/events/syscalls/sys_exit_execveat/format
-struct execve_exit_ctx {
-    // pad the first 8 bytes
-    long common;
-    long __syscall_nr;
-    long ret;
-};
-
 // ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_openat/format
 // ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_openat2/format
 struct openat_ctx {
@@ -150,11 +119,11 @@ struct exec_value {
 };
 
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, MAX_ENTRIES);
-    __type(key, u64);
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
     __type(value, struct exec_value);
-} inflight_exec SEC(".maps");
+} exec_heap SEC(".maps");
 
 // Technically, we should `delete` on both `sys_enter_close` & `sched_process_exit`.
 // However, we don't have the `fd` info in `sched_process_exit`. Thus we use the LRU
@@ -199,53 +168,12 @@ struct {
     __uint(max_entries, RING_BUFFER_SIZE);
 } dynlib_events SEC(".maps");
 
-static const struct exec_value empty_exec_value = {};
-
 static __always_inline u64 read_task_start_time(struct task_struct *task) {
     if (task == NULL)
         return 0;
     if (bpf_core_field_exists(task->start_boottime))
         return BPF_CORE_READ(task, start_boottime);
     return BPF_CORE_READ(task, start_time);
-}
-
-SEC("tracepoint/sched/sched_process_exec")
-int tracepoint_sched_process_exec(struct sched_process_ctx *ctx) {
-    if (ctx->pid == 0)
-        return 0;
-
-    u64 pid_tgid             = bpf_get_current_pid_tgid();
-    struct exec_value *value = bpf_map_lookup_elem(&inflight_exec, &pid_tgid);
-    if (value == NULL)
-        return 0;
-
-    u32 args_len = value->proc.args_len;
-    if (args_len > MAX_ARGS_LEN) {
-        bpf_map_delete_elem(&inflight_exec, &pid_tgid);
-        return 0;
-    }
-    u32 evt_len = sizeof(value->proc) + args_len;
-
-    struct task_struct *task        = bpf_get_current_task_btf();
-    struct task_struct *parent_task = BPF_CORE_READ(task, real_parent);
-
-    value->proc.timestamp_ns         = bpf_ktime_get_ns();
-    value->proc.start_time_ns        = read_task_start_time(task);
-    value->proc.parent_start_time_ns = read_task_start_time(parent_task);
-    value->proc.pid                  = ctx->pid;
-    value->proc.ppid                 = parent_task ? BPF_CORE_READ(parent_task, tgid) : 0;
-    value->proc.old_pid              = ctx->old_pid;
-    bpf_get_current_comm(&value->proc.comm, TASK_COMM_LEN);
-
-    u32 length = ctx->filename >> 16;
-    if (length > MAX_FILENAME_LEN)
-        length = MAX_FILENAME_LEN;
-    char *filename_ptr = (char *)((void *)ctx + (ctx->filename & 0xFFFF));
-    bpf_probe_read_str(&value->proc.filename, length, filename_ptr);
-
-    bpf_ringbuf_output(&proc_events, value, evt_len, 0);
-    bpf_map_delete_elem(&inflight_exec, &pid_tgid);
-    return 0;
 }
 
 static __always_inline void read_exec_args(struct exec_value *value) {
@@ -278,48 +206,43 @@ static __always_inline void read_exec_args(struct exec_value *value) {
     value->proc.args_len = args_len;
 }
 
-static __always_inline int capture_exec_enter(u64 argv_ptr) {
-    if (argv_ptr == 0)
+SEC("tracepoint/sched/sched_process_exec")
+int tracepoint_sched_process_exec(struct sched_process_ctx *ctx) {
+    if (ctx->pid == 0)
         return 0;
 
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    bpf_map_update_elem(&inflight_exec, &pid_tgid, &empty_exec_value, BPF_ANY);
-
-    struct exec_value *value = bpf_map_lookup_elem(&inflight_exec, &pid_tgid);
+    u32 zero                 = 0;
+    struct exec_value *value = bpf_map_lookup_elem(&exec_heap, &zero);
     if (value == NULL)
         return 0;
 
+    struct task_struct *task        = bpf_get_current_task_btf();
+    struct task_struct *parent_task = BPF_CORE_READ(task, real_parent);
+
+    value->proc.args_len             = 0;
+    value->proc.args_truncated       = 0;
+    value->proc.timestamp_ns         = bpf_ktime_get_ns();
+    value->proc.start_time_ns        = read_task_start_time(task);
+    value->proc.parent_start_time_ns = read_task_start_time(parent_task);
+    value->proc.pid                  = ctx->pid;
+    value->proc.ppid                 = parent_task ? BPF_CORE_READ(parent_task, tgid) : 0;
+    value->proc.old_pid              = ctx->old_pid;
+    bpf_get_current_comm(&value->proc.comm, TASK_COMM_LEN);
+
+    u32 length = ctx->filename >> 16;
+    if (length > MAX_FILENAME_LEN)
+        length = MAX_FILENAME_LEN;
+    char *filename_ptr = (char *)((void *)ctx + (ctx->filename & 0xFFFF));
+    bpf_probe_read_str(&value->proc.filename, length, filename_ptr);
+
     read_exec_args(value);
-    return 0;
-}
 
-SEC("tracepoint/syscalls/sys_enter_execve")
-int tracepoint_sys_enter_execve(struct execve_ctx *ctx) {
-    return capture_exec_enter(ctx->argv);
-}
-
-SEC("tracepoint/syscalls/sys_enter_execveat")
-int tracepoint_sys_enter_execveat(struct execveat_ctx *ctx) {
-    return capture_exec_enter(ctx->argv);
-}
-
-static __always_inline int cleanup_failed_exec(struct execve_exit_ctx *ctx) {
-    if (ctx->ret >= 0)
+    u32 args_len = value->proc.args_len;
+    if (args_len > MAX_ARGS_LEN)
         return 0;
-
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    bpf_map_delete_elem(&inflight_exec, &pid_tgid);
+    u32 evt_len = sizeof(value->proc) + args_len;
+    bpf_ringbuf_output(&proc_events, value, evt_len, 0);
     return 0;
-}
-
-SEC("tracepoint/syscalls/sys_exit_execve")
-int tracepoint_sys_exit_execve(struct execve_exit_ctx *ctx) {
-    return cleanup_failed_exec(ctx);
-}
-
-SEC("tracepoint/syscalls/sys_exit_execveat")
-int tracepoint_sys_exit_execveat(struct execve_exit_ctx *ctx) {
-    return cleanup_failed_exec(ctx);
 }
 
 static __always_inline int is_libssl(const char *name) {

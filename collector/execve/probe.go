@@ -35,7 +35,6 @@ const (
 
 var (
 	nodeName = export.GetHostName()
-	bootTime = export.GetBootTime()
 )
 
 type DynLib struct {
@@ -95,10 +94,6 @@ func attachExecProbes(objs execObjects) ([]link.Link, error) {
 		prog  *ebpf.Program
 	}{
 		{"sched", "sched_process_exec", objs.TracepointSchedProcessExec},
-		{"syscalls", "sys_enter_execve", objs.TracepointSysEnterExecve},
-		{"syscalls", "sys_enter_execveat", objs.TracepointSysEnterExecveat},
-		{"syscalls", "sys_exit_execve", objs.TracepointSysExitExecve},
-		{"syscalls", "sys_exit_execveat", objs.TracepointSysExitExecveat},
 		{"syscalls", "sys_enter_openat", objs.TracepointSysEnterOpenat},
 		{"syscalls", "sys_enter_openat2", objs.TracepointSysEnterOpenat},
 		{"syscalls", "sys_exit_openat", objs.TracepointSysExitOpenat},
@@ -163,7 +158,7 @@ func NewProcExecProbe() (*ProcExecProbe, error) {
 }
 
 func parseElapsedToTimestamp(elapsed uint64) time.Time {
-	return bootTime.Add(time.Duration(elapsed))
+	return export.BootTime.Add(time.Duration(elapsed))
 }
 
 func readProcessCWD(pid int32) string {

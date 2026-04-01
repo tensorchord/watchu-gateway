@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	BootTime          = getBootTime()
+	bootTime          = GetBootTime()
 	containerResolver = container.NewContainerResolver()
 )
 
@@ -42,7 +42,7 @@ func extractGid(raw uint64) int32 {
 	return int32(raw >> 32)
 }
 
-func getBootTime() *time.Time {
+func GetBootTime() *time.Time {
 	var info syscall.Sysinfo_t
 	if err := syscall.Sysinfo(&info); err != nil {
 		log.Fatal().Err(err).Msg("failed to get sysinfo")
@@ -53,7 +53,7 @@ func getBootTime() *time.Time {
 }
 
 func parseElapsedToTimestamp(elapsed uint64) time.Time {
-	return BootTime.Add(time.Duration(elapsed) * time.Nanosecond)
+	return bootTime.Add(time.Duration(elapsed) * time.Nanosecond)
 }
 
 type RecordExec struct {

@@ -48,7 +48,7 @@ func NewGatewaySink(ctx context.Context, baseURL string) (*GatewaySink, error) {
 		return nil, err
 	}
 	log.Info().Str("target", baseURL).Msg("exporting events to gateway")
-	log.Debug().Str("boot_time", BootTime.String()).Str("target", baseURL).Msg("init gateway sink")
+	log.Debug().Str("boot_time", bootTime.String()).Str("target", baseURL).Msg("init gateway sink")
 	return &GatewaySink{
 		baseURL:   baseURL,
 		client:    client,

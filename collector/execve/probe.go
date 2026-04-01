@@ -35,6 +35,7 @@ const (
 
 var (
 	nodeName = export.GetHostName()
+	bootTime = export.GetBootTime()
 )
 
 type DynLib struct {
@@ -158,14 +159,14 @@ func NewProcExecProbe() (*ProcExecProbe, error) {
 }
 
 func parseElapsedToTimestamp(elapsed uint64) time.Time {
-	return export.BootTime.Add(time.Duration(elapsed))
+	return bootTime.Add(time.Duration(elapsed))
 }
 
 func readProcessCWD(pid int32) string {
 	cwd, err := os.Readlink(fmt.Sprintf(procCWDPath, pid))
 	if err != nil {
 		log.Debug().Err(err).Int32("pid", pid).Msg("failed to read proc cwd")
-		return "/"
+		return ""
 	}
 	return cwd
 }

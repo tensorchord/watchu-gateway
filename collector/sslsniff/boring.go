@@ -29,7 +29,6 @@ var (
 
 	// errors
 	errUprobeNotFound = errors.New("cannot find the pattern")
-	errWrongAddrDiff  = errors.New("wrong address diff")
 )
 
 type BoringSSLProbe struct {

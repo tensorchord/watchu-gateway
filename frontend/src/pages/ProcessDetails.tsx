@@ -220,7 +220,7 @@ export default function ProcessDetails() {
         <Flex vertical gap={24}>
             <Flex align="center" justify="space-between">
                 <Space>
-                    <ArrowLeftOutlined onClick={() => navigate(-1)} style={{ cursor: "pointer" }} />
+                    <ArrowLeftOutlined onClick={() => { void navigate(-1); }} style={{ cursor: "pointer" }} />
                     <Text type="secondary">Back</Text>
                 </Space>
             </Flex>

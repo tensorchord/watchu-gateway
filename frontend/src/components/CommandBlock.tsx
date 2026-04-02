@@ -1,13 +1,14 @@
 import { CheckOutlined, CopyOutlined } from "@ant-design/icons";
 import { Button, Tooltip } from "antd";
 import { useState } from "react";
+import type React from "react";
 
 interface CommandBlockProps {
     text: string | null;
     size?: "small" | "default";
 }
 
-export default function CommandBlock({ text, size = "default" }: CommandBlockProps): JSX.Element | null {
+export default function CommandBlock({ text, size = "default" }: CommandBlockProps): React.ReactElement | null {
     const [copied, setCopied] = useState(false);
 
     if (!text) {

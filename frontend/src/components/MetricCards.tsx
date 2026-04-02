@@ -2,6 +2,7 @@ import { ExclamationCircleFilled, InfoCircleFilled, WarningFilled } from "@ant-d
 import { Button, Card, Collapse, Empty, Flex, Select, Skeleton, Space, Tag, Typography } from "antd";
 import type { CollapseProps } from "antd";
 import { useMemo, useState } from "react";
+import type React from "react";
 
 import type { HeuristicAlertResponse } from "../types";
 import { buildAlertInfo, type AlertInfo, type AlertSeverityTag, formatExecId } from "../utils/alerts";
@@ -35,7 +36,7 @@ const SEVERITY_META: Record<AlertSeverityTag, {
     accent: string;
     iconBackground: string;
     text: string;
-    icon: JSX.Element;
+    icon: React.JSX.Element;
 }> = {
     error: {
         label: "High Risk",

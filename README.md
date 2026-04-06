@@ -28,7 +28,7 @@ sudo ./collector/bin/app
 If you want to build the collector docker image and run it as a container:
 
 ```bash
-docker buildx build -t watchu-collector --load .
+docker buildx build -t watchu-collector -f collector/Dockerfile --load collector
 docker run --rm \
     --cap-add=CAP_SYS_ADMIN \
     --cap-add=CAP_SYS_PTRACE \

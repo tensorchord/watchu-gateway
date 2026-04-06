@@ -1,7 +1,6 @@
 package tool
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -11,14 +10,14 @@ import (
 )
 
 func CharsToString(arr []int8) string {
-	b := make([]byte, len(arr))
-	for i, v := range arr {
+	b := make([]byte, 0, len(arr))
+	for _, v := range arr {
 		if v == 0 {
 			break
 		}
-		b[i] = byte(v)
+		b = append(b, byte(v))
 	}
-	return string(bytes.TrimRight(b, "\x00"))
+	return string(b)
 }
 
 func ReadCloserToBytes(rc io.ReadCloser) ([]byte, error) {

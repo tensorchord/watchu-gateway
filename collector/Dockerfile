@@ -7,4 +7,4 @@ RUN make build
 
 FROM gcr.io/distroless/static-debian12
 COPY --from=builder /workspace/bin/app /usr/local/bin/collector
-CMD ["/usr/local/bin/collector"]
+ENTRYPOINT ["/usr/local/bin/collector"]

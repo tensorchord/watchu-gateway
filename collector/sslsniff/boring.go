@@ -78,12 +78,8 @@ func (bp *BoringSSLProbe) Close() error {
 
 func addBoringProbe(path string) ([]link.Link, *boringObjects, error) {
 	objs := boringObjects{}
-	spec, err := ebpf.LoadCollectionSpec(boringSpecPath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load eBPF BoringSSL spec: %w", err)
-	}
-	if err := spec.LoadAndAssign(&objs, nil); err != nil {
-		return nil, nil, fmt.Errorf("failed to load and assign eBPF objects: %w", err)
+	if err := loadBoringObjects(&objs, nil); err != nil {
+		return nil, nil, fmt.Errorf("failed to load/assign eBPF BoringSSL objects: %w", err)
 	}
 	exec, err := link.OpenExecutable(path)
 	if err != nil {

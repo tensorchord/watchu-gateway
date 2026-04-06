@@ -25,6 +25,21 @@ sudo ./collector/bin/app -tetragon-path unix:///var/run/tetragon/tetragon.sock -
 sudo ./collector/bin/app
 ```
 
+If you want to build the collector docker image and run it as a container:
+
+```bash
+docker buildx build -t watchu-collector --load .
+docker run --rm \
+    --cap-add=CAP_SYS_ADMIN \
+    --cap-add=CAP_SYS_PTRACE \
+    --cap-add=CAP_BPF \
+    --cap-add=CAP_PERFMON \
+    -v /sys/kernel/debug:/sys/kernel/debug:ro \
+    --pid=host \
+    --security-opt apparmor=unconfined \
+    watchu-collector
+```
+
 ## Gateway & Frontend Usage
 
 ```bash

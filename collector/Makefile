@@ -10,7 +10,7 @@ gen_ebpf:
 	@go generate ./...
 
 build: gen_ebpf
-	@go build -o bin/app cmd/main.go
+	@CGO_ENABLED=0 go build -o bin/app cmd/main.go
 
 format:
 	@go fmt ./...

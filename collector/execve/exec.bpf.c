@@ -212,6 +212,7 @@ int tracepoint_sched_process_exec(struct sched_process_ctx *ctx) {
         return 0;
 
     u32 zero                 = 0;
+    // using this trick needs to care about the stale data
     struct exec_value *value = bpf_map_lookup_elem(&exec_heap, &zero);
     if (value == NULL)
         return 0;

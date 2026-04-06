@@ -13,6 +13,9 @@ import (
 func CharsToString(arr []int8) string {
 	b := make([]byte, len(arr))
 	for i, v := range arr {
+		if v == 0 {
+			break
+		}
 		b[i] = byte(v)
 	}
 	return string(bytes.TrimRight(b, "\x00"))

@@ -90,7 +90,7 @@ func findLibOpenSSLPath() (string, error) {
 func addSSLProbe(sslPath string) ([]link.Link, *sslObjects, error) {
 	sslObjs := sslObjects{}
 	if err := loadSslObjects(&sslObjs, nil); err != nil {
-		return nil, nil, fmt.Errorf("failed to load eBPF spec: %w", err)
+		return nil, nil, fmt.Errorf("failed to load/assign eBPF objects: %w", err)
 	}
 
 	exec, err := link.OpenExecutable(sslPath)

@@ -68,12 +68,8 @@ func addRustlsProbe(rustlsPath *string) ([]link.Link, *rustlsObjects, error) {
 	}
 	logger.Info().Msg("using rustls")
 	obj := rustlsObjects{}
-	rustSpec, err := ebpf.LoadCollectionSpec(rustlsSpecPath)
-	if err != nil {
+	if err := loadRustlsObjects(&obj, nil); err != nil {
 		return nil, nil, fmt.Errorf("failed to load rustls eBPF spec: %w", err)
-	}
-	if err := rustSpec.LoadAndAssign(&obj, nil); err != nil {
-		return nil, nil, fmt.Errorf("failed to load and assign rustls eBPF objects: %w", err)
 	}
 	exec, err := link.OpenExecutable(*rustlsPath)
 	if err != nil {

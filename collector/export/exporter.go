@@ -16,6 +16,7 @@ const (
 	pathResponse   = "http_response"
 	pathStdIO      = "mcp_stdio"
 	pathPostgres   = "pg_event"
+	pathFileOp     = "file_op"
 	pathAgentEvent = "agent_event"
 
 	flushInterval     = time.Second
@@ -95,6 +96,10 @@ func (e *Exporter) IngestStdIOEvent(ctx context.Context, channel <-chan *RawStdI
 
 func (e *Exporter) IngestPostgresEvent(ctx context.Context, channel <-chan *RawPostgres) {
 	e.IngestEvents(ctx, pathPostgres, consumeFromChannel(ctx, e.Host, channel))
+}
+
+func (e *Exporter) IngestFileOpEvent(ctx context.Context, channel <-chan *RawFileOp) {
+	e.IngestEvents(ctx, pathFileOp, consumeFromChannel(ctx, e.Host, channel))
 }
 
 func (e *Exporter) IngestAgentEvent(ctx context.Context, channel <-chan *RecordAgentEvent) {

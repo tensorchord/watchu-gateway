@@ -10,6 +10,7 @@ import (
 
 	"github.com/tensorchord/watchu/collector/execve"
 	"github.com/tensorchord/watchu/collector/export"
+	"github.com/tensorchord/watchu/collector/fileop"
 	"github.com/tensorchord/watchu/collector/internal/logger"
 	"github.com/tensorchord/watchu/collector/internal/tool"
 	"github.com/tensorchord/watchu/collector/otelrecv"
@@ -68,6 +69,13 @@ func main() {
 	pgProbe := postgres.NewPostgresProbe(exporter)
 	defer pgProbe.Close()
 	go pgProbe.Start(ctx)
+
+	fileOpProbe, err := fileop.NewFileOpProbe(exporter)
+	if err != nil {
+		log.Panic().Err(err).Msg("failed to initialize fileop probe")
+	}
+	defer fileOpProbe.Close()
+	go fileOpProbe.Start(ctx)
 
 	// OTEL receiver for AI tool telemetry (alternative to SSL interception)
 	var otelReceiver *otelrecv.OTELReceiver

@@ -85,7 +85,7 @@ export default function ProcessIndex() {
                 onSelectRoot={(root) => {
                     const pidCandidate = root.root_pid ?? root.pid;
                     if (pidCandidate != null) {
-                        navigate(`/processes/${pidCandidate}`);
+                        void navigate(`/processes/${pidCandidate}`);
                     }
                 }}
             />

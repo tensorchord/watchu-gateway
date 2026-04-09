@@ -22,12 +22,6 @@ import (
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 boring boring.bpf.c -- -I../headers
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux -target amd64 rustls rustls.bpf.c -- -I../headers
 
-const (
-	sslSpecPath    = "sslsniff/ssl_x86_bpfel.o"
-	boringSpecPath = "sslsniff/boring_x86_bpfel.o"
-	rustlsSpecPath = "sslsniff/rustls_x86_bpfel.o"
-)
-
 type TLSProbe interface {
 	ReadBuffer(*ringbuf.Record) error
 	Close() error

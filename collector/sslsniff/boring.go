@@ -13,8 +13,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const addressDiff = 3232
-
 var (
 	// The current bun BoringSSL SSL_read/SSL_write function bytes.
 	// This may change in the future if bun updates the BoringSSL code.
@@ -31,7 +29,6 @@ var (
 
 	// errors
 	errUprobeNotFound = errors.New("cannot find the pattern")
-	errWrongAddrDiff  = errors.New("wrong address diff")
 )
 
 type BoringSSLProbe struct {
@@ -81,12 +78,8 @@ func (bp *BoringSSLProbe) Close() error {
 
 func addBoringProbe(path string) ([]link.Link, *boringObjects, error) {
 	objs := boringObjects{}
-	spec, err := ebpf.LoadCollectionSpec(boringSpecPath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load eBPF BoringSSL spec: %w", err)
-	}
-	if err := spec.LoadAndAssign(&objs, nil); err != nil {
-		return nil, nil, fmt.Errorf("failed to load and assign eBPF objects: %w", err)
+	if err := loadBoringObjects(&objs, nil); err != nil {
+		return nil, nil, fmt.Errorf("failed to load/assign eBPF BoringSSL objects: %w", err)
 	}
 	exec, err := link.OpenExecutable(path)
 	if err != nil {
@@ -162,9 +155,6 @@ func searchUprobeAddresses(path string) (read int, write int, err error) {
 	write = bytes.Index(buf, BoringSSLWritePattern)
 	if read < 0 || write < 0 {
 		err = fmt.Errorf("failed to find read(%d) write(%d): %w", read, write, errUprobeNotFound)
-	}
-	if write >= 0 && read >= 0 && write-read != addressDiff {
-		err = fmt.Errorf("failed to validate %d != %d: %w", write-read, addressDiff, errWrongAddrDiff)
 	}
 	return
 }

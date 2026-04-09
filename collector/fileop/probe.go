@@ -45,9 +45,10 @@ type FileOpProbe struct {
 	objs     *fileopObjects
 	links    []link.Link
 	exporter *export.Exporter
+	policy   *Policy
 }
 
-func NewFileOpProbe(exporter *export.Exporter) (*FileOpProbe, error) {
+func NewFileOpProbe(exporter *export.Exporter, policy *Policy) (*FileOpProbe, error) {
 	objs := fileopObjects{}
 	if err := loadFileopObjects(&objs, nil); err != nil {
 		return nil, fmt.Errorf("failed to load fileop objects: %w", err)
@@ -63,6 +64,7 @@ func NewFileOpProbe(exporter *export.Exporter) (*FileOpProbe, error) {
 		objs:     &objs,
 		links:    links,
 		exporter: exporter,
+		policy:   policy,
 	}
 
 	probe.rb, err = ringbuf.NewReader(objs.Events)
@@ -132,7 +134,7 @@ func (fp *FileOpProbe) Start(ctx context.Context) {
 		}
 
 		raw := toRawFileOp(&event)
-		if shouldDropFileOp(raw) {
+		if raw == nil || !fp.policy.Matches(raw) {
 			continue
 		}
 

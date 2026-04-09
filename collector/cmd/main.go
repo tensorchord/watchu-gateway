@@ -26,6 +26,7 @@ func main() {
 	rustlsPath := flag.String("rustls-path", "", "extra user binary path to attach rustls uprobes (optional)")
 	exportTarget := flag.String("export", "", "event export target: empty=discard, http[s]://...=gateway, file://...=local jsonl")
 	otelAddr := flag.String("otel-addr", "", "OTLP gRPC receiver address, e.g., ':4317' (optional). Enable to capture AI tool telemetry")
+	fileOpPolicyPath := flag.String("fileop-policy", "", "path to fileop match policy config (.toml or .json); empty=built-in")
 	flag.Parse()
 
 	logger.SetUpLogger(*debug)
@@ -70,7 +71,12 @@ func main() {
 	defer pgProbe.Close()
 	go pgProbe.Start(ctx)
 
-	fileOpProbe, err := fileop.NewFileOpProbe(exporter)
+	fileOpPolicy, err := fileop.LoadPolicy(*fileOpPolicyPath)
+	if err != nil {
+		log.Panic().Err(err).Str("path", *fileOpPolicyPath).Msg("failed to load fileop policy")
+	}
+
+	fileOpProbe, err := fileop.NewFileOpProbe(exporter, fileOpPolicy)
 	if err != nil {
 		log.Panic().Err(err).Msg("failed to initialize fileop probe")
 	}

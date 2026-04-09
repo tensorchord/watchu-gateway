@@ -7,20 +7,11 @@
 
 #define TASK_COMM_LEN 16
 #define MAX_PATH_SIZE 256
+#define MAX_PREFIX_LEN 24
 #define MAX_ENTRIES 16384
 #define RING_BUFFER_SIZE (8 * 1024 * 1024)
 #define AT_FDCWD -100
-#define O_ACCMODE 00000003
-#define O_RDONLY 00000000
-#define O_WRONLY 00000001
-#define O_RDWR 00000002
-#define O_APPEND 00002000
-#define O_CREAT 00000100
-#define O_TRUNC 00001000
 
-#define MAY_WRITE 0x2
-#define MAY_READ 0x4
-#define PROT_READ 0x1
 #define PROT_WRITE 0x2
 
 char __license[] SEC("license") = "Dual MIT/GPL";
@@ -198,19 +189,7 @@ struct {
 
 static __always_inline int str_has_prefix(const char *s, const char *prefix, int prefix_len) {
 #pragma unroll
-    for (int i = 0; i < 10; i++) {
-        if (i >= prefix_len) {
-            break;
-        }
-        if (s[i] != prefix[i]) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-static __always_inline int str_has_any_prefix(const char *s, const char *prefix, int prefix_len) {
-    for (int i = 0; i < MAX_PATH_SIZE; i++) {
+    for (int i = 0; i < MAX_PREFIX_LEN; i++) {
         if (i >= prefix_len) {
             return 1;
         }
@@ -262,28 +241,35 @@ static __always_inline int is_noise_path(const char *path) {
 }
 
 static __always_inline int path_is_runtime_overlay_noise(const char *path) {
-    static const char buildkit_overlay_prefix[]       = "/var/lib/buildkit/runc-overlayfs/";
-    static const char docker_overlay_prefix[]         = "/var/lib/docker/overlay2/";
-    static const char podman_overlay_prefix[]         = "/var/lib/containers/storage/overlay/";
-    static const char containerd_overlay_prefix[]     = "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/";
-    static const char containerd_overlay_prefix_alt[] = "/var/lib/containerd/io.containerd.snapshotter.v2.overlayfs/";
+    static const char var_lib_prefix[]                = "/var/lib/";
+    static const char buildkit_overlay_prefix[]       = "buildkit/runc-overlayfs/";
+    static const char docker_overlay_prefix[]         = "docker/overlay2/";
+    static const char podman_overlay_prefix[]         = "containers/storage/overlay/";
+    static const char containerd_overlay_prefix[]     = "containerd/io.containerd.snapshotter.v1.overlayfs/";
+    static const char containerd_overlay_prefix_alt[] = "containerd/io.containerd.snapshotter.v2.overlayfs/";
+    const char *subpath;
 
     if (!path) {
         return 0;
     }
-    if (str_has_any_prefix(path, buildkit_overlay_prefix, sizeof(buildkit_overlay_prefix) - 1)) {
+    if (!str_has_prefix(path, var_lib_prefix, sizeof(var_lib_prefix) - 1)) {
+        return 0;
+    }
+
+    subpath = path + sizeof(var_lib_prefix) - 1;
+    if (str_has_prefix(subpath, buildkit_overlay_prefix, sizeof(buildkit_overlay_prefix) - 1)) {
         return 1;
     }
-    if (str_has_any_prefix(path, docker_overlay_prefix, sizeof(docker_overlay_prefix) - 1)) {
+    if (str_has_prefix(subpath, docker_overlay_prefix, sizeof(docker_overlay_prefix) - 1)) {
         return 1;
     }
-    if (str_has_any_prefix(path, podman_overlay_prefix, sizeof(podman_overlay_prefix) - 1)) {
+    if (str_has_prefix(subpath, podman_overlay_prefix, sizeof(podman_overlay_prefix) - 1)) {
         return 1;
     }
-    if (str_has_any_prefix(path, containerd_overlay_prefix, sizeof(containerd_overlay_prefix) - 1)) {
+    if (str_has_prefix(subpath, containerd_overlay_prefix, sizeof(containerd_overlay_prefix) - 1)) {
         return 1;
     }
-    if (str_has_any_prefix(path, containerd_overlay_prefix_alt, sizeof(containerd_overlay_prefix_alt) - 1)) {
+    if (str_has_prefix(subpath, containerd_overlay_prefix_alt, sizeof(containerd_overlay_prefix_alt) - 1)) {
         return 1;
     }
     return 0;
@@ -296,18 +282,16 @@ static __always_inline int path_is_systemd_private_tmp_noise(const char *path) {
     if (!path) {
         return 0;
     }
-    if (str_has_any_prefix(path, tmp_prefix, sizeof(tmp_prefix) - 1)) {
+    if (str_has_prefix(path, tmp_prefix, sizeof(tmp_prefix) - 1)) {
         return 1;
     }
-    if (str_has_any_prefix(path, var_tmp_prefix, sizeof(var_tmp_prefix) - 1)) {
+    if (str_has_prefix(path, var_tmp_prefix, sizeof(var_tmp_prefix) - 1)) {
         return 1;
     }
     return 0;
 }
 
-static __always_inline int should_drop_fd_event(const struct path_value *path, const char *comm, u8 op) {
-    (void)comm;
-
+static __always_inline int should_drop_fd_event(const struct path_value *path, u8 op) {
     if (!path) {
         return 1;
     }
@@ -422,10 +406,8 @@ static __always_inline void set_seen_flag(struct path_value *path, u8 flag) {
 
 static __always_inline int submit_fd_event(struct path_value *path, u8 op, u64 bytes) {
     struct event *evt;
-    char comm[TASK_COMM_LEN];
 
-    bpf_get_current_comm(&comm, sizeof(comm));
-    if (should_drop_fd_event(path, comm, op)) {
+    if (should_drop_fd_event(path, op)) {
         return 0;
     }
 
@@ -443,7 +425,7 @@ static __always_inline int submit_fd_event(struct path_value *path, u8 op, u64 b
     evt->path_off     = 0;
     evt->new_path_off = 0;
     evt->op           = op;
-    __builtin_memcpy(evt->comm, comm, sizeof(evt->comm));
+    bpf_get_current_comm(&evt->comm, sizeof(evt->comm));
     __builtin_memcpy(evt->path, path->path, sizeof(evt->path));
 
     bpf_ringbuf_submit(evt, 0);

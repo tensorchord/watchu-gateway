@@ -22,7 +22,6 @@ import (
 
 const (
 	fileOpOpen = iota + 1
-	fileOpRead
 	fileOpWrite
 	fileOpDelete
 	fileOpRename
@@ -192,8 +191,6 @@ func toRawFileOp(event *fileopEvent) *export.RawFileOp {
 		raw.Create = event.Flags&openCreate != 0
 		raw.Truncate = event.Flags&openTrunc != 0
 		raw.Append = event.Flags&openAppend != 0
-	case fileOpRead:
-		raw.Op = "read"
 	case fileOpWrite:
 		raw.Op = "write"
 	case fileOpDelete:

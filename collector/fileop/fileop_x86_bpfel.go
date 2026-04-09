@@ -37,7 +37,6 @@ type fileopFdKey struct {
 type fileopPathValue struct {
 	_          structs.HostLayout
 	Path       [256]int8
-	ReadBytes  uint64
 	WriteBytes uint64
 	OpenFlags  uint64
 	SeenFlags  uint8
@@ -96,7 +95,6 @@ type fileopProgramSpecs struct {
 	TraceExitOpenat2  *ebpf.ProgramSpec `ebpf:"trace_exit_openat2"`
 	TraceExitWrite    *ebpf.ProgramSpec `ebpf:"trace_exit_write"`
 	TraceMmap         *ebpf.ProgramSpec `ebpf:"trace_mmap"`
-	TraceRead         *ebpf.ProgramSpec `ebpf:"trace_read"`
 	TraceRename       *ebpf.ProgramSpec `ebpf:"trace_rename"`
 	TraceWrite        *ebpf.ProgramSpec `ebpf:"trace_write"`
 }
@@ -178,7 +176,6 @@ type fileopPrograms struct {
 	TraceExitOpenat2  *ebpf.Program `ebpf:"trace_exit_openat2"`
 	TraceExitWrite    *ebpf.Program `ebpf:"trace_exit_write"`
 	TraceMmap         *ebpf.Program `ebpf:"trace_mmap"`
-	TraceRead         *ebpf.Program `ebpf:"trace_read"`
 	TraceRename       *ebpf.Program `ebpf:"trace_rename"`
 	TraceWrite        *ebpf.Program `ebpf:"trace_write"`
 }
@@ -195,7 +192,6 @@ func (p *fileopPrograms) Close() error {
 		p.TraceExitOpenat2,
 		p.TraceExitWrite,
 		p.TraceMmap,
-		p.TraceRead,
 		p.TraceRename,
 		p.TraceWrite,
 	)

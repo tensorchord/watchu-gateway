@@ -18,19 +18,17 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 
 enum file_op_type {
     FILE_OP_OPEN       = 1,
-    FILE_OP_READ       = 2,
-    FILE_OP_WRITE      = 3,
-    FILE_OP_DELETE     = 4,
-    FILE_OP_RENAME     = 5,
-    FILE_OP_MMAP_READ  = 6,
-    FILE_OP_MMAP_WRITE = 7,
+    FILE_OP_WRITE      = 2,
+    FILE_OP_DELETE     = 3,
+    FILE_OP_RENAME     = 4,
+    FILE_OP_MMAP_READ  = 5,
+    FILE_OP_MMAP_WRITE = 6,
 };
 
 enum fd_seen_flag {
-    FD_SEEN_READ       = 1 << 0,
-    FD_SEEN_WRITE      = 1 << 1,
-    FD_SEEN_MMAP_READ  = 1 << 2,
-    FD_SEEN_MMAP_WRITE = 1 << 3,
+    FD_SEEN_WRITE      = 1 << 0,
+    FD_SEEN_MMAP_READ  = 1 << 1,
+    FD_SEEN_MMAP_WRITE = 1 << 2,
 };
 
 // ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_open/format
@@ -77,7 +75,10 @@ struct exit_ctx {
     long ret;
 };
 
-// ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_read/format
+// We intentionally do not probe sys_enter_read. Read syscalls are much noisier
+// than open, and the allowlist policy is more useful on open/mmap_read than on
+// per-read events. mmap_read stays enabled because mapped reads bypass the read
+// syscall path entirely.
 // ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_write/format
 struct enter_rw_ctx {
     long common;
@@ -133,7 +134,6 @@ struct fd_key {
 
 struct path_value {
     char path[MAX_PATH_SIZE];
-    u64 read_bytes;
     u64 write_bytes;
     u64 open_flags;
     u8 seen_flags;
@@ -491,7 +491,10 @@ static __noinline int submit_rename_paths(const char *old_path, long old_dirfd, 
     // The source path is the primary relevance gate for rename events. Keep the
     // destination path as auxiliary context, but avoid resolving it against
     // new_dirfd here because doing two full dirfd resolutions pushes this
-    // tracepoint over the verifier instruction budget on real kernels.
+    // tracepoint over the verifier instruction budget on real kernels. As a
+    // result, evt->new_path may remain relative for renameat2 calls that pass a
+    // relative destination path, and userspace policy matching should not treat
+    // it as guaranteed-absolute.
     if (new_path && copy_user_path(evt->new_path, sizeof(evt->new_path), new_path) != 0) {
         bpf_ringbuf_discard(evt, 0);
         return 0;
@@ -588,26 +591,6 @@ int trace_exit_openat2(struct exit_ctx *ctx) {
     return finalize_open_fd(ctx);
 }
 
-SEC("tracepoint/syscalls/sys_enter_read")
-int trace_read(struct enter_rw_ctx *ctx) {
-    struct fd_key key = {.tgid = (u32)(bpf_get_current_pid_tgid() >> 32), .fd = (u32)ctx->fd};
-    struct path_value *path;
-
-    // Keep byte accounting for potential future use, but don't export read syscall
-    // events by default. They are much noisier than open, while mmap reads still
-    // need explicit events because they bypass the read syscall path.
-    if (ctx->count == 0) {
-        return 0;
-    }
-    path = bpf_map_lookup_elem(&fd_paths, &key);
-    if (!path) {
-        return 0;
-    }
-    path->read_bytes += ctx->count;
-    set_seen_flag(path, FD_SEEN_READ);
-    return 0;
-}
-
 SEC("tracepoint/syscalls/sys_enter_write")
 int trace_write(struct enter_rw_ctx *ctx) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
@@ -677,9 +660,6 @@ int trace_close(struct enter_close_ctx *ctx) {
         return 0;
     }
 
-    if (has_seen_flag(path, FD_SEEN_READ)) {
-        submit_fd_event(path, FILE_OP_READ, path->read_bytes);
-    }
     if (has_seen_flag(path, FD_SEEN_WRITE)) {
         submit_fd_event(path, FILE_OP_WRITE, path->write_bytes);
     }

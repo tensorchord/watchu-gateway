@@ -75,6 +75,8 @@ func (p Policy) Matches(raw *export.RawFileOp) bool {
 	case "delete":
 		return p.matchesWritePath(raw.Path)
 	case "rename":
+		// raw.NewPath may be relative because the BPF probe only fully resolves
+		// the source path. Keep matching it as best-effort auxiliary context.
 		return p.matchesWritePath(raw.Path) || p.matchesWritePath(raw.NewPath)
 	default:
 		return false

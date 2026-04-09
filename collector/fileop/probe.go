@@ -89,6 +89,7 @@ func attachFileOpProbes(objs fileopObjects) ([]link.Link, error) {
 		{group: "syscalls", name: "sys_exit_openat", prog: objs.TraceExitOpenat},
 		{group: "syscalls", name: "sys_exit_openat2", prog: objs.TraceExitOpenat2},
 		{group: "syscalls", name: "sys_enter_write", prog: objs.TraceWrite},
+		{group: "syscalls", name: "sys_exit_write", prog: objs.TraceExitWrite},
 		{group: "syscalls", name: "sys_enter_mmap", prog: objs.TraceMmap},
 		{group: "syscalls", name: "sys_enter_close", prog: objs.TraceClose},
 		{group: "syscalls", name: "sys_enter_unlinkat", prog: objs.TraceDelete},
@@ -167,7 +168,7 @@ func (fp *FileOpProbe) Start(ctx context.Context) {
 }
 
 func toRawFileOp(event *fileopEvent) *export.RawFileOp {
-	path := charsToStringFromOffset(event.Path[:], event.PathOff)
+	path := tool.CharsToString(event.Path[:])
 	if path == "" {
 		return nil
 	}
@@ -179,7 +180,7 @@ func toRawFileOp(event *fileopEvent) *export.RawFileOp {
 		CgroupID:  event.CgroupId,
 		Comm:      tool.CharsToString(event.Comm[:]),
 		Path:      path,
-		NewPath:   charsToStringFromOffset(event.NewPath[:], event.NewPathOff),
+		NewPath:   tool.CharsToString(event.NewPath[:]),
 		Bytes:     event.Bytes,
 		Flags:     event.Flags,
 	}
@@ -221,20 +222,6 @@ func decodeOpenAccess(flags uint64) string {
 	default:
 		return ""
 	}
-}
-
-func charsToStringFromOffset(arr []int8, off uint16) string {
-	if int(off) >= len(arr) {
-		return ""
-	}
-	end := int(off)
-	for end < len(arr) && arr[end] != 0 {
-		end++
-	}
-	if end <= int(off) {
-		return ""
-	}
-	return tool.CharsToString(arr[off:end])
 }
 
 func (fp *FileOpProbe) Close() {

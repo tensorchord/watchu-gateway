@@ -68,6 +68,8 @@ func (p Policy) Matches(raw *export.RawFileOp) bool {
 	switch raw.Op {
 	case "open":
 		return p.matchesOpen(raw)
+	case "mmap_read":
+		return p.matchesReadPath(raw.Path)
 	case "write", "mmap_write":
 		return p.matchesWritePath(raw.Path)
 	case "delete":

@@ -7,7 +7,7 @@
 
 #define TASK_COMM_LEN 16
 #define MAX_PATH_SIZE 256
-#define MAX_PREFIX_LEN 24
+#define MAX_PREFIX_LEN 36
 #define MAX_ENTRIES 16384
 #define RING_BUFFER_SIZE (8 * 1024 * 1024)
 #define AT_FDCWD -100
@@ -146,8 +146,6 @@ struct event {
     u64 cgroup_id;
     u64 bytes;
     u64 flags;
-    u16 path_off;
-    u16 new_path_off;
     u8 op;
     char comm[TASK_COMM_LEN];
     char path[MAX_PATH_SIZE];
@@ -160,6 +158,13 @@ struct {
     __type(key, u64);
     __type(value, struct path_value);
 } inflight_open SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, u64);
+    __type(value, u32);
+} inflight_write SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -212,7 +217,7 @@ static __always_inline int path_looks_like_shared_object(const char *path) {
     return 0;
 }
 
-static __always_inline int is_noise_path(const char *path) {
+static __noinline int is_noise_path(const char *path) {
     static const char proc_prefix[]    = "/proc/";
     static const char sys_prefix[]     = "/sys/";
     static const char dev_pts_prefix[] = "/dev/pts/";
@@ -241,12 +246,11 @@ static __always_inline int is_noise_path(const char *path) {
 }
 
 static __always_inline int path_is_runtime_overlay_noise(const char *path) {
-    static const char var_lib_prefix[]                = "/var/lib/";
-    static const char buildkit_overlay_prefix[]       = "buildkit/runc-overlayfs/";
-    static const char docker_overlay_prefix[]         = "docker/overlay2/";
-    static const char podman_overlay_prefix[]         = "containers/storage/overlay/";
-    static const char containerd_overlay_prefix[]     = "containerd/io.containerd.snapshotter.v1.overlayfs/";
-    static const char containerd_overlay_prefix_alt[] = "containerd/io.containerd.snapshotter.v2.overlayfs/";
+    static const char var_lib_prefix[]            = "/var/lib/";
+    static const char buildkit_overlay_prefix[]   = "buildkit/runc-overlayfs/";
+    static const char docker_overlay_prefix[]     = "docker/overlay2/";
+    static const char podman_overlay_prefix[]     = "containers/storage/overlay/";
+    static const char containerd_overlay_prefix[] = "containerd/io.containerd.snapshotter";
     const char *subpath;
 
     if (!path) {
@@ -269,13 +273,10 @@ static __always_inline int path_is_runtime_overlay_noise(const char *path) {
     if (str_has_prefix(subpath, containerd_overlay_prefix, sizeof(containerd_overlay_prefix) - 1)) {
         return 1;
     }
-    if (str_has_prefix(subpath, containerd_overlay_prefix_alt, sizeof(containerd_overlay_prefix_alt) - 1)) {
-        return 1;
-    }
     return 0;
 }
 
-static __always_inline int path_is_systemd_private_tmp_noise(const char *path) {
+static __noinline int path_is_systemd_private_tmp_noise(const char *path) {
     static const char tmp_prefix[]     = "/tmp/systemd-private-";
     static const char var_tmp_prefix[] = "/var/tmp/systemd-private-";
 
@@ -360,7 +361,7 @@ static __always_inline int join_paths(char *dst, u32 size, const char *base, con
     return 0;
 }
 
-static __always_inline int resolve_dirfd_path(char *dst, u32 size, u32 tgid, long dirfd, const char *src) {
+static __noinline int resolve_dirfd_path(char *dst, u32 size, u32 tgid, long dirfd, const char *src) {
     struct fd_key key = {};
     struct path_value *base;
     struct path_value *relative;
@@ -415,6 +416,7 @@ static __always_inline int submit_fd_event(struct path_value *path, u8 op, u64 b
     if (!evt) {
         return 0;
     }
+    __builtin_memset(evt, 0, sizeof(*evt));
 
     evt->timestamp_ns = bpf_ktime_get_ns();
     evt->pid_tgid     = bpf_get_current_pid_tgid();
@@ -422,8 +424,6 @@ static __always_inline int submit_fd_event(struct path_value *path, u8 op, u64 b
     evt->cgroup_id    = bpf_get_current_cgroup_id();
     evt->bytes        = bytes;
     evt->flags        = path->open_flags;
-    evt->path_off     = 0;
-    evt->new_path_off = 0;
     evt->op           = op;
     bpf_get_current_comm(&evt->comm, sizeof(evt->comm));
     __builtin_memcpy(evt->path, path->path, sizeof(evt->path));
@@ -444,14 +444,13 @@ static __always_inline int submit_delete_path(const char *path, long dirfd) {
     if (!evt) {
         return 0;
     }
+    __builtin_memset(evt, 0, sizeof(*evt));
 
     evt->timestamp_ns = bpf_ktime_get_ns();
     evt->pid_tgid     = bpf_get_current_pid_tgid();
     evt->uid_gid      = bpf_get_current_uid_gid();
     evt->cgroup_id    = bpf_get_current_cgroup_id();
     evt->bytes        = 0;
-    evt->path_off     = 0;
-    evt->new_path_off = 0;
     evt->op           = FILE_OP_DELETE;
     bpf_get_current_comm(&evt->comm, sizeof(evt->comm));
 
@@ -465,30 +464,34 @@ static __always_inline int submit_delete_path(const char *path, long dirfd) {
     return 0;
 }
 
-static __always_inline int submit_rename_paths(const char *old_path, const char *new_path) {
+static __noinline int submit_rename_paths(const char *old_path, long old_dirfd, const char *new_path) {
     struct event *evt;
+    u32 tgid = (u32)(bpf_get_current_pid_tgid() >> 32);
 
     evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
     if (!evt) {
         return 0;
     }
+    __builtin_memset(evt, 0, sizeof(*evt));
 
     evt->timestamp_ns = bpf_ktime_get_ns();
     evt->pid_tgid     = bpf_get_current_pid_tgid();
     evt->uid_gid      = bpf_get_current_uid_gid();
     evt->cgroup_id    = bpf_get_current_cgroup_id();
     evt->bytes        = 0;
-    evt->path_off     = 0;
-    evt->new_path_off = 0;
     evt->op           = FILE_OP_RENAME;
     bpf_get_current_comm(&evt->comm, sizeof(evt->comm));
 
-    if (copy_user_path(evt->path, sizeof(evt->path), old_path) != 0 || is_noise_path(evt->path) ||
+    if (resolve_dirfd_path(evt->path, sizeof(evt->path), tgid, old_dirfd, old_path) != 0 || is_noise_path(evt->path) ||
         path_is_systemd_private_tmp_noise(evt->path)) {
         bpf_ringbuf_discard(evt, 0);
         return 0;
     }
 
+    // The source path is the primary relevance gate for rename events. Keep the
+    // destination path as auxiliary context, but avoid resolving it against
+    // new_dirfd here because doing two full dirfd resolutions pushes this
+    // tracepoint over the verifier instruction budget on real kernels.
     if (new_path && copy_user_path(evt->new_path, sizeof(evt->new_path), new_path) != 0) {
         bpf_ringbuf_discard(evt, 0);
         return 0;
@@ -498,10 +501,11 @@ static __always_inline int submit_rename_paths(const char *old_path, const char 
     return 0;
 }
 
-static __always_inline int remember_open_path(const char *filename, u64 flags) {
+static __always_inline int remember_open_path(const char *filename, long dirfd, u64 flags) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
     struct path_value *path;
     u32 zero = 0;
+    u32 tgid = (u32)(pid_tgid >> 32);
 
     path = bpf_map_lookup_elem(&path_heap, &zero);
     if (!path) {
@@ -509,7 +513,7 @@ static __always_inline int remember_open_path(const char *filename, u64 flags) {
     }
     __builtin_memset(path, 0, sizeof(*path));
 
-    if (copy_user_path(path->path, sizeof(path->path), filename) != 0) {
+    if (resolve_dirfd_path(path->path, sizeof(path->path), tgid, dirfd, filename) != 0) {
         return 0;
     }
     if (is_noise_path(path->path)) {
@@ -556,17 +560,17 @@ static __always_inline int finalize_open_fd(struct exit_ctx *ctx) {
 
 SEC("tracepoint/syscalls/sys_enter_open")
 int trace_enter_open(struct enter_open_ctx *ctx) {
-    return remember_open_path(ctx->filename, (u64)ctx->flags);
+    return remember_open_path(ctx->filename, AT_FDCWD, (u64)ctx->flags);
 }
 
 SEC("tracepoint/syscalls/sys_enter_openat")
 int trace_enter_openat(struct enter_openat_ctx *ctx) {
-    return remember_open_path(ctx->filename, (u64)ctx->flags);
+    return remember_open_path(ctx->filename, ctx->dfd, (u64)ctx->flags);
 }
 
 SEC("tracepoint/syscalls/sys_enter_openat2")
 int trace_enter_openat2(struct enter_openat2_ctx *ctx) {
-    return remember_open_path(ctx->filename, read_openat2_flags(ctx));
+    return remember_open_path(ctx->filename, ctx->dfd, read_openat2_flags(ctx));
 }
 
 SEC("tracepoint/syscalls/sys_exit_open")
@@ -589,6 +593,9 @@ int trace_read(struct enter_rw_ctx *ctx) {
     struct fd_key key = {.tgid = (u32)(bpf_get_current_pid_tgid() >> 32), .fd = (u32)ctx->fd};
     struct path_value *path;
 
+    // Keep byte accounting for potential future use, but don't export read syscall
+    // events by default. They are much noisier than open, while mmap reads still
+    // need explicit events because they bypass the read syscall path.
     if (ctx->count == 0) {
         return 0;
     }
@@ -596,23 +603,43 @@ int trace_read(struct enter_rw_ctx *ctx) {
     if (!path) {
         return 0;
     }
+    path->read_bytes += ctx->count;
+    set_seen_flag(path, FD_SEEN_READ);
     return 0;
 }
 
 SEC("tracepoint/syscalls/sys_enter_write")
 int trace_write(struct enter_rw_ctx *ctx) {
-    struct fd_key key = {.tgid = (u32)(bpf_get_current_pid_tgid() >> 32), .fd = (u32)ctx->fd};
-    struct path_value *path;
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 fd       = (u32)ctx->fd;
 
     if (ctx->count == 0) {
         return 0;
     }
-    path = bpf_map_lookup_elem(&fd_paths, &key);
-    if (!path) {
+    bpf_map_update_elem(&inflight_write, &pid_tgid, &fd, BPF_ANY);
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_exit_write")
+int trace_exit_write(struct exit_ctx *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 *fd;
+    struct fd_key key = {.tgid = (u32)(pid_tgid >> 32)};
+    struct path_value *path;
+
+    fd = bpf_map_lookup_elem(&inflight_write, &pid_tgid);
+    if (!fd) {
         return 0;
     }
-    path->write_bytes += ctx->count;
-    set_seen_flag(path, FD_SEEN_WRITE);
+    if (ctx->ret > 0) {
+        key.fd = *fd;
+        path   = bpf_map_lookup_elem(&fd_paths, &key);
+        if (path) {
+            path->write_bytes += (u64)ctx->ret;
+            set_seen_flag(path, FD_SEEN_WRITE);
+        }
+    }
+    bpf_map_delete_elem(&inflight_write, &pid_tgid);
     return 0;
 }
 
@@ -629,6 +656,10 @@ int trace_mmap(struct enter_mmap_ctx *ctx) {
         return 0;
     }
 
+    if ((ctx->prot & PROT_WRITE) == 0 && !has_seen_flag(path, FD_SEEN_MMAP_READ)) {
+        set_seen_flag(path, FD_SEEN_MMAP_READ);
+        submit_fd_event(path, FILE_OP_MMAP_READ, 0);
+    }
     if ((ctx->prot & PROT_WRITE) && !has_seen_flag(path, FD_SEEN_MMAP_WRITE)) {
         set_seen_flag(path, FD_SEEN_MMAP_WRITE);
         submit_fd_event(path, FILE_OP_MMAP_WRITE, 0);
@@ -664,5 +695,5 @@ int trace_delete(struct enter_unlinkat_ctx *ctx) {
 
 SEC("tracepoint/syscalls/sys_enter_renameat2")
 int trace_rename(struct enter_renameat2_ctx *ctx) {
-    return submit_rename_paths(ctx->oldname, ctx->newname);
+    return submit_rename_paths(ctx->oldname, ctx->olddfd, ctx->newname);
 }

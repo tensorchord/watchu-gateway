@@ -21,13 +21,11 @@ type fileopEvent struct {
 	CgroupId    uint64
 	Bytes       uint64
 	Flags       uint64
-	PathOff     uint16
-	NewPathOff  uint16
 	Op          uint8
 	Comm        [16]int8
 	Path        [256]int8
 	NewPath     [256]int8
-	_           [3]byte
+	_           [7]byte
 }
 
 type fileopFdKey struct {
@@ -96,6 +94,7 @@ type fileopProgramSpecs struct {
 	TraceExitOpen     *ebpf.ProgramSpec `ebpf:"trace_exit_open"`
 	TraceExitOpenat   *ebpf.ProgramSpec `ebpf:"trace_exit_openat"`
 	TraceExitOpenat2  *ebpf.ProgramSpec `ebpf:"trace_exit_openat2"`
+	TraceExitWrite    *ebpf.ProgramSpec `ebpf:"trace_exit_write"`
 	TraceMmap         *ebpf.ProgramSpec `ebpf:"trace_mmap"`
 	TraceRead         *ebpf.ProgramSpec `ebpf:"trace_read"`
 	TraceRename       *ebpf.ProgramSpec `ebpf:"trace_rename"`
@@ -106,11 +105,12 @@ type fileopProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type fileopMapSpecs struct {
-	FakeEventMap *ebpf.MapSpec `ebpf:"_fake_event_map"`
-	Events       *ebpf.MapSpec `ebpf:"events"`
-	FdPaths      *ebpf.MapSpec `ebpf:"fd_paths"`
-	InflightOpen *ebpf.MapSpec `ebpf:"inflight_open"`
-	PathHeap     *ebpf.MapSpec `ebpf:"path_heap"`
+	FakeEventMap  *ebpf.MapSpec `ebpf:"_fake_event_map"`
+	Events        *ebpf.MapSpec `ebpf:"events"`
+	FdPaths       *ebpf.MapSpec `ebpf:"fd_paths"`
+	InflightOpen  *ebpf.MapSpec `ebpf:"inflight_open"`
+	InflightWrite *ebpf.MapSpec `ebpf:"inflight_write"`
+	PathHeap      *ebpf.MapSpec `ebpf:"path_heap"`
 }
 
 // fileopVariableSpecs contains global variables before they are loaded into the kernel.
@@ -139,11 +139,12 @@ func (o *fileopObjects) Close() error {
 //
 // It can be passed to loadFileopObjects or ebpf.CollectionSpec.LoadAndAssign.
 type fileopMaps struct {
-	FakeEventMap *ebpf.Map `ebpf:"_fake_event_map"`
-	Events       *ebpf.Map `ebpf:"events"`
-	FdPaths      *ebpf.Map `ebpf:"fd_paths"`
-	InflightOpen *ebpf.Map `ebpf:"inflight_open"`
-	PathHeap     *ebpf.Map `ebpf:"path_heap"`
+	FakeEventMap  *ebpf.Map `ebpf:"_fake_event_map"`
+	Events        *ebpf.Map `ebpf:"events"`
+	FdPaths       *ebpf.Map `ebpf:"fd_paths"`
+	InflightOpen  *ebpf.Map `ebpf:"inflight_open"`
+	InflightWrite *ebpf.Map `ebpf:"inflight_write"`
+	PathHeap      *ebpf.Map `ebpf:"path_heap"`
 }
 
 func (m *fileopMaps) Close() error {
@@ -152,6 +153,7 @@ func (m *fileopMaps) Close() error {
 		m.Events,
 		m.FdPaths,
 		m.InflightOpen,
+		m.InflightWrite,
 		m.PathHeap,
 	)
 }
@@ -174,6 +176,7 @@ type fileopPrograms struct {
 	TraceExitOpen     *ebpf.Program `ebpf:"trace_exit_open"`
 	TraceExitOpenat   *ebpf.Program `ebpf:"trace_exit_openat"`
 	TraceExitOpenat2  *ebpf.Program `ebpf:"trace_exit_openat2"`
+	TraceExitWrite    *ebpf.Program `ebpf:"trace_exit_write"`
 	TraceMmap         *ebpf.Program `ebpf:"trace_mmap"`
 	TraceRead         *ebpf.Program `ebpf:"trace_read"`
 	TraceRename       *ebpf.Program `ebpf:"trace_rename"`
@@ -190,6 +193,7 @@ func (p *fileopPrograms) Close() error {
 		p.TraceExitOpen,
 		p.TraceExitOpenat,
 		p.TraceExitOpenat2,
+		p.TraceExitWrite,
 		p.TraceMmap,
 		p.TraceRead,
 		p.TraceRename,

@@ -87,8 +87,10 @@ func (p Policy) matchesOpen(raw *export.RawFileOp) bool {
 	switch raw.Access {
 	case "read":
 		return p.matchesReadPath(raw.Path)
-	case "write", "read_write":
+	case "write":
 		return p.matchesWritePath(raw.Path)
+	case "read_write":
+		return p.matchesReadPath(raw.Path) || p.matchesWritePath(raw.Path)
 	default:
 		return false
 	}

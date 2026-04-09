@@ -10,6 +10,7 @@ import (
 
 	"github.com/tensorchord/watchu/collector/execve"
 	"github.com/tensorchord/watchu/collector/export"
+	"github.com/tensorchord/watchu/collector/fileop"
 	"github.com/tensorchord/watchu/collector/internal/logger"
 	"github.com/tensorchord/watchu/collector/internal/tool"
 	"github.com/tensorchord/watchu/collector/otelrecv"
@@ -25,6 +26,7 @@ func main() {
 	rustlsPath := flag.String("rustls-path", "", "extra user binary path to attach rustls uprobes (optional)")
 	exportTarget := flag.String("export", "", "event export target: empty=discard, http[s]://...=gateway, file://...=local jsonl")
 	otelAddr := flag.String("otel-addr", "", "OTLP gRPC receiver address, e.g., ':4317' (optional). Enable to capture AI tool telemetry")
+	fileOpPolicyPath := flag.String("fileop-policy", "", "path to fileop match policy config (.toml or .json); empty=built-in")
 	flag.Parse()
 
 	logger.SetUpLogger(*debug)
@@ -68,6 +70,18 @@ func main() {
 	pgProbe := postgres.NewPostgresProbe(exporter)
 	defer pgProbe.Close()
 	go pgProbe.Start(ctx)
+
+	fileOpPolicy, err := fileop.LoadPolicy(*fileOpPolicyPath)
+	if err != nil {
+		log.Panic().Err(err).Str("path", *fileOpPolicyPath).Msg("failed to load fileop policy")
+	}
+
+	fileOpProbe, err := fileop.NewFileOpProbe(exporter, fileOpPolicy)
+	if err != nil {
+		log.Panic().Err(err).Msg("failed to initialize fileop probe")
+	}
+	defer fileOpProbe.Close()
+	go fileOpProbe.Start(ctx)
 
 	// OTEL receiver for AI tool telemetry (alternative to SSL interception)
 	var otelReceiver *otelrecv.OTELReceiver

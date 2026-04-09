@@ -143,6 +143,26 @@ type RecordPostgres struct {
 	MsgType     string    `json:"msg_type"`
 }
 
+type RecordFileOp struct {
+	Timestamp   time.Time `json:"timestamp"`
+	Pid         int32     `json:"pid"`
+	Tid         int32     `json:"tid"`
+	Uid         int32     `json:"uid"`
+	Gid         int32     `json:"gid"`
+	Host        string    `json:"host"`
+	ContainerID string    `json:"container_id"`
+	Comm        string    `json:"comm"`
+	Op          string    `json:"op"`
+	Access      string    `json:"access,omitempty"`
+	Path        string    `json:"path"`
+	NewPath     string    `json:"new_path,omitempty"`
+	Bytes       uint64    `json:"bytes,omitempty"`
+	Flags       uint64    `json:"flags,omitempty"`
+	Create      bool      `json:"create,omitempty"`
+	Truncate    bool      `json:"truncate,omitempty"`
+	Append      bool      `json:"append,omitempty"`
+}
+
 type RawExec struct {
 	Timestamp time.Time
 	Pid       uint32
@@ -306,6 +326,45 @@ func (raw *RawPostgres) ToRecord(ctx context.Context, host string) any {
 		MsgType:     raw.MsgType,
 		Host:        host,
 		ContainerID: containerResolver.Resolve(ctx, raw.CgroupID),
+	}
+}
+
+type RawFileOp struct {
+	ElapsedNs uint64
+	PidTGid   uint64
+	UidGid    uint64
+	CgroupID  uint64
+	Comm      string
+	Op        string
+	Access    string
+	Path      string
+	NewPath   string
+	Bytes     uint64
+	Flags     uint64
+	Create    bool
+	Truncate  bool
+	Append    bool
+}
+
+func (raw *RawFileOp) ToRecord(ctx context.Context, host string) any {
+	return RecordFileOp{
+		Timestamp:   parseElapsedToTimestamp(raw.ElapsedNs),
+		Pid:         extractPid(raw.PidTGid),
+		Tid:         extractTid(raw.PidTGid),
+		Uid:         extractUid(raw.UidGid),
+		Gid:         extractGid(raw.UidGid),
+		Host:        host,
+		ContainerID: containerResolver.Resolve(ctx, raw.CgroupID),
+		Comm:        raw.Comm,
+		Op:          raw.Op,
+		Access:      raw.Access,
+		Path:        raw.Path,
+		NewPath:     raw.NewPath,
+		Bytes:       raw.Bytes,
+		Flags:       raw.Flags,
+		Create:      raw.Create,
+		Truncate:    raw.Truncate,
+		Append:      raw.Append,
 	}
 }
 

@@ -92,7 +92,9 @@ func attachFileOpProbes(objs fileopObjects) ([]link.Link, error) {
 		{group: "syscalls", name: "sys_enter_mmap", prog: objs.TraceMmap},
 		{group: "syscalls", name: "sys_enter_close", prog: objs.TraceClose},
 		{group: "syscalls", name: "sys_enter_unlinkat", prog: objs.TraceDelete},
-		{group: "syscalls", name: "sys_enter_renameat2", prog: objs.TraceRename},
+		{group: "syscalls", name: "sys_enter_rename", prog: objs.TraceRename},
+		{group: "syscalls", name: "sys_enter_renameat", prog: objs.TraceRenameat},
+		{group: "syscalls", name: "sys_enter_renameat2", prog: objs.TraceRenameat2},
 	}
 
 	links := make([]link.Link, 0, len(probes))

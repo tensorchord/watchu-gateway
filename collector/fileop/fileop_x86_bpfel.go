@@ -96,6 +96,8 @@ type fileopProgramSpecs struct {
 	TraceExitWrite    *ebpf.ProgramSpec `ebpf:"trace_exit_write"`
 	TraceMmap         *ebpf.ProgramSpec `ebpf:"trace_mmap"`
 	TraceRename       *ebpf.ProgramSpec `ebpf:"trace_rename"`
+	TraceRenameat     *ebpf.ProgramSpec `ebpf:"trace_renameat"`
+	TraceRenameat2    *ebpf.ProgramSpec `ebpf:"trace_renameat2"`
 	TraceWrite        *ebpf.ProgramSpec `ebpf:"trace_write"`
 }
 
@@ -177,6 +179,8 @@ type fileopPrograms struct {
 	TraceExitWrite    *ebpf.Program `ebpf:"trace_exit_write"`
 	TraceMmap         *ebpf.Program `ebpf:"trace_mmap"`
 	TraceRename       *ebpf.Program `ebpf:"trace_rename"`
+	TraceRenameat     *ebpf.Program `ebpf:"trace_renameat"`
+	TraceRenameat2    *ebpf.Program `ebpf:"trace_renameat2"`
 	TraceWrite        *ebpf.Program `ebpf:"trace_write"`
 }
 
@@ -193,6 +197,8 @@ func (p *fileopPrograms) Close() error {
 		p.TraceExitWrite,
 		p.TraceMmap,
 		p.TraceRename,
+		p.TraceRenameat,
+		p.TraceRenameat2,
 		p.TraceWrite,
 	)
 }

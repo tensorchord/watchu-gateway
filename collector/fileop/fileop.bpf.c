@@ -116,6 +116,24 @@ struct enter_unlinkat_ctx {
     int flag;
 };
 
+// ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_rename/format
+struct enter_rename_ctx {
+    long common;
+    long __syscall_nr;
+    const char *oldname;
+    const char *newname;
+};
+
+// ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_renameat/format
+struct enter_renameat_ctx {
+    long common;
+    long __syscall_nr;
+    long olddfd;
+    const char *oldname;
+    long newdfd;
+    const char *newname;
+};
+
 // ref: /sys/kernel/debug/tracing/events/syscalls/sys_enter_renameat2/format
 struct enter_renameat2_ctx {
     long common;
@@ -373,6 +391,8 @@ static __noinline int resolve_dirfd_path(char *dst, u32 size, u32 tgid, long dir
     if (copy_user_path(dst, size, src) != 0) {
         return -1;
     }
+    // AT_FDCWD is only a sentinel here. We do not track task cwd in this probe,
+    // so relative paths that rely on cwd remain relative in the emitted event.
     if (is_absolute_path(dst) || dirfd == AT_FDCWD || dirfd < 0) {
         return 0;
     }
@@ -673,7 +693,17 @@ int trace_delete(struct enter_unlinkat_ctx *ctx) {
     return submit_delete_path(ctx->pathname, ctx->dfd);
 }
 
+SEC("tracepoint/syscalls/sys_enter_rename")
+int trace_rename(struct enter_rename_ctx *ctx) {
+    return submit_rename_paths(ctx->oldname, AT_FDCWD, ctx->newname);
+}
+
+SEC("tracepoint/syscalls/sys_enter_renameat")
+int trace_renameat(struct enter_renameat_ctx *ctx) {
+    return submit_rename_paths(ctx->oldname, ctx->olddfd, ctx->newname);
+}
+
 SEC("tracepoint/syscalls/sys_enter_renameat2")
-int trace_rename(struct enter_renameat2_ctx *ctx) {
+int trace_renameat2(struct enter_renameat2_ctx *ctx) {
     return submit_rename_paths(ctx->oldname, ctx->olddfd, ctx->newname);
 }

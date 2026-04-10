@@ -163,6 +163,20 @@ type RecordFileOp struct {
 	Append      bool      `json:"append,omitempty"`
 }
 
+type RecordTCPConnect struct {
+	Timestamp   time.Time `json:"timestamp"`
+	Pid         int32     `json:"pid"`
+	Tid         int32     `json:"tid"`
+	Uid         int32     `json:"uid"`
+	Gid         int32     `json:"gid"`
+	Host        string    `json:"host"`
+	ContainerID string    `json:"container_id"`
+	Comm        string    `json:"comm"`
+	Family      uint16    `json:"family"`
+	TargetAddr  string    `json:"target_addr"`
+	TargetPort  uint16    `json:"target_port"`
+}
+
 type RawExec struct {
 	Timestamp time.Time
 	Pid       uint32
@@ -173,6 +187,33 @@ type RawExec struct {
 	Comm      string
 	Args      string
 	Docker    string
+}
+
+type RawTCPConnect struct {
+	ElapsedNs  uint64
+	PidTGid    uint64
+	UidGid     uint64
+	CgroupID   uint64
+	Comm       string
+	Family     uint16
+	TargetAddr string
+	TargetPort uint16
+}
+
+func (raw *RawTCPConnect) ToRecord(ctx context.Context, host string) any {
+	return RecordTCPConnect{
+		Timestamp:   parseElapsedToTimestamp(raw.ElapsedNs),
+		Pid:         extractPid(raw.PidTGid),
+		Tid:         extractTid(raw.PidTGid),
+		Uid:         extractUid(raw.UidGid),
+		Gid:         extractGid(raw.UidGid),
+		Host:        host,
+		ContainerID: containerResolver.Resolve(ctx, raw.CgroupID),
+		Comm:        raw.Comm,
+		Family:      raw.Family,
+		TargetAddr:  raw.TargetAddr,
+		TargetPort:  raw.TargetPort,
+	}
 }
 
 func (raw *RawExec) ToRecord(_ context.Context, host string) any {

@@ -17,6 +17,7 @@ import (
 	"github.com/tensorchord/watchu/collector/postgres"
 	"github.com/tensorchord/watchu/collector/sslsniff"
 	"github.com/tensorchord/watchu/collector/stdio"
+	"github.com/tensorchord/watchu/collector/tcpconn"
 )
 
 func main() {
@@ -70,6 +71,13 @@ func main() {
 	pgProbe := postgres.NewPostgresProbe(exporter)
 	defer pgProbe.Close()
 	go pgProbe.Start(ctx)
+
+	tcpConnProbe, err := tcpconn.NewTCPConnProbe(exporter)
+	if err != nil {
+		log.Panic().Err(err).Msg("failed to initialize tcpconn probe")
+	}
+	defer tcpConnProbe.Close()
+	go tcpConnProbe.Start(ctx)
 
 	fileOpPolicy, err := fileop.LoadPolicy(*fileOpPolicyPath)
 	if err != nil {

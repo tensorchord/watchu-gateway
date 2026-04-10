@@ -11,6 +11,7 @@ import (
 	"math/bits"
 	"net/netip"
 
+	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/phuslu/log"
@@ -29,7 +30,7 @@ const (
 type TCPConnProbe struct {
 	rb       *ringbuf.Reader
 	objs     *tcpconnObjects
-	link     link.Link
+	links    []link.Link
 	exporter *export.Exporter
 }
 
@@ -46,21 +47,33 @@ type event struct {
 
 func NewTCPConnProbe(exporter *export.Exporter) (*TCPConnProbe, error) {
 	objs := tcpconnObjects{}
+	var err error
 	if err := loadTcpconnObjects(&objs, nil); err != nil {
 		return nil, fmt.Errorf("failed to load tcpconn objects: %w", err)
 	}
 
-	l, err := link.AttachTracing(link.TracingOptions{
-		Program: objs.TraceTcpSetState,
-	})
-	if err != nil {
-		_ = objs.Close()
-		return nil, fmt.Errorf("attach tcpconn tracing program: %w", err)
+	programs := []*ebpf.Program{
+		objs.TraceTcpClose,
+		objs.TraceTcpV4Connect,
+		objs.TraceTcpV6Connect,
+		objs.TraceTcpSetState,
+	}
+	links := make([]link.Link, 0, len(programs))
+	for _, program := range programs {
+		l, err := link.AttachTracing(link.TracingOptions{Program: program})
+		if err != nil {
+			for _, attached := range links {
+				_ = attached.Close()
+			}
+			_ = objs.Close()
+			return nil, fmt.Errorf("attach tcpconn tracing program: %w", err)
+		}
+		links = append(links, l)
 	}
 
 	p := &TCPConnProbe{
 		objs:     &objs,
-		link:     l,
+		links:    links,
 		exporter: exporter,
 	}
 	p.rb, err = ringbuf.NewReader(objs.Events)
@@ -156,9 +169,9 @@ func (tp *TCPConnProbe) Close() {
 	if tp == nil {
 		return
 	}
-	if tp.link != nil {
-		if err := tp.link.Close(); err != nil {
-			log.Error().Err(err).Msg("failed to close tcpconn link")
+	for i, l := range tp.links {
+		if err := l.Close(); err != nil {
+			log.Error().Err(err).Int("index", i).Msg("failed to close tcpconn link")
 		}
 	}
 	if tp.rb != nil {

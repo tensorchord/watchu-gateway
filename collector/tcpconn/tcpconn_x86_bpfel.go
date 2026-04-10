@@ -8,9 +8,18 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"structs"
 
 	"github.com/cilium/ebpf"
 )
+
+type tcpconnConnectMeta struct {
+	_        structs.HostLayout
+	PidTgid  uint64
+	UidGid   uint64
+	CgroupId uint64
+	Comm     [16]int8
+}
 
 // loadTcpconn returns the embedded CollectionSpec for tcpconn.
 func loadTcpconn() (*ebpf.CollectionSpec, error) {
@@ -54,14 +63,18 @@ type tcpconnSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tcpconnProgramSpecs struct {
-	TraceTcpSetState *ebpf.ProgramSpec `ebpf:"trace_tcp_set_state"`
+	TraceTcpClose     *ebpf.ProgramSpec `ebpf:"trace_tcp_close"`
+	TraceTcpSetState  *ebpf.ProgramSpec `ebpf:"trace_tcp_set_state"`
+	TraceTcpV4Connect *ebpf.ProgramSpec `ebpf:"trace_tcp_v4_connect"`
+	TraceTcpV6Connect *ebpf.ProgramSpec `ebpf:"trace_tcp_v6_connect"`
 }
 
 // tcpconnMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tcpconnMapSpecs struct {
-	Events *ebpf.MapSpec `ebpf:"events"`
+	Events          *ebpf.MapSpec `ebpf:"events"`
+	InflightConnect *ebpf.MapSpec `ebpf:"inflight_connect"`
 }
 
 // tcpconnVariableSpecs contains global variables before they are loaded into the kernel.
@@ -90,12 +103,14 @@ func (o *tcpconnObjects) Close() error {
 //
 // It can be passed to loadTcpconnObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tcpconnMaps struct {
-	Events *ebpf.Map `ebpf:"events"`
+	Events          *ebpf.Map `ebpf:"events"`
+	InflightConnect *ebpf.Map `ebpf:"inflight_connect"`
 }
 
 func (m *tcpconnMaps) Close() error {
 	return _TcpconnClose(
 		m.Events,
+		m.InflightConnect,
 	)
 }
 
@@ -109,12 +124,18 @@ type tcpconnVariables struct {
 //
 // It can be passed to loadTcpconnObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tcpconnPrograms struct {
-	TraceTcpSetState *ebpf.Program `ebpf:"trace_tcp_set_state"`
+	TraceTcpClose     *ebpf.Program `ebpf:"trace_tcp_close"`
+	TraceTcpSetState  *ebpf.Program `ebpf:"trace_tcp_set_state"`
+	TraceTcpV4Connect *ebpf.Program `ebpf:"trace_tcp_v4_connect"`
+	TraceTcpV6Connect *ebpf.Program `ebpf:"trace_tcp_v6_connect"`
 }
 
 func (p *tcpconnPrograms) Close() error {
 	return _TcpconnClose(
+		p.TraceTcpClose,
 		p.TraceTcpSetState,
+		p.TraceTcpV4Connect,
+		p.TraceTcpV6Connect,
 	)
 }
 

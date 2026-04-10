@@ -1,6 +1,7 @@
 package fileop
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/tensorchord/watchu/collector/export"
@@ -10,9 +11,11 @@ func TestPolicyMatchesReadPathAcrossHomes(t *testing.T) {
 	t.Parallel()
 
 	policy := Policy{
-		ReadPrefixes:     []string{"/etc/"},
-		ReadHomePrefixes: []string{".config/", ".ssh/"},
-		ReadSuffixes:     []string{".service", ".bashrc", ".zsh_history"},
+		Read: MatchPolicy{
+			Prefixes:     []string{"/etc/"},
+			HomePrefixes: []string{".config/", ".ssh/"},
+			Suffixes:     []string{".service", ".bashrc", ".zsh_history"},
+		},
 	}
 
 	tests := []struct {
@@ -51,9 +54,11 @@ func TestPolicyMatchesWriteSuffixesAndRenameTargets(t *testing.T) {
 	t.Parallel()
 
 	policy := Policy{
-		WritePrefixes:     []string{"/etc/", "/var/log/"},
-		WriteHomePrefixes: []string{".config/"},
-		WriteSuffixes:     []string{".so", ".bashrc"},
+		Write: MatchPolicy{
+			Prefixes:     []string{"/etc/", "/var/log/"},
+			HomePrefixes: []string{".config/"},
+			Suffixes:     []string{".so", ".bashrc"},
+		},
 	}
 
 	tests := []struct {
@@ -106,49 +111,69 @@ func TestPolicyMatchesWriteSuffixesAndRenameTargets(t *testing.T) {
 func TestLoadPolicyReadsExpandedFields(t *testing.T) {
 	t.Parallel()
 
-	policy, err := loadPolicyBytes([]byte(`
-read_prefixes = ["/etc/"]
-read_home_prefixes = [".ssh/"]
-read_suffixes = [".pem", ".bash_history"]
-write_prefixes = ["/var/log/"]
-write_home_prefixes = [".config/"]
-write_suffixes = [".log", ".zshrc"]
-`), ".toml")
+	policy, err := loadPolicyBytes([]byte(`{
+  "read": {
+    "prefixes": ["/etc/"],
+    "home_prefixes": [".ssh/"],
+    "suffixes": [".pem", ".bash_history"]
+  },
+  "write": {
+    "prefixes": ["/var/log/"],
+    "home_prefixes": [".config/"],
+    "suffixes": [".log", ".zshrc"]
+  }
+}`), ".json")
 	if err != nil {
 		t.Fatalf("loadPolicyBytes returned error: %v", err)
 	}
 
-	if len(policy.ReadHomePrefixes) != 1 || policy.ReadHomePrefixes[0] != ".ssh/" {
-		t.Fatalf("unexpected read_home_prefixes: %#v", policy.ReadHomePrefixes)
+	if len(policy.Read.HomePrefixes) != 1 || policy.Read.HomePrefixes[0] != ".ssh/" {
+		t.Fatalf("unexpected read.home_prefixes: %#v", policy.Read.HomePrefixes)
 	}
-	if len(policy.WriteSuffixes) != 2 || policy.WriteSuffixes[1] != ".zshrc" {
-		t.Fatalf("unexpected write_suffixes: %#v", policy.WriteSuffixes)
+	if len(policy.Write.Suffixes) != 2 || policy.Write.Suffixes[1] != ".zshrc" {
+		t.Fatalf("unexpected write.suffixes: %#v", policy.Write.Suffixes)
 	}
 }
 
 func TestLoadPolicyNormalizesLegacyHomePrefixes(t *testing.T) {
 	t.Parallel()
 
-	policy, err := loadPolicyBytes([]byte(`
-read_home_prefixes = ["/.ssh/"]
-write_home_prefixes = ["/.config/"]
-`), ".toml")
+	policy, err := loadPolicyBytes([]byte(`{
+  "read": {
+    "home_prefixes": ["/.ssh/"]
+  },
+  "write": {
+    "home_prefixes": ["/.config/"]
+  }
+}`), ".json")
 	if err != nil {
 		t.Fatalf("loadPolicyBytes returned error: %v", err)
 	}
 
-	if len(policy.ReadHomePrefixes) != 1 || policy.ReadHomePrefixes[0] != ".ssh/" {
-		t.Fatalf("unexpected normalized read_home_prefixes: %#v", policy.ReadHomePrefixes)
+	if len(policy.Read.HomePrefixes) != 1 || policy.Read.HomePrefixes[0] != ".ssh/" {
+		t.Fatalf("unexpected normalized read.home_prefixes: %#v", policy.Read.HomePrefixes)
 	}
-	if len(policy.WriteHomePrefixes) != 1 || policy.WriteHomePrefixes[0] != ".config/" {
-		t.Fatalf("unexpected normalized write_home_prefixes: %#v", policy.WriteHomePrefixes)
+	if len(policy.Write.HomePrefixes) != 1 || policy.Write.HomePrefixes[0] != ".config/" {
+		t.Fatalf("unexpected normalized write.home_prefixes: %#v", policy.Write.HomePrefixes)
+	}
+}
+
+func TestLoadPolicyRejectsNonJSONPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadPolicyBytes([]byte(`{}`), "policy.yaml")
+	if err == nil {
+		t.Fatal("loadPolicyBytes unexpectedly accepted non-json policy path")
+	}
+	if !strings.Contains(err.Error(), `unsupported fileop policy format ".yaml"`) {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestDefaultPolicyCoversHighValueFiles(t *testing.T) {
 	t.Parallel()
 
-	policy, err := loadPolicyBytes(defaultPolicyBytes, ".toml")
+	policy, err := loadPolicyBytes(defaultPolicyBytes, ".json")
 	if err != nil {
 		t.Fatalf("loadPolicyBytes returned error: %v", err)
 	}

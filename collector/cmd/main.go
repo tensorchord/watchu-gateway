@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os/signal"
 	"syscall"
 
@@ -20,6 +21,19 @@ import (
 	"github.com/tensorchord/watchu/collector/tcpconn"
 )
 
+const fileOpPolicyExample = `{
+	"read":{
+		"prefixes":["/etc/"],
+		"home_prefixes":[".ssh/"],
+		"suffixes":[".pem"]
+	},
+	"write":{
+		"prefixes":["/var/log/"],
+		"home_prefixes":[".config/"],
+		"suffixes":[".env"]
+	}
+}`
+
 func main() {
 	debug := flag.Bool("debug", false, "enable debug-level colorful log")
 	SSLPath := flag.String("ssl-path", "", "extra user binary path to attach SSL uprobes (optional)")
@@ -27,7 +41,7 @@ func main() {
 	rustlsPath := flag.String("rustls-path", "", "extra user binary path to attach rustls uprobes (optional)")
 	exportTarget := flag.String("export", "", "event export target: empty=discard, http[s]://...=gateway, file://...=local jsonl")
 	otelAddr := flag.String("otel-addr", "", "OTLP gRPC receiver address, e.g., ':4317' (optional). Enable to capture AI tool telemetry")
-	fileOpPolicyPath := flag.String("fileop-policy", "", "path to fileop match policy config (.toml or .json); empty=built-in")
+	fileOpPolicyPath := flag.String("fileop-policy", "", fmt.Sprintf(`path to fileop match policy config (.json only); empty=built-in. Example: %s`, fileOpPolicyExample))
 	flag.Parse()
 
 	logger.SetUpLogger(*debug)

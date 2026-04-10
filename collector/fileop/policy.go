@@ -10,27 +10,26 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/BurntSushi/toml"
-
 	"github.com/tensorchord/watchu/collector/export"
 )
 
-//go:embed default-policy.toml
+//go:embed default-policy.json
 var defaultPolicyBytes []byte
 
-type Policy struct {
-	ReadPrefixes     []string `json:"read_prefixes" toml:"read_prefixes"`
-	ReadHomePrefixes []string `json:"read_home_prefixes" toml:"read_home_prefixes"`
-	ReadSuffixes     []string `json:"read_suffixes" toml:"read_suffixes"`
+type MatchPolicy struct {
+	Prefixes     []string `json:"prefixes"`
+	HomePrefixes []string `json:"home_prefixes"`
+	Suffixes     []string `json:"suffixes"`
+}
 
-	WritePrefixes     []string `json:"write_prefixes" toml:"write_prefixes"`
-	WriteHomePrefixes []string `json:"write_home_prefixes" toml:"write_home_prefixes"`
-	WriteSuffixes     []string `json:"write_suffixes" toml:"write_suffixes"`
+type Policy struct {
+	Read  MatchPolicy `json:"read"`
+	Write MatchPolicy `json:"write"`
 }
 
 func LoadPolicy(path string) (*Policy, error) {
 	if path == "" {
-		return loadPolicyBytes(defaultPolicyBytes, ".toml")
+		return loadPolicyBytes(defaultPolicyBytes, "default-policy.json")
 	}
 
 	data, err := os.ReadFile(path)
@@ -38,27 +37,24 @@ func LoadPolicy(path string) (*Policy, error) {
 		return nil, fmt.Errorf("read fileop policy %s: %w", path, err)
 	}
 
-	policy, err := loadPolicyBytes(data, filepath.Ext(path))
+	policy, err := loadPolicyBytes(data, path)
 	if err != nil {
 		return nil, fmt.Errorf("parse fileop policy %s: %w", path, err)
 	}
 	return policy, nil
 }
 
-func loadPolicyBytes(data []byte, ext string) (*Policy, error) {
+func loadPolicyBytes(data []byte, source string) (*Policy, error) {
 	var policy Policy
 
-	switch strings.ToLower(ext) {
-	case ".json":
-		if err := json.Unmarshal(data, &policy); err != nil {
-			return nil, err
+	if source != "" {
+		ext := strings.ToLower(filepath.Ext(source))
+		if ext != ".json" {
+			return nil, fmt.Errorf("unsupported fileop policy format %q", ext)
 		}
-	case ".toml", "":
-		if err := toml.Unmarshal(data, &policy); err != nil {
-			return nil, err
-		}
-	default:
-		return nil, fmt.Errorf("unsupported fileop policy format %q", ext)
+	}
+	if err := json.Unmarshal(data, &policy); err != nil {
+		return nil, err
 	}
 	policy.normalize()
 	return &policy, nil
@@ -97,11 +93,11 @@ func (p Policy) matchesOpen(raw *export.RawFileOp) bool {
 }
 
 func (p Policy) matchesReadPath(path string) bool {
-	return matchPath(path, p.ReadPrefixes, p.ReadHomePrefixes, p.ReadSuffixes)
+	return matchPath(path, p.Read.Prefixes, p.Read.HomePrefixes, p.Read.Suffixes)
 }
 
 func (p Policy) matchesWritePath(path string) bool {
-	return matchPath(path, p.WritePrefixes, p.WriteHomePrefixes, p.WriteSuffixes)
+	return matchPath(path, p.Write.Prefixes, p.Write.HomePrefixes, p.Write.Suffixes)
 }
 
 func matchPath(path string, prefixes []string, homePrefixes []string, suffixes []string) bool {
@@ -145,8 +141,8 @@ func normalizeHomeScopedPath(path string) (string, bool) {
 }
 
 func (p *Policy) normalize() {
-	p.ReadHomePrefixes = normalizeHomePrefixes(p.ReadHomePrefixes)
-	p.WriteHomePrefixes = normalizeHomePrefixes(p.WriteHomePrefixes)
+	p.Read.HomePrefixes = normalizeHomePrefixes(p.Read.HomePrefixes)
+	p.Write.HomePrefixes = normalizeHomePrefixes(p.Write.HomePrefixes)
 }
 
 func normalizeHomePrefixes(prefixes []string) []string {

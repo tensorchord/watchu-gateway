@@ -29,7 +29,7 @@ type Policy struct {
 
 func LoadPolicy(path string) (*Policy, error) {
 	if path == "" {
-		return loadPolicyBytes(defaultPolicyBytes, ".json")
+		return loadPolicyBytes(defaultPolicyBytes, "default-policy.json")
 	}
 
 	data, err := os.ReadFile(path)

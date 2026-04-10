@@ -22,7 +22,7 @@ import (
 )
 
 const fileOpPolicyExample = `{
-	read":{
+	"read":{
 		"prefixes":["/etc/"],
 		"home_prefixes":[".ssh/"],
 		"suffixes":[".pem"]

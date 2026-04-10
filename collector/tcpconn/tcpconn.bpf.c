@@ -142,6 +142,7 @@ int BPF_PROG(trace_tcp_set_state, struct sock *sk, int state) {
 
     struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
     if (!evt) {
+        bpf_map_delete_elem(&inflight_connect, &key);
         return 0;
     }
     __builtin_memset(evt, 0, sizeof(*evt));

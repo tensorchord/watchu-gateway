@@ -52,21 +52,24 @@ func NewTCPConnProbe(exporter *export.Exporter) (*TCPConnProbe, error) {
 		return nil, fmt.Errorf("failed to load tcpconn objects: %w", err)
 	}
 
-	programs := []*ebpf.Program{
-		objs.TraceTcpClose,
-		objs.TraceTcpV4Connect,
-		objs.TraceTcpV6Connect,
-		objs.TraceTcpSetState,
+	programs := []struct {
+		name string
+		prog *ebpf.Program
+	}{
+		{name: "tcp_close", prog: objs.TraceTcpClose},
+		{name: "tcp_v4_connect", prog: objs.TraceTcpV4Connect},
+		{name: "tcp_v6_connect", prog: objs.TraceTcpV6Connect},
+		{name: "tcp_set_state", prog: objs.TraceTcpSetState},
 	}
 	links := make([]link.Link, 0, len(programs))
 	for _, program := range programs {
-		l, err := link.AttachTracing(link.TracingOptions{Program: program})
+		l, err := link.AttachTracing(link.TracingOptions{Program: program.prog})
 		if err != nil {
 			for _, attached := range links {
 				_ = attached.Close()
 			}
 			_ = objs.Close()
-			return nil, fmt.Errorf("attach tcpconn tracing program: %w", err)
+			return nil, fmt.Errorf("attach tcpconn tracing program %s: %w", program.name, err)
 		}
 		links = append(links, l)
 	}

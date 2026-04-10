@@ -26,7 +26,7 @@ type JSONLSink struct {
 }
 
 func NewJSONLSink(target string) (*JSONLSink, error) {
-	path, err := parseFileTarget(target)
+	path, err := FilePathFromTarget(target)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (s *JSONLSink) Close() error {
 	return err
 }
 
-func parseFileTarget(target string) (string, error) {
+func FilePathFromTarget(target string) (string, error) {
 	u, err := url.Parse(target)
 	if err != nil {
 		return "", fmt.Errorf("parse file export target %q: %w", target, err)

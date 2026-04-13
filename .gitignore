@@ -75,6 +75,7 @@ go.work.sum
 
 # binary
 bin/
+main
 
 # db file
 *.db

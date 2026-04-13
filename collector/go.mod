@@ -8,6 +8,7 @@ require (
 	github.com/cilium/ebpf v0.21.0
 	github.com/cilium/tetragon/api v1.6.0
 	github.com/google/uuid v1.6.0
+	github.com/klauspost/compress v1.18.5
 	github.com/maypok86/otter/v2 v2.3.0
 	github.com/phuslu/log v1.0.123
 	github.com/tidwall/gjson v1.18.0

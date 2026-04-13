@@ -132,7 +132,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.eventTimes) > maxEPSWindow {
 				m.eventTimes = m.eventTimes[len(m.eventTimes)-maxEPSWindow:]
 			}
-			m.appendRecord("all", record)
+			m.appendRecord(allTab, record)
 			m.appendRecord(record.Endpoint, record)
 		}
 		return m, m.waitForStream()
@@ -230,7 +230,7 @@ func (m model) renderTabs() string {
 func (m model) renderList(height int) string {
 	records := m.currentRecords()
 	if len(records) == 0 {
-		return detailBoxStyle.Width(m.width - 2).Height(height).Render("starting watchu... waiting for probe attach and first events")
+		return detailBoxStyle.Width(max(1, m.width-2)).Height(height).Render("starting watchu... waiting for probe attach and first events")
 	}
 
 	selected := m.selectedByTab[m.currentTab()]
@@ -250,7 +250,7 @@ func (m model) renderList(height int) string {
 		lines = append(lines, line)
 	}
 
-	return detailBoxStyle.Width(m.width - 2).Height(height).Render(strings.Join(lines, "\n"))
+	return detailBoxStyle.Width(max(1, m.width-2)).Height(height).Render(strings.Join(lines, "\n"))
 }
 
 func (m model) renderHeader() string {
@@ -271,7 +271,7 @@ func (m model) renderDivider() string {
 }
 
 func (m model) renderFooter() string {
-	footer := "j/k: move  |  G: bottom  |  tab/h/l: switch tab  |  v: toggle details  |  q/ctrl-c: quit"
+	footer := "j/k: move  |  G: bottom  |  tab/h/l: switch tab  |  v: toggle details  |  q: quit (confirm) | ctrl-c: quit"
 	return footerStyle.Render(footer)
 }
 
@@ -319,7 +319,7 @@ func (m model) renderDetail(height int) string {
 	if detail == "" {
 		detail = "{}"
 	}
-	box := detailBoxStyle.Width(m.width - 2).Height(height).Render(title + "\n" + clampLines(detail, height-2))
+	box := detailBoxStyle.Width(max(1, m.width-2)).Height(height).Render(title + "\n" + clampLines(detail, height-2))
 	return box
 }
 

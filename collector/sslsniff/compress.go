@@ -1,7 +1,6 @@
 package sslsniff
 
 import (
-	"fmt"
 	"io"
 	"strings"
 
@@ -57,8 +56,8 @@ func readDecodeBytes(body io.ReadCloser, encoding string) ([]byte, error) {
 				return nil
 			})
 		default:
-			closeAll(closers)
-			return nil, fmt.Errorf("unsupported content-encoding: %s", encodings[idx])
+			log.Warn().Str("encoding", encodings[idx]).Strs("encodings", encodings).Msg("unsupported content-encoding, stop decoding remaining layers")
+			return readAllAndClose(reader, closers)
 		}
 	}
 	return readAllAndClose(reader, closers)

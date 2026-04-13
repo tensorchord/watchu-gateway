@@ -3,7 +3,6 @@ package sslsniff
 import (
 	"bytes"
 	"io"
-	"strings"
 	"testing"
 
 	"github.com/klauspost/compress/flate"
@@ -66,16 +65,16 @@ func TestReadDecodeBytes(t *testing.T) {
 	}
 }
 
-func TestReadDecodeBytesUnsupportedEncoding(t *testing.T) {
+func TestReadDecodeBytesUnknownEncodingReturnsPartialBody(t *testing.T) {
 	t.Parallel()
 
 	body := io.NopCloser(bytes.NewReader([]byte("payload")))
-	_, err := readDecodeBytes(body, "br")
-	if err == nil {
-		t.Fatal("readDecodeBytes() error = nil, want unsupported encoding error")
+	got, err := readDecodeBytes(body, "br")
+	if err != nil {
+		t.Fatalf("readDecodeBytes() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "unsupported content-encoding: br") {
-		t.Fatalf("readDecodeBytes() error = %v, want unsupported encoding", err)
+	if !bytes.Equal(got, []byte("payload")) {
+		t.Fatalf("readDecodeBytes() = %q, want %q", got, "payload")
 	}
 }
 

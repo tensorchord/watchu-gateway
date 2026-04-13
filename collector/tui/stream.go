@@ -56,7 +56,7 @@ func streamFile(ctx context.Context, path string, out chan<- tea.Msg) {
 				}
 				continue
 			}
-			offset = size
+			offset += int64(len(chunk))
 
 			buf := make([]byte, 0, len(partial)+len(chunk))
 			buf = append(buf, partial...)

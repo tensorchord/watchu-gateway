@@ -72,7 +72,7 @@ func Run(ctx context.Context, path string) error {
 		selectedByTab: make(map[string]int),
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
 	go streamFile(ctx, path, streamMessages)
 	_, err := p.Run()
 	if err != nil {
@@ -191,10 +191,7 @@ func (m *model) moveSelection(delta int) {
 		return
 	}
 	tab := m.currentTab()
-	next := m.selectedByTab[tab] + delta
-	if next < 0 {
-		next = 0
-	}
+	next := max(0, m.selectedByTab[tab]+delta)
 	if next >= len(records) {
 		next = len(records) - 1
 	}
